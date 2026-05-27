@@ -1,0 +1,22 @@
+{
+    "python-envs.defaultEnvManager": "ms-python.python:poetry",
+    "python-envs.defaultPackageManager": "ms-python.python:poetry",
+    "yaml.schemas": {
+        "src/stacksmith/schemas/config.schema.json": "**/stacksmith-config.yaml",
+        "src/stacksmith/schemas/stack.schema.json": "**/stack.yaml"
+    },
+    "json.schemas": [
+        {
+            "fileMatch": [
+                "**/stacksmith.config.json"
+            ],
+            "url": "./src/stacksmith/schemas/config.schema.json"
+        },
+        {
+            "fileMatch": [
+                "**/stack.json"
+            ],
+            "url": "./src/stacksmith/schemas/stack.schema.json"
+        }
+    ]
+}

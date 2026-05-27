@@ -1,0 +1,62 @@
+[project]
+name = "stacksmith"
+description = "YAML/JSON-driven OpenTofu wrapper with Terragrunt orchestration"
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+authors = [{ name = "ci-sourcerer" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Build Tools",
+]
+dependencies = [
+    "pyyaml (>=6.0.3,<7.0.0)",
+    "deepmerge (>=2.0,<3.0)",
+    "jinja2 (>=3.1.6,<4.0.0)",
+    "jsonschema (>=4.26.0,<5.0.0)",
+    "pydantic (>=2.12.5,<3.0.0)",
+    "loguru (>=0.7.3,<0.8.0)",
+    "requests (>=2.33.1,<3.0.0)",
+    "rich (>=15.0.0,<16.0.0)",
+    "python-hcl2 (>=8.1.2,<9.0.0)",
+    "jmespath (>=1.1.0,<2.0.0)",
+    "python-dotenv (>=1.2.2,<2.0.0)",
+]
+dynamic = ["version"]
+
+[tool.poe]
+include_script = "common_python_tasks:tasks(exclude_tags=['fastapi'])"
+
+[tool.poe.env]
+CONTAINER_ENV = "TF_PLUGIN_CACHE_DIR=/workspace/.stacksmith/providers TERRAFORM_IS_TOFU=1"
+CONTAINER_DEPS_FILE = "Dockerfile.deps"
+CONTAINER_DEPS_MOVE_SCRIPT_PATH = "scripts/move_deps.sh"
+
+[project.scripts]
+stacksmith = "stacksmith.cli.main:main"
+
+[build-system]
+requires = ["poetry-core>=2.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+packages = [{ include = "stacksmith", from = "src" }]
+version = "0.0.0"
+
+[tool.poetry.requires-plugins]
+poetry-dynamic-versioning = { version = ">=1.0.0,<2.0.0", extras = ["plugin"] }
+poetry-plugin-export = { version = ">=1.9.0,<2.0.0" }
+
+[dependency-groups]
+debug = ["debugpy (>=1.8.16,<2.0.0)", "jmespath (>=1.1.0,<2.0.0)"]
+dev = ["common-python-tasks (>=0.2.0,<0.3.0)", "boto3 (>=1.43.14,<2.0.0)", "botocore[crt] (>=1.43.15,<2.0.0)"]
+
+[tool.poetry-dynamic-versioning]
+enable = true
+style = "pep440"
+dirty = true

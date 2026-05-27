@@ -1,0 +1,101 @@
+FROM alpine:3 AS deps
+
+ARG TARGETARCH
+ARG TARGETOS
+
+ARG TOFU_VERSION=1.11.6
+ARG TERRAGRUNT_VERSION=1.0.4
+ARG TOFU_PROVIDER_SPEC=""
+ARG TOFU_PROVIDER_CACHE=/tmp/deps/tofu-providers
+ARG TOFU_MODULE_SPEC=""
+ARG TOFU_MODULE_VENDOR_DIR=/tmp/deps/tofu-modules
+
+RUN mkdir -p /tmp/deps "$TOFU_PROVIDER_CACHE" "$TOFU_MODULE_VENDOR_DIR"
+
+RUN --mount=type=cache,target=/var/cache/apk apk add unzip jq git openssh
+ADD --link "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_${TARGETOS}_${TARGETARCH}.zip" /tmp/tofu.zip
+RUN unzip /tmp/tofu.zip tofu -d /tmp/deps/ && rm /tmp/tofu.zip
+ADD --link --chmod=0755 "https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/terragrunt_${TARGETOS}_${TARGETARCH}" /tmp/deps/terragrunt
+
+# Provider pre-caching
+# TOFU_PROVIDER_SPEC is a colon-separated list of source=version pairs.
+# Legacy pipe-separated values are also accepted.
+# Unpinned entries (without =version) download the latest version.
+RUN mkdir -p /tmp/tofu-init && \
+    TOFU_PROVIDER_SPEC="${TOFU_PROVIDER_SPEC// /}" && \
+    warn=0 && \
+    if [ -n "$TOFU_PROVIDER_SPEC" ]; then \
+        for item in $(printf '%s' "$TOFU_PROVIDER_SPEC" | awk 'function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s } { token=""; in_q=0; for (i=1; i<=length($0); i++) { c=substr($0, i, 1); if (c == "\"") { in_q = !in_q; continue } if (!in_q && (c == ":" || c == "|")) { token=trim(token); if (length(token) > 0) print token; token="" } else { token = token c } } token=trim(token); if (length(token) > 0) print token }'); do \
+            [ -n "$item" ] && [ "${item#*=}" = "$item" ] && warn=1; \
+        done && \
+        [ "$warn" = 1 ] && printf '\033[33mWARNING:\033[0m TOFU_PROVIDER_SPEC contains unpinned providers; downloading latest versions\n' >&2; \
+        providers_json=$(printf '%s' "$TOFU_PROVIDER_SPEC" | awk 'function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s } { token=""; in_q=0; for (i=1; i<=length($0); i++) { c=substr($0, i, 1); if (c == "\"") { in_q = !in_q; continue } if (!in_q && (c == ":" || c == "|")) { token=trim(token); if (length(token) > 0) print token; token="" } else { token = token c } } token=trim(token); if (length(token) > 0) print token }' | jq -Rn '[inputs | select(length > 0) | (capture("(?<source>[^=]+)=(?<version>.+)") // {source: ., version: null}) ] | reduce .[] as $item ({}; . + {($item.source | split("/") | last): (if $item.version == null then {source:$item.source} else {source:$item.source, version:$item.version} end)})') && \
+        echo "Pre-caching $(echo "$providers_json" | jq 'length') provider(s)"; \
+    else \
+        providers_json='{}'; \
+    fi && \
+    jq -n --arg version "$TOFU_VERSION" --argjson providers "$providers_json" '{"terraform":{"required_version":"= \($version)","backend":{"local":{}},"required_providers":$providers}}' >/tmp/tofu-init/main.tf.json && \
+    TF_PLUGIN_CACHE_DIR="$TOFU_PROVIDER_CACHE" /tmp/deps/tofu -chdir=/tmp/tofu-init init -backend=false -get=false && \
+    rm -rf /tmp/tofu-init
+
+# Module vendoring
+# TOFU_MODULE_SPEC is a colon-separated list of source=version pairs.
+# Legacy pipe-separated values are also accepted.
+# Git module entries may omit =version to use the repository default branch.
+# Each module is downloaded into a sha256-keyed directory under TOFU_MODULE_VENDOR_DIR.
+RUN TOFU_MODULE_SPEC="${TOFU_MODULE_SPEC// /}" && \
+    warn_git_unpinned=0 && \
+    if [ -n "$TOFU_MODULE_SPEC" ]; then \
+        manifest="{}" && \
+        for item in $(printf '%s' "$TOFU_MODULE_SPEC" | awk 'function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s } { token=""; in_q=0; seen_eq=0; for (i=1; i<=length($0); i++) { c=substr($0, i, 1); if (c == "\"") { in_q = !in_q; continue } if (!in_q && c == "=") { seen_eq=1 } if (!in_q && c == "|") { token=trim(token); if (length(token) > 0) print token; token=""; seen_eq=0; continue } if (!in_q && c == ":" && seen_eq == 1) { token=trim(token); if (length(token) > 0) print token; token=""; seen_eq=0; continue } token = token c } token=trim(token); if (length(token) > 0) print token }'); do \
+            [ -z "$item" ] && continue; \
+            source="${item%%=*}" && \
+            version="${item#*=}" && \
+            is_git_source=0 && \
+            case "$source" in \
+                git::*|git@*|ssh://*|http://*.git*|https://*.git*) is_git_source=1 ;; \
+            esac && \
+            if [ "$source" = "$version" ]; then \
+                if [ "$is_git_source" -eq 1 ]; then \
+                    warn_git_unpinned=1 && \
+                    version=""; \
+                else \
+                    printf '\033[31mERROR:\033[0m TOFU_MODULE_SPEC entry missing version: %s\n' "$item" >&2 && exit 1; \
+                fi; \
+            fi && \
+            key=$(printf '%s' "${source}|${version}" | sha256sum | head -c 16) && \
+            dest="$TOFU_MODULE_VENDOR_DIR/$key" && \
+            if [ -n "$version" ]; then \
+                echo "Vendoring module: $source=$version -> $key"; \
+            else \
+                echo "Vendoring module: $source (default branch) -> $key"; \
+            fi && \
+            mkdir -p /tmp/tofu-mod-init && \
+            if [ "$is_git_source" -eq 1 ]; then \
+                git_source="$source" && \
+                case "$git_source" in git::*) ;; *) git_source="git::$git_source" ;; esac && \
+                if [ -n "$version" ]; then \
+                    case "$git_source" in *\?*) module_source="$git_source&ref=v$version" ;; *) module_source="$git_source?ref=v$version" ;; esac; \
+                else \
+                    module_source="$git_source"; \
+                fi && \
+                jq -n --arg src "$module_source" \
+                  '{"terraform":{"backend":{"local":{}}},"module":{"vendor":{"source":$src}}}' \
+                  >/tmp/tofu-mod-init/main.tf.json; \
+            else \
+                jq -n --arg src "$source" --arg ver "$version" \
+                  '{"terraform":{"backend":{"local":{}}},"module":{"vendor":{"source":$src,"version":$ver}}}' \
+                  >/tmp/tofu-mod-init/main.tf.json; \
+            fi && \
+            /tmp/deps/tofu -chdir=/tmp/tofu-mod-init init -backend=false -get=true 2>&1 && \
+            [ -d /tmp/tofu-mod-init/.terraform/modules/vendor ] || \
+                            { printf '\033[31mERROR:\033[0m Module download failed for %s=%s\n' "$source" "$version" >&2; exit 1; } && \
+            cp -a /tmp/tofu-mod-init/.terraform/modules/vendor "$dest" && \
+            rm -rf /tmp/tofu-mod-init && \
+            manifest=$(echo "$manifest" | jq --arg k "$key" --arg s "$source" --arg v "$version" \
+              '. + {($k): {"source": $s, "version": $v}}'); \
+        done && \
+                [ "$warn_git_unpinned" = 1 ] && printf '\033[33mWARNING:\033[0m TOFU_MODULE_SPEC contains unpinned git modules; using default branches\n' >&2; \
+        echo "$manifest" | jq '.' >"$TOFU_MODULE_VENDOR_DIR/vendor-manifest.json" && \
+        echo "Vendored $(echo "$manifest" | jq 'length') module(s)"; \
+    fi
