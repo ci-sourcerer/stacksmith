@@ -104,7 +104,7 @@ stacksmith validate "$STACK_FILE" \
     --vars "$VARS_FILE"
 ```
 
-Generate Terraform and Terragrunt JSON.
+Generate OpenTofu and Terragrunt JSON.
 
 ```bash
 stacksmith generate "$STACK_FILE" \

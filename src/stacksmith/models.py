@@ -185,7 +185,7 @@ class ProviderFamily(BaseModel):
 
 
 class ModuleMapping(BaseModel):
-    """Mapping from an abstract resource type to a concrete Terraform module."""
+    """Mapping from an abstract resource type to a concrete OpenTofu module."""
 
     description: str | None = None
     source: str

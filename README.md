@@ -4,8 +4,6 @@
 
 Stacksmith is a CLI tool that lets teams define infrastructure stacks in a simple YAML (or JSON) format and deploy them via [OpenTofu](https://opentofu.org) and [Terragrunt](https://terragrunt.gruntwork.io). It bridges the gap between a developer writing a plain component list and the OpenTofu ecosystem by abstracting module wiring, backend configuration, variable resolution, policy checks, and monorepo orchestration.
 
-Essentially, Stacksmith is a wrapper around Terragrunt which itself wraps around OpenTofu.
-
 ## Concepts
 
 ### Stack
@@ -57,6 +55,7 @@ Plan validation rules can return `pass`, `warn`, or `fail` outcomes.
 - Legacy boolean behavior is still supported, where truthy values pass and falsey values fail.
 - Warnings are non-blocking by default.
 - Use `--strict-validation-warnings` to treat warning outcomes as failures.
+- Use `--fail-on-changes` on `plan` or `run-all plan` to return a non-zero exit code whenever the rendered plan contains any resource changes. This is useful for automated drift detection or CI checks where only a non-empty plan should fail.
 
 ### Remote resources
 
@@ -68,6 +67,7 @@ Config files, vars files, validation scripts, and transform scripts can be resol
 2. Stacksmith reads an org-managed config that maps component types to real OpenTofu modules and declares the shared backend and providers.
 3. Stacksmith generates a `.tf.json` file (module calls + provider requirements) and a `terragrunt.hcl.json` file (backend, inputs, dependency wiring) into a build directory.
 4. Terragrunt is invoked to run `init`, `plan`, `apply`, or `destroy` against that build directory, using OpenTofu as its executor.
+5. For drift-aware workflows, pass `--fail-on-changes` to `plan` or `run-all plan` so the command exits non-zero when there are any planned updates, creates, or destroys.
 
 ## Configuration
 
@@ -123,7 +123,7 @@ Each provider instance `config` must use exactly one top-level source key:
 - `inline`: Inline Python defining `config(**context)` that returns a dictionary of provider arguments.
 - `script`: Path or URL to a Python script defining `config(**context)` that returns a dictionary of provider arguments.
 
-Stacksmith can also introspect remote module sources to discover which Terraform `variable` inputs the module actually exposes. When `auto_inject: true` is enabled for a module mapping, stacksmith uses that discovery data to inject same-name resolved inputs automatically, without requiring empty `{}` property declarations for every module input. This means that only module variables that actually exist are auto-injected, unmapped stack inputs that might be organizational like `environment` are not leaked into a module that does not declare them, and explicit `mapped_to` mappings and property overrides still work as before.
+Stacksmith can also introspect remote module sources to discover which OpenTofu `variable` inputs the module actually exposes. When `auto_inject: true` is enabled for a module mapping, stacksmith uses that discovery data to inject same-name resolved inputs automatically, without requiring empty `{}` property declarations for every module input. This means that only module variables that actually exist are auto-injected, unmapped stack inputs that might be organizational like `environment` are not leaked into a module that does not declare them, and explicit `mapped_to` mappings and property overrides still work as before.
 
 A few things to note about the config are as follows.
 
@@ -393,10 +393,9 @@ Result rows leave report-level columns empty to reduce duplication. Columns and 
 | `result_message` | Short human-readable summary for the result. Populated on `result` rows. |
 | `result_detail_json` | JSON-encoded detail payload for the result, including the long plan/value text when present. Populated on `result` rows. |
 
-
 Exit behavior is as follows.
 
-> Note: The CSV output format is subject to change; prefer `json` for stable machine-readable output. Consumers should treat CSV as an unstable contract when automating integrations.
+> Note: The CSV output format is subject to change; prefer `json` for stable machine-readable output.
 
 - Exit code is `1` when at least one validation result is `fail`.
 - Exit code is `1` for warnings only when `--strict-validation-warnings` is set.

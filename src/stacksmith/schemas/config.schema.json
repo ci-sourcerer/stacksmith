@@ -290,7 +290,7 @@
         "type": {
           "type": "string",
           "minLength": 1,
-          "description": "Terraform backend type (for example: s3, local, azurerm, gcs, oss)."
+          "description": "OpenTofu backend type (for example: s3, local, azurerm, gcs, oss)."
         }
       },
       "additionalProperties": true
@@ -314,7 +314,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/providerFamily"
       },
-      "description": "Provider families keyed by Terraform provider name."
+      "description": "Provider families keyed by OpenTofu provider name."
     },
     "module_mappings": {
       "type": "object",
@@ -334,7 +334,7 @@
           },
           "source": {
             "type": "string",
-            "description": "Module source address. Must be a Git repository URL (git::, git@, ssh://, http(s)://*.git*) or a Terraform registry source. Local paths are not allowed."
+            "description": "Module source address. Must be a Git repository URL (git::, git@, ssh://, http(s)://*.git*) or a OpenTofu registry source. Local paths are not allowed."
           },
           "version": {
             "type": "string",

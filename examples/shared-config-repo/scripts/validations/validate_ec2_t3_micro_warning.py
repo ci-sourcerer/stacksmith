@@ -37,7 +37,7 @@ def validate(value: Any, **context: Any) -> str | dict[str, str]:
     """Validate the plan and emit a warning for planned t3.micro instances.
 
     Args:
-        value: The Terraform plan document passed by Stacksmith.
+        value: The OpenTofu plan document passed by Stacksmith.
         **context: Validation context from Stacksmith, including stack metadata.
 
     Returns:

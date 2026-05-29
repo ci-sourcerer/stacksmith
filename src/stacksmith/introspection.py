@@ -61,7 +61,7 @@ def resolve_module_dir(
         vendor_dir: Vendored module root directory.
 
     Returns:
-        Local directory containing the module's Terraform files.
+        Local directory containing the module's OpenTofu files.
 
     Raises:
         ValueError: If the source cannot be resolved for introspection.
@@ -127,7 +127,7 @@ def discover_module_variables(
     auth_config: "RemoteAuthConfig | None" = None,
     vendor_dir: Path | None = None,
 ) -> set[str]:
-    """Discover variable names declared by a Terraform module.
+    """Discover variable names declared by a OpenTofu module.
 
     Resolves the module source to a local directory (via vendor or git clone), parses
     all `.tf` and `.tf.json` files with `python-hcl2`, and returns the set of top-level
@@ -157,7 +157,7 @@ def parse_module_variables(module_dir: Path) -> set[str]:
     """Parse `.tf` and `.tf.json` files in a directory and return declared variable names.
 
     Args:
-        module_dir: Directory containing Terraform files.
+        module_dir: Directory containing OpenTofu files.
 
     Returns:
         Set of variable names found in `variable` blocks.

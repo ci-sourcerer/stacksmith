@@ -275,6 +275,12 @@ def test_plan_subcommand_supports_debug_and_save_plan_json(tmp_path):
     assert args.save_plan_json == tmp_path / "plan.json"
 
 
+def test_plan_subcommand_supports_fail_on_changes(parser):
+    args = parser.parse_args(["plan", "stack.yaml", "--fail-on-changes"])
+
+    assert args.fail_on_changes is True
+
+
 def test_plan_subcommand_supports_quiet_and_save_plan_json(tmp_path):
     parser = stacksmith.cli.main._build_parser()
     args = parser.parse_args(
@@ -312,6 +318,12 @@ def test_run_all_subcommand_supports_debug_and_save_plan_json(tmp_path, parser):
 
     assert args.debug is True
     assert args.save_plan_json == tmp_path / "plans"
+
+
+def test_run_all_subcommand_supports_fail_on_changes(parser):
+    args = parser.parse_args(["run-all", "plan", "--fail-on-changes"])
+
+    assert args.fail_on_changes is True
 
 
 def test_run_all_subcommand_supports_quiet_and_save_plan_json(tmp_path, parser):
@@ -472,6 +484,17 @@ def test_cmd_run_all_passes_save_plan_json(monkeypatch, tmp_path, parser):
     assert calls["run"][2]["save_plan_json"] == tmp_path / "plans"
 
 
+def test_cmd_run_all_passes_fail_on_changes(monkeypatch, parser):
+    calls = _capture_run_all_stacks_call(monkeypatch)
+
+    args = parser.parse_args(["run-all", "plan", "--fail-on-changes"])
+
+    exit_code = cli_main._cmd_run_all(args)
+
+    assert exit_code == 0
+    assert calls["run"][2]["fail_on_changes"] is True
+
+
 def test_cmd_run_all_passes_validation_report_format(monkeypatch, parser):
     calls = _capture_run_all_stacks_call(monkeypatch)
 
@@ -538,6 +561,17 @@ def test_cmd_terragrunt_action_passes_save_plan_json(monkeypatch, tmp_path, pars
 
     assert exit_code == 0
     assert calls["run"][2]["save_plan_json"] == tmp_path / "plan.json"
+
+
+def test_cmd_terragrunt_action_passes_fail_on_changes(monkeypatch, parser):
+    calls = _capture_run_stack_action_call(monkeypatch)
+
+    args = parser.parse_args(["plan", "stack.yaml", "--fail-on-changes"])
+
+    exit_code = cli_main._cmd_terragrunt_action(args, "plan")
+
+    assert exit_code == 0
+    assert calls["run"][2]["fail_on_changes"] is True
 
 
 def test_cmd_terragrunt_action_passes_validation_report_format(monkeypatch, parser):

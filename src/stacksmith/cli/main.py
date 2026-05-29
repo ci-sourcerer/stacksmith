@@ -211,6 +211,7 @@ def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
         tag_expr=args.tag_expr,
         save_plan_json=getattr(args, "save_plan_json", None),
         strict_validation_warnings=args.strict_validation_warnings,
+        fail_on_changes=getattr(args, "fail_on_changes", False),
         validation_report_format=_validation_report_format(args),
     )
 
@@ -234,6 +235,9 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
         return 1
     if args.action != TerragruntAction.PLAN.value and args.save_plan_json is not None:
         LOGGER.error("--save-plan-json is only supported for run-all plan")
+        return 1
+    if args.action != TerragruntAction.PLAN.value and getattr(args, "fail_on_changes", False):
+        LOGGER.error("--fail-on-changes is only supported for run-all plan")
         return 1
     if (
         args.action != TerragruntAction.PLAN.value
@@ -260,6 +264,7 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
         tag_expr=args.tag_expr,
         save_plan_json=args.save_plan_json,
         strict_validation_warnings=args.strict_validation_warnings,
+        fail_on_changes=getattr(args, "fail_on_changes", False),
         validation_report_format=_validation_report_format(args),
     )
 
@@ -319,6 +324,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_path_type,
         default=None,
         help="Save rendered plan JSON for each stack to the given directory when action is plan.",
+    )
+    p_run_all.add_argument(
+        "--fail-on-changes",
+        action="store_true",
+        default=False,
+        help="Return a non-zero exit code if the plan contains any resource changes.",
     )
     p_run_all.add_argument(
         "--tag",
@@ -387,6 +398,12 @@ def _build_parser() -> argparse.ArgumentParser:
                     type=_path_type,
                     default=None,
                     help="Save rendered plan JSON to the given file or directory.",
+                )
+                p_action.add_argument(
+                    "--fail-on-changes",
+                    action="store_true",
+                    default=False,
+                    help="Return a non-zero exit code if the plan contains any resource changes.",
                 )
                 p_action.add_argument(
                     "--tag",

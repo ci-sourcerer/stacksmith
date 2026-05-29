@@ -712,7 +712,7 @@ def generate_stack(
     no_cache: bool = False,
     use_local_modules: bool = False,
 ) -> int:
-    """Generate Terraform and Terragrunt files for a single stack.
+    """Generate OpenTofu and Terragrunt files for a single stack.
 
     Args:
         stack_file: Path to the stack definition file.
@@ -766,6 +766,7 @@ def run_stack_action(
     tag_expr: str | None = None,
     save_plan_json: Path | None = None,
     strict_validation_warnings: bool = False,
+    fail_on_changes: bool = False,
     validation_report_format: (
         str | ValidationReportFormat
     ) = ValidationReportFormat.JSON,
@@ -791,6 +792,8 @@ def run_stack_action(
             plan JSON output for plan actions.
         strict_validation_warnings: When `True`, warning outcomes from plan
             validations are treated as failures.
+        fail_on_changes: When `True`, return a non-zero exit code if the plan
+            contains any resource changes.
         validation_report_format: Format used for machine-readable validation
             report output.
 
@@ -887,6 +890,7 @@ def run_stack_action(
         auth_config=loaded_config.remote_auth or None,
         save_plan_json=save_plan_json,
         strict_validation_warnings=strict_validation_warnings,
+        fail_on_changes=fail_on_changes,
         plan_validation_results=plan_validation_results,
     )
 
@@ -925,6 +929,7 @@ def run_all_stacks(
     tag_expr: str | None = None,
     save_plan_json: Path | None = None,
     strict_validation_warnings: bool = False,
+    fail_on_changes: bool = False,
     validation_report_format: (
         str | ValidationReportFormat
     ) = ValidationReportFormat.JSON,
@@ -953,6 +958,8 @@ def run_all_stacks(
             output for each stack during plan actions.
         strict_validation_warnings: When `True`, warning outcomes from plan
             validations are treated as failures.
+        fail_on_changes: When `True`, return a non-zero exit code if the plan
+            contains any resource changes.
         validation_report_format: Format used for machine-readable validation
             report output.
 
@@ -1055,6 +1062,7 @@ def run_all_stacks(
         stack_args_by_name=stack_args_by_name,
         save_plan_json=save_plan_json,
         strict_validation_warnings=strict_validation_warnings,
+        fail_on_changes=fail_on_changes,
         plan_validation_results=plan_validation_results,
     )
 
