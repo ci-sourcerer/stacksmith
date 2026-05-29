@@ -112,7 +112,7 @@ def run_terragrunt(
     Args:
         args: Terragrunt subcommand and arguments (e.g. ["plan"]).
         working_dir: Directory containing terragrunt.hcl.
-        auto_approve: if `True`, append --auto-approve for apply/destroy.
+        auto_approve: If `True`, append `--auto-approve` for apply/destroy.
         config: Optional loaded tool config used for plan validations.
         stack_name: Optional stack identifier used in validation context.
         cache_dir: Cache directory for fetching remote scripts.
@@ -279,7 +279,7 @@ def run_terragrunt_all_ordered(
         action: Terragrunt action or Terragrunt arg list (e.g. ["plan", "-destroy"]).
         stack_build_dirs: Ordered mapping of stack name to generated build directory.
             The expected order is dependency-first.
-        auto_approve: if `True`, append --auto-approve for apply/destroy.
+        auto_approve: If `True`, append `--auto-approve` for apply/destroy.
         config: Optional loaded tool config used for plan validations.
         cache_dir: Cache directory for fetching remote scripts.
         auth_config: Optional host-keyed auth configuration for remote fetching.
