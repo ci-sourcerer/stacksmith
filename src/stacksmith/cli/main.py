@@ -8,6 +8,7 @@ from loguru import logger as LOGGER
 from stacksmith.cli.args import (
     _add_common_args,
     _add_stack_arg,
+    _add_validation_report_format_arg,
     _configure_diagnose_parser,
     _configure_inspect_parser,
     _path_type,
@@ -22,6 +23,7 @@ from ..api import (
     run_stack_action,
     validate_stack,
 )
+from ..enums import InspectOutputFormat, TerragruntAction, ValidationReportFormat
 from ..exceptions import StacksmithError
 from ..inspector import format_json, format_table, format_yaml
 from ..utils import load_env_files
@@ -136,6 +138,12 @@ def _vars_arg(args: argparse.Namespace) -> list[str] | None:
     return getattr(args, "vars_file", None)
 
 
+def _validation_report_format(args: argparse.Namespace) -> ValidationReportFormat:
+    return ValidationReportFormat(
+        getattr(args, "validation_report_format", ValidationReportFormat.JSON.value)
+    )
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     return validate_stack(
         args.stack_file,
@@ -145,6 +153,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         build_dir=args.build_dir,
         no_cache=args.no_cache,
         strict_validation_warnings=args.strict_validation_warnings,
+        validation_report_format=_validation_report_format(args),
     )
 
 
@@ -169,12 +178,13 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
         no_cache=args.no_cache,
     )
 
-    match args.format or "table":
-        case "json":
+    output_format = InspectOutputFormat(args.format or InspectOutputFormat.TABLE.value)
+    match output_format:
+        case InspectOutputFormat.JSON:
             print(format_json(results, details=not args.basic))
-        case "yaml":
+        case InspectOutputFormat.YAML:
             print(format_yaml(results, details=not args.basic))
-        case "table" | _:
+        case InspectOutputFormat.TABLE:
             format_table(
                 results,
                 details=True,
@@ -201,6 +211,7 @@ def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
         tag_expr=args.tag_expr,
         save_plan_json=getattr(args, "save_plan_json", None),
         strict_validation_warnings=args.strict_validation_warnings,
+        validation_report_format=_validation_report_format(args),
     )
 
 
@@ -214,13 +225,21 @@ def _cmd_diagnose(args: argparse.Namespace) -> int:
 
 
 def _cmd_run_all(args: argparse.Namespace) -> int:
-    if args.action == "init" and (args.tag is not None or args.tag_expr is not None):
+    if args.action == TerragruntAction.INIT.value and (
+        args.tag is not None or args.tag_expr is not None
+    ):
         LOGGER.error(
             "--tag and --tag-expr are only supported for run-all plan/apply/destroy"
         )
         return 1
-    if args.action != "plan" and args.save_plan_json is not None:
+    if args.action != TerragruntAction.PLAN.value and args.save_plan_json is not None:
         LOGGER.error("--save-plan-json is only supported for run-all plan")
+        return 1
+    if (
+        args.action != TerragruntAction.PLAN.value
+        and _validation_report_format(args) != ValidationReportFormat.JSON
+    ):
+        LOGGER.error("--validation-report-format is only supported for run-all plan")
         return 1
 
     return run_all_stacks(
@@ -241,6 +260,7 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
         tag_expr=args.tag_expr,
         save_plan_json=args.save_plan_json,
         strict_validation_warnings=args.strict_validation_warnings,
+        validation_report_format=_validation_report_format(args),
     )
 
 
@@ -261,6 +281,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_stack_arg(p_validate)
     _add_common_args(p_validate)
+    _add_validation_report_format_arg(p_validate)
 
     # generate
     p_generate = subparsers.add_parser(
@@ -275,7 +296,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_run_all.add_argument(
         "action",
-        choices=["init", "plan", "apply", "destroy"],
+        choices=[action.value for action in TerragruntAction],
         help="Terragrunt action to run across all stacks",
     )
     root_default = Path(stacksmith_env("ROOT", str(Path.cwd())))
@@ -287,6 +308,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Root directory to discover stacks in (default: current working directory)",
     )
     _add_common_args(p_run_all)
+    _add_validation_report_format_arg(p_run_all)
     p_run_all.add_argument(
         "--destroy",
         action="store_true",
@@ -338,8 +360,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # init / plan / apply / destroy
-    for action in ("init", "plan", "apply", "destroy"):
-        p_action = subparsers.add_parser(action, help=f"Generate + terragrunt {action}")
+    for action in TerragruntAction:
+        action_name = action.value
+        p_action = subparsers.add_parser(
+            action_name,
+            help=f"Generate + terragrunt {action_name}",
+        )
         _add_stack_arg(p_action)
         _add_common_args(p_action)
         p_action.set_defaults(
@@ -349,7 +375,7 @@ def _build_parser() -> argparse.ArgumentParser:
             tag_expr=None,
         )
         match action:
-            case "plan":
+            case TerragruntAction.PLAN:
                 p_action.add_argument(
                     "--destroy",
                     action="store_true",
@@ -374,7 +400,8 @@ def _build_parser() -> argparse.ArgumentParser:
                     default=None,
                     help="JMESPath expression used to select resource targets.",
                 )
-            case "apply" | "destroy":
+                _add_validation_report_format_arg(p_action)
+            case TerragruntAction.APPLY | TerragruntAction.DESTROY:
                 p_action.add_argument(
                     "--auto-approve",
                     action="store_true",
@@ -492,8 +519,8 @@ def main() -> None:
                     case _:
                         parser.print_help(sys.stderr)
                         exit_code = 1
-            case "init" | "plan" | "apply" | "destroy":
-                exit_code = _cmd_terragrunt_action(args, args.command)
+            case command if command in {action.value for action in TerragruntAction}:
+                exit_code = _cmd_terragrunt_action(args, command)
                 if exit_code != 0:
                     exit_code = 5  # Terragrunt action failed
             case "run-all":

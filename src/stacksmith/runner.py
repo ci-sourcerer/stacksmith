@@ -8,6 +8,7 @@ from typing import Any
 
 from loguru import logger as LOGGER
 
+from .enums import TerragruntAction
 from .models import RemoteAuthConfig, ToolConfig
 from .validation import (
     PlanValidationExitCode,
@@ -126,7 +127,18 @@ def run_terragrunt(
         Process exit code.
     """
     cmd = ["terragrunt", *args]
-    if args and auto_approve and args[0] in ("apply", "destroy"):
+    first_action = None
+    if args:
+        try:
+            first_action = TerragruntAction(args[0])
+        except ValueError:
+            first_action = None
+
+    if (
+        args
+        and auto_approve
+        and first_action in {TerragruntAction.APPLY, TerragruntAction.DESTROY}
+    ):
         cmd.append("--auto-approve")
 
     LOGGER.info("Running: {command}", command=" ".join(cmd))
@@ -134,7 +146,7 @@ def run_terragrunt(
 
     if (
         args
-        and args[0] == "plan"
+        and first_action == TerragruntAction.PLAN
         and "-destroy" not in args
         and (
             save_plan_json is not None
@@ -185,7 +197,13 @@ def _run_plan_validations(
         plan_path = Path(tmp_plan.name)
 
     try:
-        plan_with_out_cmd = [plan_cmd[0], "plan", *args[1:], "-out", str(plan_path)]
+        plan_with_out_cmd = [
+            plan_cmd[0],
+            TerragruntAction.PLAN.value,
+            *args[1:],
+            "-out",
+            str(plan_path),
+        ]
         LOGGER.info(
             "Running plan for JSON validation: {command}",
             command=" ".join(plan_with_out_cmd),
@@ -244,7 +262,7 @@ def _run_plan_validations(
 
 
 def run_terragrunt_all_ordered(
-    action: str | list[str],
+    action: str | TerragruntAction | list[str],
     stack_build_dirs: dict[str, Path],
     auto_approve: bool = False,
     config: ToolConfig | None = None,
@@ -278,15 +296,28 @@ def run_terragrunt_all_ordered(
         Process exit code (first non-zero code short-circuits the run).
     """
     action_name = action[0] if isinstance(action, list) else action
+    action_enum = None
+    if isinstance(action_name, str):
+        try:
+            action_enum = TerragruntAction(action_name)
+        except ValueError:
+            action_enum = None
+    elif isinstance(action_name, TerragruntAction):
+        action_enum = action_name
+
     stack_items = list(stack_build_dirs.items())
-    if action_name == "destroy":
+    if action_enum == TerragruntAction.DESTROY:
         stack_items = list(reversed(stack_items))
 
     for stack_name, stack_dir in stack_items:
         terragrunt_args = (
             stack_args_by_name.get(stack_name)
             if stack_args_by_name is not None
-            else list(action) if isinstance(action, list) else [action]
+            else (
+                list(action)
+                if isinstance(action, list)
+                else [action.value if isinstance(action, TerragruntAction) else action]
+            )
         )
         if terragrunt_args is None:
             continue
@@ -296,7 +327,7 @@ def run_terragrunt_all_ordered(
         if (
             save_plan_json is not None
             and terragrunt_args
-            and terragrunt_args[0] == "plan"
+            and terragrunt_args[0] == TerragruntAction.PLAN.value
         ):
             stack_save_plan_json = _resolve_plan_json_output_path(
                 save_plan_json,

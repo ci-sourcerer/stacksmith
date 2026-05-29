@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import re
 import shutil
@@ -17,6 +19,7 @@ from .discovery import (
     filter_stacks_by_tags,
     topological_sort,
 )
+from .enums import TerragruntAction, ValidationReportFormat, ValidationRowType
 from .exceptions import StacksmithConfigError, StacksmithError
 from .generator import write_tf_json
 from .inspector import (
@@ -32,6 +35,7 @@ from .runner import run_terragrunt, run_terragrunt_all_ordered
 from .terragrunt import write_terragrunt_json
 from .utils import stacksmith_env_list
 from .validation import PlanValidationResult
+from .validations.outcomes import PlanValidationOutcome
 from .variables import InputLayer, resolve_inputs
 from .vendor import get_vendor_dir, load_vendor_manifest
 
@@ -102,7 +106,112 @@ def _clean_cache(cache_dir: Path) -> None:
         shutil.rmtree(cache_dir)
 
 
-def _emit_validation_report(report: dict[str, Any]) -> None:
+_VALIDATION_REPORT_CSV_COLUMNS = (
+    "row_type",
+    "command",
+    "report_status",
+    "exit_code",
+    "strict_validation_warnings",
+    "stack_count",
+    "summary_pass",
+    "summary_warn",
+    "summary_fail",
+    "stack_name",
+    "result_name",
+    "result_status",
+    "result_message",
+    "result_detail_json",
+)
+
+
+def _split_validation_message(message: str) -> tuple[str, str | None]:
+    summary, separator, detail = message.partition(" — ")
+    if separator:
+        return summary, detail
+    return message, None
+
+
+def _validation_report_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
+    summary = report.get("summary") if isinstance(report.get("summary"), dict) else {}
+    report_row = {
+        "row_type": ValidationRowType.REPORT.value,
+        "command": report.get("command", ""),
+        "report_status": report.get("status", ""),
+        "exit_code": report.get("exit_code", ""),
+        "strict_validation_warnings": report.get("strict_validation_warnings", ""),
+        "stack_count": report.get("stack_count", ""),
+        "summary_pass": summary.get("pass", ""),
+        "summary_warn": summary.get("warn", ""),
+        "summary_fail": summary.get("fail", ""),
+        "stack_name": report.get("stack_name", ""),
+        "result_name": "",
+        "result_status": "",
+        "result_message": "",
+        "result_detail_json": "",
+    }
+    raw_results = report.get("results")
+    results = raw_results if isinstance(raw_results, list) else []
+
+    rows: list[dict[str, Any]] = [report_row]
+    if not results:
+        return rows
+
+    for raw_result in results:
+        if isinstance(raw_result, dict):
+            result_stack_name = raw_result.get(
+                "stack_name", report.get("stack_name", "")
+            )
+            result_name = raw_result.get("name", "")
+            result_status = raw_result.get("status", "")
+            result_message = raw_result.get("message", "")
+            result_message, result_detail = _split_validation_message(result_message)
+        else:
+            result_stack_name = report.get("stack_name", "")
+            result_name = ""
+            result_status = ""
+            result_message = json.dumps(raw_result, sort_keys=True)
+            result_detail = None
+
+        rows.append(
+            {
+                "row_type": ValidationRowType.RESULT.value,
+                "command": "",
+                "report_status": "",
+                "exit_code": "",
+                "strict_validation_warnings": "",
+                "stack_count": "",
+                "summary_pass": "",
+                "summary_warn": "",
+                "summary_fail": "",
+                "stack_name": result_stack_name,
+                "result_name": result_name,
+                "result_status": result_status,
+                "result_message": result_message,
+                "result_detail_json": (
+                    json.dumps({"detail": result_detail}, sort_keys=True)
+                    if result_detail is not None
+                    else ""
+                ),
+            }
+        )
+
+    return rows
+
+
+def _emit_validation_report(
+    report: dict[str, Any],
+    *,
+    report_format: str | ValidationReportFormat = ValidationReportFormat.JSON,
+) -> None:
+    resolved_format = ValidationReportFormat(report_format)
+    if resolved_format == ValidationReportFormat.CSV:
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=_VALIDATION_REPORT_CSV_COLUMNS)
+        writer.writeheader()
+        writer.writerows(_validation_report_rows(report))
+        print(buffer.getvalue(), end="")
+        return
+
     print(json.dumps(report, sort_keys=True))
 
 
@@ -113,9 +222,9 @@ def _emit_human_output(message: str) -> None:
 def _summarize_plan_validation_results(
     results: Sequence[PlanValidationResult],
 ) -> dict[str, int]:
-    summary = {"pass": 0, "warn": 0, "fail": 0}
+    summary = {outcome.value: 0 for outcome in PlanValidationOutcome}
     for result in results:
-        summary[result.status] = summary.get(result.status, 0) + 1
+        summary[result.status.value] += 1
     return summary
 
 
@@ -130,12 +239,12 @@ def _build_plan_validation_report(
 ) -> dict[str, Any]:
     summary = _summarize_plan_validation_results(results)
 
-    if summary["fail"] > 0 or exit_code != 0:
-        status = "fail"
-    elif summary["warn"] > 0:
-        status = "warn"
+    if summary[PlanValidationOutcome.FAIL.value] > 0 or exit_code != 0:
+        status = PlanValidationOutcome.FAIL.value
+    elif summary[PlanValidationOutcome.WARN.value] > 0:
+        status = PlanValidationOutcome.WARN.value
     else:
-        status = "pass"
+        status = PlanValidationOutcome.PASS.value
 
     payload: dict[str, Any] = {
         "command": command,
@@ -153,16 +262,24 @@ def _build_plan_validation_report(
 
 
 def _build_validate_report(exit_code: int, message: str) -> dict[str, Any]:
-    status = "pass" if exit_code == 0 else "fail"
+    status = (
+        PlanValidationOutcome.PASS.value
+        if exit_code == 0
+        else PlanValidationOutcome.FAIL.value
+    )
     return {
         "command": "validate",
         "status": status,
         "exit_code": exit_code,
         "strict_validation_warnings": False,
         "summary": {
-            "pass": 1 if status == "pass" else 0,
-            "warn": 0,
-            "fail": 1 if status == "fail" else 0,
+            PlanValidationOutcome.PASS.value: (
+                1 if status == PlanValidationOutcome.PASS.value else 0
+            ),
+            PlanValidationOutcome.WARN.value: 0,
+            PlanValidationOutcome.FAIL.value: (
+                1 if status == PlanValidationOutcome.FAIL.value else 0
+            ),
         },
         "results": [
             {
@@ -298,12 +415,13 @@ def _compute_stack_target_modules(
 
 
 def _build_terragrunt_args(
-    action: str,
+    action: str | TerragruntAction,
     destroy: bool = False,
     targets: list[str] | None = None,
 ) -> list[str]:
-    terragrunt_args = [action]
-    if action == "plan" and destroy:
+    action_enum = TerragruntAction(action)
+    terragrunt_args = [action_enum.value]
+    if action_enum == TerragruntAction.PLAN and destroy:
         terragrunt_args.append("-destroy")
     for target in targets or []:
         terragrunt_args.extend(["-target", target])
@@ -455,6 +573,9 @@ def validate_stack(
     build_dir: Path | None = None,
     no_cache: bool = False,
     strict_validation_warnings: bool = False,
+    validation_report_format: (
+        str | ValidationReportFormat
+    ) = ValidationReportFormat.JSON,
 ) -> int:
     """Validate a stack definition and its resolved variables.
 
@@ -467,6 +588,8 @@ def validate_stack(
         build_dir: Optional build directory used to derive the cache directory.
         no_cache: When `True`, clear the remote cache before resolving resources.
         strict_validation_warnings: Present for report parity across commands.
+        validation_report_format: Format used for machine-readable validation
+            report output.
 
     Returns:
         Process-style exit code. Returns `0` when validation succeeds.
@@ -504,13 +627,20 @@ def validate_stack(
         jsonschema_exceptions.ValidationError,
     ) as exc:
         message = str(exc) if str(exc) else f"{type(exc).__name__}"
-        LOGGER.error("Validation failed: {message}", message=message)
-        _emit_validation_report(_build_validate_report(exit_code=1, message=message))
+        LOGGER.error(
+            "Validation failed for stack {stack_file} (see validation report for details).",
+            stack_file=stack_file,
+        )
+        _emit_validation_report(
+            _build_validate_report(exit_code=1, message=message),
+            report_format=validation_report_format,
+        )
         return 1
 
     LOGGER.info("Validation passed.")
     _emit_validation_report(
-        _build_validate_report(exit_code=0, message="Validation passed")
+        _build_validate_report(exit_code=0, message="Validation passed"),
+        report_format=validation_report_format,
     )
     return 0
 
@@ -621,7 +751,7 @@ def generate_stack(
 
 
 def run_stack_action(
-    action: str,
+    action: str | TerragruntAction,
     stack_file: Path,
     *,
     config: list[str] | None = None,
@@ -636,6 +766,9 @@ def run_stack_action(
     tag_expr: str | None = None,
     save_plan_json: Path | None = None,
     strict_validation_warnings: bool = False,
+    validation_report_format: (
+        str | ValidationReportFormat
+    ) = ValidationReportFormat.JSON,
 ) -> int:
     """Generate files for a stack and run a Terragrunt action.
 
@@ -658,6 +791,8 @@ def run_stack_action(
             plan JSON output for plan actions.
         strict_validation_warnings: When `True`, warning outcomes from plan
             validations are treated as failures.
+        validation_report_format: Format used for machine-readable validation
+            report output.
 
     Returns:
         Process-style exit code from the Terragrunt action.
@@ -667,16 +802,21 @@ def run_stack_action(
         build_dir,
         no_cache=no_cache,
     )
-    if (tags or tag_expr) and action not in {"plan", "apply", "destroy"}:
+    action_enum = TerragruntAction(action)
+    if (tags or tag_expr) and action_enum not in {
+        TerragruntAction.PLAN,
+        TerragruntAction.APPLY,
+        TerragruntAction.DESTROY,
+    }:
         raise StacksmithConfigError(
             "--tag and --tag-expr are only supported for plan, apply, and destroy"
         )
-    if save_plan_json is not None and action != "plan":
+    if save_plan_json is not None and action_enum != TerragruntAction.PLAN:
         raise StacksmithConfigError("--save-plan-json is only supported for plan")
 
     LOGGER.debug(
         "Running terragrunt action {action} for stack {stack_file} with config paths: {config_paths}",
-        action=action,
+        action=action_enum.value,
         stack_file=stack_file,
         config_paths=config_paths,
     )
@@ -698,16 +838,17 @@ def run_stack_action(
                 "No resources in stack '{stack_name}' matched tag selectors",
                 stack_name=stack.name,
             )
-            if action == "plan":
+            if action_enum == TerragruntAction.PLAN:
                 _emit_validation_report(
                     _build_plan_validation_report(
-                        command="plan",
+                        command=TerragruntAction.PLAN.value,
                         exit_code=1,
                         strict_validation_warnings=strict_validation_warnings,
                         results=plan_validation_results,
                         stack_name=stack.name,
                         stack_count=1,
-                    )
+                    ),
+                    report_format=validation_report_format,
                 )
             return 1
 
@@ -723,20 +864,21 @@ def run_stack_action(
         use_local_modules=use_local_modules,
     )
     if exit_code != 0:
-        if action == "plan":
+        if action_enum == TerragruntAction.PLAN:
             _emit_validation_report(
                 _build_plan_validation_report(
-                    command="plan",
+                    command=TerragruntAction.PLAN.value,
                     exit_code=exit_code,
                     strict_validation_warnings=strict_validation_warnings,
                     results=plan_validation_results,
                     stack_name=stack.name,
                     stack_count=1,
-                )
+                ),
+                report_format=validation_report_format,
             )
         return exit_code
     terragrunt_exit_code = run_terragrunt(
-        _build_terragrunt_args(action, destroy, targets=targets),
+        _build_terragrunt_args(action_enum, destroy, targets=targets),
         output_dir,
         auto_approve=auto_approve,
         config=loaded_config,
@@ -748,23 +890,24 @@ def run_stack_action(
         plan_validation_results=plan_validation_results,
     )
 
-    if action == "plan":
+    if action_enum == TerragruntAction.PLAN:
         _emit_validation_report(
             _build_plan_validation_report(
-                command="plan",
+                command=TerragruntAction.PLAN.value,
                 exit_code=terragrunt_exit_code,
                 strict_validation_warnings=strict_validation_warnings,
                 results=plan_validation_results,
                 stack_name=stack.name,
                 stack_count=1,
-            )
+            ),
+            report_format=validation_report_format,
         )
 
     return terragrunt_exit_code
 
 
 def run_all_stacks(
-    action: str,
+    action: str | TerragruntAction,
     root: Path,
     *,
     config: list[str] | None = None,
@@ -782,6 +925,9 @@ def run_all_stacks(
     tag_expr: str | None = None,
     save_plan_json: Path | None = None,
     strict_validation_warnings: bool = False,
+    validation_report_format: (
+        str | ValidationReportFormat
+    ) = ValidationReportFormat.JSON,
 ) -> int:
     """Generate all discovered stacks and run a Terragrunt action in order.
 
@@ -807,6 +953,8 @@ def run_all_stacks(
             output for each stack during plan actions.
         strict_validation_warnings: When `True`, warning outcomes from plan
             validations are treated as failures.
+        validation_report_format: Format used for machine-readable validation
+            report output.
 
     Returns:
         Process-style exit code from the Terragrunt action.
@@ -817,18 +965,23 @@ def run_all_stacks(
         base_dir=root,
         no_cache=no_cache,
     )
-    if (tags or tag_expr) and action not in {"plan", "apply", "destroy"}:
+    action_enum = TerragruntAction(action)
+    if (tags or tag_expr) and action_enum not in {
+        TerragruntAction.PLAN,
+        TerragruntAction.APPLY,
+        TerragruntAction.DESTROY,
+    }:
         raise StacksmithConfigError(
             "--tag and --tag-expr are only supported for run-all plan, apply, and destroy"
         )
-    if save_plan_json is not None and action != "plan":
+    if save_plan_json is not None and action_enum != TerragruntAction.PLAN:
         raise StacksmithConfigError(
             "--save-plan-json is only supported for run-all plan"
         )
 
     LOGGER.debug(
         "Running run-all action {action} from root {root} with config paths: {config_paths}",
-        action=action,
+        action=action_enum.value,
         root=root,
         config_paths=config_paths,
     )
@@ -870,29 +1023,30 @@ def run_all_stacks(
 
             filtered_stack_dirs[stack_name] = stack_dir
             stack_args_by_name[stack_name] = _build_terragrunt_args(
-                action,
+                action_enum,
                 destroy,
                 targets=targets,
             )
 
         if not filtered_stack_dirs:
             LOGGER.info("No stacks matched tag selectors; nothing to run.")
-            if action == "plan":
+            if action_enum == TerragruntAction.PLAN:
                 _emit_validation_report(
                     _build_plan_validation_report(
-                        command="run-all plan",
+                        command=f"run-all {TerragruntAction.PLAN.value}",
                         exit_code=0,
                         strict_validation_warnings=strict_validation_warnings,
                         results=plan_validation_results,
                         stack_count=0,
-                    )
+                    ),
+                    report_format=validation_report_format,
                 )
             return 0
 
         stack_build_dirs = filtered_stack_dirs
 
     terragrunt_exit_code = run_terragrunt_all_ordered(
-        _build_terragrunt_args(action, destroy),
+        _build_terragrunt_args(action_enum, destroy),
         stack_build_dirs,
         auto_approve=auto_approve,
         config=loaded_config,
@@ -904,15 +1058,16 @@ def run_all_stacks(
         plan_validation_results=plan_validation_results,
     )
 
-    if action == "plan":
+    if action_enum == TerragruntAction.PLAN:
         _emit_validation_report(
             _build_plan_validation_report(
-                command="run-all plan",
+                command=f"run-all {TerragruntAction.PLAN.value}",
                 exit_code=terragrunt_exit_code,
                 strict_validation_warnings=strict_validation_warnings,
                 results=plan_validation_results,
                 stack_count=len(stack_build_dirs),
-            )
+            ),
+            report_format=validation_report_format,
         )
 
     return terragrunt_exit_code

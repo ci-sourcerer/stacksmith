@@ -4,6 +4,7 @@ from typing import Any
 
 from loguru import logger as LOGGER
 
+from .enums import TerragruntAction
 from .models import StackDefinition, ToolConfig
 
 
@@ -65,7 +66,7 @@ def generate_terragrunt_json(
             if dep_stack and dep_stack.mock_outputs:
                 dep_block["mock_outputs"] = dep_stack.mock_outputs
                 dep_block["mock_outputs_allowed_terraform_commands"] = [
-                    "plan",
+                    TerragruntAction.PLAN.value,
                     "validate",
                 ]
 

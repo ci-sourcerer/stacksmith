@@ -29,9 +29,9 @@ The shared config repo contains module mappings, transforms, and validations.
 
 ## Example stack
 
-The stack file is [stack-repo/bucket-and-ec2/stack.yaml](stack-repo/bucket-and-ec2/stack.yaml).
+The stack file is [`stack-repo/bucket-and-ec2/stack.yaml`](stack-repo/bucket-and-ec2/stack.yaml).
 
-The vars file is [stack-repo/bucket-and-ec2/vars.dev.yaml](stack-repo/bucket-and-ec2/vars.dev.yaml).
+The vars file is [`stack-repo/bucket-and-ec2/vars.dev.yaml`](stack-repo/bucket-and-ec2/vars.dev.yaml).
 
 The stack has the following tags.
 
@@ -46,13 +46,13 @@ component-level targeting with expressions like
 
 ## Shared config repo
 
-The managed config file is [shared-config-repo/stacksmith-config.yaml](shared-config-repo/stacksmith-config.yaml).
+The managed config file is [`shared-config-repo/stacksmith-config.yaml`](shared-config-repo/stacksmith-config.yaml).
 
-The transform script directory is [shared-config-repo/scripts/transforms](shared-config-repo/scripts/transforms).
+The transform script directory is [`shared-config-repo/scripts/transforms`](shared-config-repo/scripts/transforms).
 
-The validation script directory is [shared-config-repo/scripts/validations](shared-config-repo/scripts/validations).
+The validation script directory is [`shared-config-repo/scripts/validations`](shared-config-repo/scripts/validations).
 
-The provider script directory is [shared-config-repo/scripts/providers](shared-config-repo/scripts/providers).
+The provider script directory is [`shared-config-repo/scripts/providers`](shared-config-repo/scripts/providers).
 
 ### Environment variables
 
@@ -72,7 +72,7 @@ Useful CLI environment variables for this example.
 - `STACKSMITH_ONLY_USE_LOCAL_MODULES`
 
 Implementation details are in
-[shared-config-repo/scripts/transforms/transform_s3_write_policy.py](shared-config-repo/scripts/transforms/transform_s3_write_policy.py).
+[`shared-config-repo/scripts/transforms/transform_s3_write_policy.py`](shared-config-repo/scripts/transforms/transform_s3_write_policy.py).
 
 ## Prerequisites
 
@@ -81,9 +81,9 @@ Before running `plan`, `apply`, or `destroy`, make sure the following are set up
 - AWS credentials are available for your shell session.
 - The secondary provider only skips `assume_role` when STS caller identity resolves to a root ARN. If identity lookup fails or is inconclusive, the example keeps `assume_role` enabled.
 - Set `STACKSMITH_VAR_AWS_PROFILE`, `AWS_PROFILE`, or `AWS_DEFAULT_PROFILE` if you want deterministic profile selection for the root identity check.
-- The secondary provider config lives in [shared-config-repo/scripts/providers/configure_aws_secondary_provider.py](shared-config-repo/scripts/providers/configure_aws_secondary_provider.py) and reuses [shared-config-repo/scripts/providers/aws_identity.py](shared-config-repo/scripts/providers/aws_identity.py) for root detection.
-- Vars in [stack-repo/bucket-and-ec2/vars.dev.yaml](stack-repo/bucket-and-ec2/vars.dev.yaml) are adapted for your account, especially `subnet_id`.
-- Account and region assumptions in [shared-config-repo/stacksmith-config.yaml](shared-config-repo/stacksmith-config.yaml) match your target environment.
+- The secondary provider config lives in [`shared-config-repo/scripts/providers/configure_aws_secondary_provider.py`](shared-config-repo/scripts/providers/configure_aws_secondary_provider.py) and reuses [`shared-config-repo/scripts/providers/aws_identity.py`](shared-config-repo/scripts/providers/aws_identity.py) for root detection.
+- Vars in [`stack-repo/bucket-and-ec2/vars.dev.yaml`](stack-repo/bucket-and-ec2/vars.dev.yaml) are adapted for your account, especially `subnet_id`.
+- Account and region assumptions in [`shared-config-repo/stacksmith-config.yaml`](shared-config-repo/stacksmith-config.yaml) match your target environment.
 
 ## Common commands
 
@@ -149,7 +149,40 @@ stacksmith plan "$STACK_FILE" \
     | jq '.'
 ```
 
+Write the machine-readable report as CSV for spreadsheet-friendly review.
+
+```bash
+stacksmith plan "$STACK_FILE" \
+    --config "$CONFIG_FILE" \
+    --vars "$VARS_FILE" \
+    --validation-report-format csv \
+    > plan-validation-report.csv
+```
+
+### CSV schema
+
+The CSV output contains a `report` row and one `result` row per validation result. Result rows keep report-level columns empty to reduce duplication.
+
+| Column | Description |
+| - | - |
+| `row_type` | Either `report` or `result`. |
+| `command` | The CLI command that produced the report (e.g. `plan`, `validate`). |
+| `report_status` | Overall report status: `pass`, `warn`, or `fail`. |
+| `exit_code` | Numeric exit code emitted by the CLI process. |
+| `strict_validation_warnings` | `true` if `--strict-validation-warnings` was used, else `false`. |
+| `stack_count` | Number of stacks in a multi-stack run (usually set on `report` rows). |
+| `summary_pass` | Count of passing validation results. |
+| `summary_warn` | Count of warnings. |
+| `summary_fail` | Count of failures. |
+| `stack_name` | Stack name for the row (single-stack summary for `report`, per-rule stack for `result`). |
+| `result_name` | Validation rule name (or `validate` for var/validate commands). Populated on `result` rows. |
+| `result_status` | Result status for this rule: `pass`, `warn`, or `fail`. Populated on `result` rows. |
+| `result_message` | Short human-readable summary for the result. Populated on `result` rows. |
+| `result_detail_json` | JSON-encoded detail payload for the result, including the long plan/value text when present. Populated on `result` rows. |
+
 Layer shared defaults from another repo ahead of stack-local values.
+
+> Note: The CSV output format is subject to change; prefer `json` for stable machine-readable output. Consumers should treat CSV as an unstable contract when automating integrations.
 
 ```bash
 stacksmith plan "$STACK_FILE" \
