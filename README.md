@@ -78,7 +78,7 @@ This section shows managed config authoring details. Conceptual definitions for 
 
 backend:
   type: s3
-  bucket: my-org-terraform-state
+  bucket: my-org-state
   region: us-east-1
 
 tofu:
@@ -534,3 +534,7 @@ poe build-image --build-args "TOFU_PROVIDER_SPEC=$(yq -r '.providers | to_entrie
 - Using a monorepo and concerned about who can edit what? Use GitHub's [CODEOWNERS](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners) file to restrict write access to certain stack files while allowing broader read access. Similarly, the managed config can be locked down to a small team of platform engineers, while the validation policies themselves can be tightly controlled by a security team.
 - Doing a lot of `get` calls on dictionaries in your validation scripts? Try using `jmespath` instead to query complex nested structures with ease. For example, `jmespath.search("components.*.properties.bucket", stack)` would return a list of all bucket properties across all components in the stack.
 - Want to take existing resources into consideration for validation rules? Import `boto3` and use it to query AWS directly from your validation scripts. Just be mindful of latency implications.
+
+## Roadmap
+
+- A pre-built Docker image with no pre-installed providers available on Docker Hub as `docker.io/cisourcerer/stacksmith:<tag>`.
