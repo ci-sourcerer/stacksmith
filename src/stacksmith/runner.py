@@ -112,7 +112,6 @@ def _check_required_tool_versions() -> None:
             for name, cmd in checks.items()
         }
         for future in concurrent.futures.as_completed(futures):
-            tool_name = futures[future]
             try:
                 future.result()
             except StacksmithError as exc:

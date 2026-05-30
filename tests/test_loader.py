@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 from jsonschema import ValidationError
-from stacksmith.loader import load_config, load_stack
+from stacksmith.loader import load_config, load_runfile, load_stack, load_stacks
 
 
 def _s3_config_yaml(
@@ -157,6 +157,133 @@ class TestLoadStack:
         with pytest.raises(ValidationError):
             load_stack(bad_file)
 
+    def test_load_stacks_merges_components_and_properties(self, tmp_path: Path):
+        base_file = tmp_path / "base-stack.yaml"
+        override_file = tmp_path / "override-stack.yaml"
+        base_file.write_text(
+            "name: merged-stack\n"
+            "tags:\n"
+            "  - shared\n"
+            "depends_on:\n"
+            "  - network\n"
+            "components:\n"
+            "  bucket:\n"
+            "    type: aws_s3_bucket\n"
+            "    tags:\n"
+            "      - base\n"
+            "    properties:\n"
+            "      versioning_enabled: false\n",
+            encoding="utf-8",
+        )
+        override_file.write_text(
+            "name: merged-stack\n"
+            "tags:\n"
+            "  - app\n"
+            "depends_on:\n"
+            "  - data\n"
+            "components:\n"
+            "  bucket:\n"
+            "    properties:\n"
+            "      versioning_enabled: true\n"
+            "      acl: private\n"
+            "  queue:\n"
+            "    type: aws_sqs_queue\n",
+            encoding="utf-8",
+        )
+
+        stack = load_stacks([base_file, override_file])
+
+        assert stack.name == "merged-stack"
+        assert stack.tags == {"shared", "app"}
+        assert stack.depends_on == ["network", "data"]
+        assert stack.components["bucket"].tags == {"base"}
+        assert stack.components["bucket"].properties == {
+            "versioning_enabled": True,
+            "acl": "private",
+        }
+        assert stack.components["queue"].type == "aws_sqs_queue"
+        assert stack.source_path == override_file.resolve()
+
+    def test_load_stacks_requires_at_least_one_path(self):
+        with pytest.raises(ValueError, match="At least one stack file path"):
+            load_stacks([])
+
+    def test_load_stacks_override_mode_replaces_previous_layer(self, tmp_path: Path):
+        base_file = tmp_path / "base-stack.yaml"
+        override_file = tmp_path / "override-stack.yaml"
+        base_file.write_text(
+            "name: merged-stack\n"
+            "tags:\n"
+            "  - shared\n"
+            "depends_on:\n"
+            "  - network\n"
+            "components:\n"
+            "  bucket:\n"
+            "    type: aws_s3_bucket\n"
+            "    tags:\n"
+            "      - base\n"
+            "    properties:\n"
+            "      versioning_enabled: false\n",
+            encoding="utf-8",
+        )
+        override_file.write_text(
+            "name: merged-stack\n"
+            "tags:\n"
+            "  - app\n"
+            "components:\n"
+            "  queue:\n"
+            "    type: aws_sqs_queue\n",
+            encoding="utf-8",
+        )
+
+        stack = load_stacks([base_file, override_file], merge_mode="override")
+
+        assert stack.tags == {"app"}
+        assert stack.depends_on == []
+        assert set(stack.components) == {"queue"}
+        assert stack.source_path == override_file.resolve()
+
+
+class TestLoadRunFile:
+    def test_load_runfile(self, tmp_path: Path):
+        run_file = tmp_path / "stacksmith.yaml"
+        run_file.write_text(
+            "merge_mode: override\n"
+            "stacks:\n"
+            "  - https://example.com/base-stack.yaml\n"
+            "  - ./stack.yaml\n"
+            "configs:\n"
+            "  - ./stacksmith-config.yaml\n"
+            "vars:\n"
+            "  - ./vars.dev.yaml\n"
+            "var:\n"
+            "  replicas: 2\n"
+            "  features:\n"
+            "    enabled: true\n",
+            encoding="utf-8",
+        )
+
+        loaded = load_runfile(run_file)
+
+        assert loaded.merge_mode == "override"
+        assert loaded.stacks == [
+            "https://example.com/base-stack.yaml",
+            "./stack.yaml",
+        ]
+        assert loaded.configs == ["./stacksmith-config.yaml"]
+        assert loaded.vars == ["./vars.dev.yaml"]
+        assert loaded.var == {"replicas": 2, "features": {"enabled": True}}
+
+    def test_load_runfile_rejects_unknown_keys(self, tmp_path: Path):
+        run_file = tmp_path / "stacksmith.yaml"
+        run_file.write_text(
+            "stacks:\n" "  - ./stack.yaml\n" "unexpected: true\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValidationError):
+            load_runfile(run_file)
+
 
 class TestLoadConfig:
     def test_load_config(self, sample_config_yaml: Path):
@@ -215,6 +342,30 @@ class TestLoadConfig:
     def test_source_path_is_set(self, sample_config_yaml: Path):
         config = load_config(sample_config_yaml)
         assert config.source_path == sample_config_yaml.resolve()
+
+    def test_load_config_override_mode_replaces_previous_layer(self, tmp_path: Path):
+        base_file = tmp_path / "base-stacksmith-config.yaml"
+        override_file = tmp_path / "override-stacksmith-config.yaml"
+        base_file.write_text(
+            _s3_config_yaml(
+                backend_bucket="base-bucket",
+                module_body=(
+                    "    properties:\n" "      acl:\n" "        mapped_to: bucket_acl\n"
+                ),
+            ),
+            encoding="utf-8",
+        )
+        override_file.write_text(
+            _local_config_yaml(),
+            encoding="utf-8",
+        )
+
+        config = load_config([base_file, override_file], merge_mode="override")
+
+        assert config.backend.type == "local"
+        assert config.backend.config == {"path": ".state"}
+        assert config.module_mappings["aws_s3_bucket"].properties == {}
+        assert config.source_path == override_file.resolve()
 
     def test_invalid_validation_spec_is_rejected(self, tmp_path: Path):
         bad_file = tmp_path / "stack.yaml"

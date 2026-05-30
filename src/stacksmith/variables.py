@@ -8,6 +8,7 @@ from typing import Any, Literal, TypeAlias
 import yaml
 from deepmerge import Merger
 
+from .enums import MergeMode
 from .models import RemoteAuthConfig, ValidationSpec
 from .remote import is_remote_url, resolve_remote
 from .utils import stacksmith_env_list
@@ -22,6 +23,10 @@ _VAR_MERGER = Merger(
 )
 
 
+def _resolve_merge_mode(merge_mode: str | MergeMode) -> MergeMode:
+    return MergeMode(merge_mode)
+
+
 def _coerce_value(raw: str) -> Any:
     try:
         return json.loads(raw)
@@ -29,7 +34,15 @@ def _coerce_value(raw: str) -> Any:
         return raw
 
 
-def _merge_var_values(existing: Any, incoming: Any) -> Any:
+def _merge_var_values(
+    existing: Any,
+    incoming: Any,
+    *,
+    merge_mode: str | MergeMode,
+) -> Any:
+    if _resolve_merge_mode(merge_mode) == MergeMode.OVERRIDE:
+        return deepcopy(incoming)
+
     match (existing, incoming):
         case (dict(), dict()) | (list(), list()):
             return _VAR_MERGER.merge(deepcopy(existing), incoming)
@@ -37,9 +50,19 @@ def _merge_var_values(existing: Any, incoming: Any) -> Any:
             return deepcopy(incoming)
 
 
-def _merge_resolved_value(resolved: dict[str, Any], name: str, incoming: Any) -> None:
+def _merge_resolved_value(
+    resolved: dict[str, Any],
+    name: str,
+    incoming: Any,
+    *,
+    merge_mode: str | MergeMode,
+) -> None:
     if name in resolved:
-        resolved[name] = _merge_var_values(resolved[name], incoming)
+        resolved[name] = _merge_var_values(
+            resolved[name],
+            incoming,
+            merge_mode=merge_mode,
+        )
     else:
         resolved[name] = deepcopy(incoming)
 
@@ -94,18 +117,29 @@ def _apply_vars_source(
     vars_path: str | Path,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> None:
     for name, value in _load_vars_file(
         vars_path,
         cache_dir=cache_dir,
         auth_config=auth_config,
     ).items():
-        _merge_resolved_value(resolved, name, value)
+        _merge_resolved_value(resolved, name, value, merge_mode=merge_mode)
 
 
-def _apply_cli_var_item(resolved: dict[str, Any], raw_item: str) -> None:
+def _apply_cli_var_item(
+    resolved: dict[str, Any],
+    raw_item: str,
+    *,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
+) -> None:
     name, raw_value = _parse_var_item(raw_item)
-    _merge_resolved_value(resolved, name, _coerce_value(raw_value))
+    _merge_resolved_value(
+        resolved,
+        name,
+        _coerce_value(raw_value),
+        merge_mode=merge_mode,
+    )
 
 
 def resolve_inputs(
@@ -115,6 +149,7 @@ def resolve_inputs(
     config_validation_base_path: Path | None = None,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> dict[str, Any]:
     """Resolve input values from all sources and validate them.
 
@@ -134,6 +169,7 @@ def resolve_inputs(
         config_validation_base_path: Base directory for config-defined validation scripts.
         cache_dir: Cache directory for fetching remote resources.
         auth_config: Optional host-keyed auth configuration for remote fetching.
+        merge_mode: Merge strategy for layered vars files and inline values.
 
     Returns:
         Dict of resolved input name -> value.
@@ -150,6 +186,7 @@ def resolve_inputs(
             vars_path,
             cache_dir=cache_dir,
             auth_config=auth_config,
+            merge_mode=merge_mode,
         )
 
     # Layer 2: environment variables
@@ -159,7 +196,7 @@ def resolve_inputs(
 
         name = env_key.removeprefix(_ENV_PREFIX).lower()
         coerced = _coerce_value(env_val)
-        _merge_resolved_value(resolved, name, coerced)
+        _merge_resolved_value(resolved, name, coerced, merge_mode=merge_mode)
 
     # Layer 3: Explicit ordered CLI inputs.
     for kind, value in input_layers or []:
@@ -170,9 +207,10 @@ def resolve_inputs(
                     value,
                     cache_dir=cache_dir,
                     auth_config=auth_config,
+                    merge_mode=merge_mode,
                 )
             case "var":
-                _apply_cli_var_item(resolved, value)
+                _apply_cli_var_item(resolved, value, merge_mode=merge_mode)
             case _:
                 raise ValueError(f"Unsupported input layer kind: {kind}")
 

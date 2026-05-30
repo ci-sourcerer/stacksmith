@@ -1,9 +1,10 @@
-import hashlib
 import json
 import os
 from pathlib import Path
 
 from loguru import logger as LOGGER
+
+from .utils import cache_key
 
 #: Default root directory for vendored modules inside the container image.
 DEFAULT_VENDOR_DIR = Path("/workspace/.stacksmith/modules")
@@ -35,7 +36,7 @@ def vendor_key(source: str, version: str) -> str:
     Returns:
         A 16-character lowercase hex string usable as a directory name.
     """
-    return hashlib.sha256(f"{source}|{version}".encode()).hexdigest()[:16]
+    return cache_key(f"{source}|{version}")
 
 
 def vendor_path(source: str, version: str, vendor_dir: Path | None = None) -> Path:

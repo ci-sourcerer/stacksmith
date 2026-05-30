@@ -30,3 +30,10 @@ class InspectOutputFormat(StrEnum):
     TABLE = auto()
     JSON = auto()
     YAML = auto()
+
+
+class MergeMode(StrEnum):
+    """Supported merge strategies for layered stacksmith inputs."""
+
+    DEEP = auto()
+    OVERRIDE = auto()

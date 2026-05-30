@@ -2,9 +2,9 @@ import argparse
 import os
 from pathlib import Path
 
-from ..enums import InspectOutputFormat, ValidationReportFormat
+from ..enums import InspectOutputFormat, MergeMode, ValidationReportFormat
 from ..exceptions import StacksmithConfigError
-from ..utils import env_truthy, stacksmith_env
+from ..utils import env_truthy, stacksmith_env, stacksmith_env_list
 
 STACKSMITH_LOG_CATEGORIES = (
     "stacksmith.api",
@@ -155,6 +155,24 @@ def get_env_file_path(argv: list[str] | None = None) -> Path | None:
     return paths[-1]
 
 
+def get_default_run_file() -> str | None:
+    """Return the default run-file reference from env or local auto-detection."""
+    if run_file := stacksmith_env("RUN_FILE"):
+        return run_file
+
+    default_path = Path.cwd() / "stacksmith.yaml"
+    if default_path.exists():
+        return str(default_path)
+    return None
+
+
+def get_default_stack_refs() -> list[str]:
+    """Return default stack references from env or local auto-detection."""
+    if stack_refs := stacksmith_env_list("STACK"):
+        return stack_refs
+    return [str(Path.cwd() / "stack.yaml")]
+
+
 def _add_logging_verbosity_args(parser: argparse.ArgumentParser) -> None:
     verbosity_group = parser.add_mutually_exclusive_group()
     verbosity_group.add_argument(
@@ -188,6 +206,15 @@ def _add_env_file_arg(parser: argparse.ArgumentParser) -> None:
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
+        "--run-file",
+        type=str,
+        default=get_default_run_file(),
+        help=(
+            "Path or URL to stacksmith.yaml. When omitted, STACKSMITH_RUN_FILE is used "
+            "if set, otherwise ./stacksmith.yaml is auto-detected when present."
+        ),
+    )
+    parser.add_argument(
         "-c",
         "--config",
         type=str,
@@ -220,6 +247,15 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         action=_OrderedInputAction,
         dest="vars",
         help="Variable override in key=value format (repeatable)",
+    )
+    parser.add_argument(
+        "--merge-mode",
+        choices=[mode.value for mode in MergeMode],
+        default=None,
+        help=(
+            "Merge strategy for layered stacks, configs, and vars. "
+            "Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones."
+        ),
     )
     parser.add_argument(
         "--build-dir",
@@ -312,16 +348,33 @@ def _configure_diagnose_parser(parser: argparse.ArgumentParser) -> None:
     _add_common_args(parser)
 
 
-def _add_stack_arg(parser: argparse.ArgumentParser) -> None:
+def _add_stack_arg(
+    parser: argparse.ArgumentParser,
+    *,
+    include_positional: bool = True,
+) -> None:
     parser.add_argument(
-        "stack_file",
-        type=_path_type,
-        nargs="?",
-        default=Path(stacksmith_env("STACK", str(Path.cwd() / "stack.yaml"))),
+        "--stack",
+        type=str,
+        action="append",
+        default=None,
         help=(
-            "Path to stack.yaml, stack.yml, or stack.json."
-            " Defaults to stack.yaml in the current directory and falls back"
-            " to stack.yml or stack.json if stack.yaml is missing."
-            " Can also be overridden by STACKSMITH_STACK."
+            "Path or URL to a stack definition file. Repeat to deep-merge multiple "
+            "stack layers for single-stack commands, or to target explicit stacks for run-all."
         ),
     )
+    if include_positional:
+        parser.add_argument(
+            "stack_file",
+            type=_path_type,
+            nargs="?",
+            default=(
+                Path(stacksmith_env("STACK"))
+                if stacksmith_env("STACK") is not None
+                else None
+            ),
+            help=(
+                "Optional path to stack.yaml, stack.yml, or stack.json. When omitted, "
+                "stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml."
+            ),
+        )

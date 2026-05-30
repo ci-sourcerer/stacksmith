@@ -12,6 +12,7 @@ from stacksmith.models import (
     ProviderConfigSpec,
     ProviderFamily,
     ProviderInstance,
+    RunFile,
     StackDefinition,
     StackMeta,
     TofuConfig,
@@ -167,6 +168,25 @@ def test_tool_config_fields_match_config_schema():
     }
 
 
+def test_runfile_fields_match_runfile_schema():
+    schema = _load_schema("runfile.schema.json")
+
+    assert _field_names(RunFile) == {
+        "merge_mode",
+        "stacks",
+        "configs",
+        "vars",
+        "var",
+    }
+    assert set(schema["properties"]) == {
+        "merge_mode",
+        "stacks",
+        "configs",
+        "vars",
+        "var",
+    }
+
+
 @pytest.mark.parametrize(
     "schema_name, model, expected_properties",
     [
@@ -187,6 +207,11 @@ def test_tool_config_fields_match_config_schema():
             "stack.schema.json",
             StackDefinition,
             {"name", "tags", "depends_on", "mock_outputs", "components"},
+        ),
+        (
+            "runfile.schema.json",
+            RunFile,
+            {"merge_mode", "stacks", "configs", "vars", "var"},
         ),
     ],
 )

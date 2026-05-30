@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import sys
 from importlib.metadata import version as metadata_version
@@ -12,7 +13,11 @@ from stacksmith.cli.args import (
     _configure_diagnose_parser,
     _configure_inspect_parser,
     _path_type,
+    get_default_stack_refs,
 )
+from stacksmith.enums import MergeMode
+from stacksmith.loader import load_runfile
+from stacksmith.remote import is_remote_url, resolve_if_remote
 from stacksmith.utils import stacksmith_env
 
 from ..api import (
@@ -131,6 +136,78 @@ def _ordered_input_layers(
     return parse_input_layers(getattr(args, "input_layers", None))
 
 
+def _runfile_cache_dir(args: argparse.Namespace) -> Path:
+    build_dir = getattr(args, "build_dir", None)
+    if build_dir is not None:
+        return build_dir / ".cache"
+
+    if getattr(args, "command", None) == "run-all":
+        return getattr(args, "root", Path.cwd()) / ".stacksmith" / ".cache"
+    return Path.cwd() / ".stacksmith" / ".cache"
+
+
+def _load_runfile_if_present(args: argparse.Namespace):
+    run_file_ref = getattr(args, "run_file", None)
+    if not run_file_ref:
+        return None
+
+    if is_remote_url(run_file_ref):
+        path = resolve_if_remote(run_file_ref, _runfile_cache_dir(args))
+    else:
+        path = Path(run_file_ref).expanduser()
+    return load_runfile(path)
+
+
+def _apply_runfile(args: argparse.Namespace) -> argparse.Namespace:
+    if getattr(args, "_runfile_applied", False):
+        return args
+
+    run_file = _load_runfile_if_present(args)
+    if run_file is None:
+        args._runfile_applied = True
+        return args
+
+    if getattr(args, "merge_mode", None) is None and run_file.merge_mode is not None:
+        args.merge_mode = run_file.merge_mode.value
+
+    args.config = [*run_file.configs, *(getattr(args, "config", None) or [])] or None
+
+    run_layers = [("vars", item) for item in run_file.vars]
+    run_layers.extend(
+        ("var", f"{name}={json.dumps(value)}") for name, value in run_file.var.items()
+    )
+    if run_layers:
+        args.input_layers = run_layers + list(getattr(args, "input_layers", None) or [])
+
+    if hasattr(args, "stack"):
+        stack_refs = [*run_file.stacks, *(getattr(args, "stack", None) or [])]
+        args.stack = stack_refs or None
+
+    args._runfile_applied = True
+    return args
+
+
+def _stack_arg(args: argparse.Namespace) -> Path | str | list[Path | str]:
+    _apply_runfile(args)
+    stack_refs: list[Path | str] = list(getattr(args, "stack", None) or [])
+    if getattr(args, "stack_file", None) is not None:
+        stack_refs.append(args.stack_file)
+    if not stack_refs:
+        stack_refs = get_default_stack_refs()
+    return stack_refs[0] if len(stack_refs) == 1 else stack_refs
+
+
+def _run_all_stack_args(args: argparse.Namespace) -> list[Path | str] | None:
+    _apply_runfile(args)
+    stack_refs = list(getattr(args, "stack", None) or [])
+    return stack_refs or None
+
+
+def _merge_mode_arg(args: argparse.Namespace) -> MergeMode:
+    _apply_runfile(args)
+    return MergeMode(getattr(args, "merge_mode", None) or MergeMode.DEEP.value)
+
+
 def _vars_arg(args: argparse.Namespace) -> list[str] | None:
     raw_layers = getattr(args, "input_layers", None)
     if raw_layers and any(kind == "vars" for kind, _ in raw_layers):
@@ -145,37 +222,43 @@ def _validation_report_format(args: argparse.Namespace) -> ValidationReportForma
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
     return validate_stack(
-        args.stack_file,
+        _stack_arg(args),
         config=args.config,
         vars_file=_vars_arg(args),
         input_layers=_ordered_input_layers(args),
         build_dir=args.build_dir,
         no_cache=args.no_cache,
         strict_validation_warnings=args.strict_validation_warnings,
+        merge_mode=_merge_mode_arg(args),
         validation_report_format=_validation_report_format(args),
     )
 
 
 def _cmd_generate(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
     return generate_stack(
-        args.stack_file,
+        _stack_arg(args),
         config=args.config,
         vars_file=_vars_arg(args),
         input_layers=_ordered_input_layers(args),
         build_dir=args.build_dir,
         no_cache=args.no_cache,
         use_local_modules=args.use_local_modules,
+        merge_mode=_merge_mode_arg(args),
     )
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
     resource_types = args.resource_type if args.resource_type else None
     results, plan_policies = inspect_modules(
         config=args.config,
         resource_types=resource_types,
         build_dir=args.build_dir,
         no_cache=args.no_cache,
+        merge_mode=_merge_mode_arg(args),
     )
 
     output_format = InspectOutputFormat(args.format or InspectOutputFormat.TABLE.value)
@@ -196,9 +279,10 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 
 
 def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
+    _apply_runfile(args)
     return run_stack_action(
         action,
-        args.stack_file,
+        _stack_arg(args),
         config=args.config,
         vars_file=_vars_arg(args),
         input_layers=_ordered_input_layers(args),
@@ -212,20 +296,24 @@ def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
         save_plan_json=getattr(args, "save_plan_json", None),
         strict_validation_warnings=args.strict_validation_warnings,
         fail_on_changes=getattr(args, "fail_on_changes", False),
+        merge_mode=_merge_mode_arg(args),
         validation_report_format=_validation_report_format(args),
     )
 
 
 def _cmd_diagnose(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
     return diagnose_cache(
-        args.stack_file,
+        _stack_arg(args),
         config=args.config,
         build_dir=args.build_dir,
         no_cache=args.no_cache,
+        merge_mode=_merge_mode_arg(args),
     )
 
 
 def _cmd_run_all(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
     if args.action == TerragruntAction.INIT.value and (
         args.tag is not None or args.tag_expr is not None
     ):
@@ -267,6 +355,8 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
         save_plan_json=args.save_plan_json,
         strict_validation_warnings=args.strict_validation_warnings,
         fail_on_changes=getattr(args, "fail_on_changes", False),
+        stacks=_run_all_stack_args(args),
+        merge_mode=_merge_mode_arg(args),
         validation_report_format=_validation_report_format(args),
     )
 
@@ -314,6 +404,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=False,
         help="Root directory to discover stacks in (default: current working directory)",
     )
+    _add_stack_arg(p_run_all, include_positional=False)
     _add_common_args(p_run_all)
     _add_validation_report_format_arg(p_run_all)
     p_run_all.add_argument(

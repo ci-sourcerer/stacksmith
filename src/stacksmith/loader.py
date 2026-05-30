@@ -8,17 +8,40 @@ import yaml
 from deepmerge import Merger
 from jsonschema import validate
 
+from .enums import MergeMode
 from .exceptions import StacksmithConfigError, StacksmithNotFoundError
-from .models import StackDefinition, ToolConfig
+from .models import RunFile, StackDefinition, ToolConfig
 from .remote import is_remote_url
 
 _STACK_SCHEMA: dict[str, Any] | None = None
 _CONFIG_SCHEMA: dict[str, Any] | None = None
+_RUNFILE_SCHEMA: dict[str, Any] | None = None
+_STACK_MERGER = Merger(
+    [(dict, ["merge"]), (list, ["append"]), (set, ["union"])],
+    ["override"],
+    ["override"],
+)
 _CONFIG_MERGER = Merger(
     [(dict, ["merge"]), (list, ["append"]), (set, ["union"])],
     ["override"],
     ["override"],
 )
+
+
+def _resolve_merge_mode(merge_mode: str | MergeMode) -> MergeMode:
+    return MergeMode(merge_mode)
+
+
+def _merge_layer(
+    merged: dict[str, Any],
+    layer: dict[str, Any],
+    *,
+    merge_mode: str | MergeMode,
+    merger: Merger,
+) -> dict[str, Any]:
+    if _resolve_merge_mode(merge_mode) == MergeMode.OVERRIDE:
+        return deepcopy(layer)
+    return merger.merge(merged, layer)
 
 
 def _load_json_schema(name: str) -> dict[str, Any]:
@@ -41,13 +64,21 @@ def _get_config_schema() -> dict[str, Any]:
     return _CONFIG_SCHEMA
 
 
-def _load_file(path: Path) -> dict[str, Any]:
+def _get_runfile_schema() -> dict[str, Any]:
+    global _RUNFILE_SCHEMA
+    if _RUNFILE_SCHEMA is None:
+        _RUNFILE_SCHEMA = _load_json_schema("runfile.schema.json")
+    return _RUNFILE_SCHEMA
+
+
+def _read_file_text(path: Path) -> tuple[str, str]:
     if not path.exists():
         raise StacksmithNotFoundError(f"File not found: {path}")
 
-    suffix = path.suffix.lower()
-    text = path.read_text(encoding="utf-8")
+    return path.suffix.lower(), path.read_text(encoding="utf-8")
 
+
+def _parse_object_file(path: Path, suffix: str, text: str) -> dict[str, Any]:
     match suffix:
         case ".yaml" | ".yml":
             loaded = yaml.safe_load(text)
@@ -69,6 +100,11 @@ def _load_file(path: Path) -> dict[str, Any]:
             raise StacksmithConfigError(
                 f"Unsupported file extension '{suffix}'. Use .yaml, .yml, or .json."
             )
+
+
+def _load_file(path: Path) -> dict[str, Any]:
+    suffix, text = _read_file_text(path)
+    return _parse_object_file(path, suffix, text)
 
 
 def _extract_yaml_locations(text: str, path: Path) -> dict[tuple[str, ...], str]:
@@ -115,37 +151,17 @@ def _extract_yaml_locations(text: str, path: Path) -> dict[tuple[str, ...], str]
 def _load_file_with_locations(
     path: Path,
 ) -> tuple[dict[str, Any], dict[tuple[str, ...], str]]:
-    if not path.exists():
-        raise StacksmithNotFoundError(f"File not found: {path}")
-
-    suffix = path.suffix.lower()
-    text = path.read_text(encoding="utf-8")
-
-    match suffix:
-        case ".yaml" | ".yml":
-            loaded = yaml.safe_load(text)
-            if loaded is None:
-                loaded = {}
-            if not isinstance(loaded, dict):
-                raise StacksmithConfigError(
-                    f"File must contain a top-level object: {path}"
-                )
-            return loaded, _extract_yaml_locations(text, path)
-        case ".json":
-            loaded = json.loads(text)
-            if not isinstance(loaded, dict):
-                raise StacksmithConfigError(
-                    f"File must contain a top-level object: {path}"
-                )
-            return loaded, {}
-        case _:
-            raise StacksmithConfigError(
-                f"Unsupported file extension '{suffix}'. Use .yaml, .yml, or .json."
-            )
+    suffix, text = _read_file_text(path)
+    loaded = _parse_object_file(path, suffix, text)
+    if suffix in {".yaml", ".yml"}:
+        return loaded, _extract_yaml_locations(text, path)
+    return loaded, {}
 
 
 def _merge_config_layers_with_locations(
     config_paths: list[Path],
+    *,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> tuple[dict[str, Any], dict[tuple[str, ...], str]]:
     merged: dict[str, Any] = {}
     merged_locations: dict[tuple[str, ...], str] = {}
@@ -153,8 +169,18 @@ def _merge_config_layers_with_locations(
         resolved_path = config_path.resolve()
         layer, locations = _load_file_with_locations(resolved_path)
         normalized_layer = _resolve_config_script_paths(layer, resolved_path.parent)
-        merged = _CONFIG_MERGER.merge(merged, normalized_layer)
-        merged_locations = _CONFIG_MERGER.merge(merged_locations, locations)
+        merged = _merge_layer(
+            merged,
+            normalized_layer,
+            merge_mode=merge_mode,
+            merger=_CONFIG_MERGER,
+        )
+        merged_locations = _merge_layer(
+            merged_locations,
+            locations,
+            merge_mode=merge_mode,
+            merger=_CONFIG_MERGER,
+        )
     return merged, merged_locations
 
 
@@ -226,14 +252,23 @@ def _resolve_config_script_paths(
     return result
 
 
-def _merge_config_layers(config_paths: list[Path]) -> dict[str, Any]:
+def _merge_config_layers(
+    config_paths: list[Path],
+    *,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
+) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     for config_path in config_paths:
         resolved_path = config_path.resolve()
         normalized_layer = _resolve_config_script_paths(
             _load_file(resolved_path), resolved_path.parent
         )
-        merged = _CONFIG_MERGER.merge(merged, normalized_layer)
+        merged = _merge_layer(
+            merged,
+            normalized_layer,
+            merge_mode=merge_mode,
+            merger=_CONFIG_MERGER,
+        )
     return merged
 
 
@@ -244,6 +279,38 @@ def _normalize_config_paths(path: Path | list[Path]) -> list[Path]:
     return config_paths
 
 
+def _normalize_stack_paths(path: Path | list[Path]) -> list[Path]:
+    stack_paths = [path] if isinstance(path, Path) else list(path)
+    if not stack_paths:
+        raise StacksmithConfigError("At least one stack file path must be provided")
+    return stack_paths
+
+
+def _build_stack(data: dict[str, Any], stack_paths: list[Path]) -> StackDefinition:
+    validate(instance=data, schema=_get_stack_schema())
+    stack = StackDefinition.model_validate(data)
+    stack.source_path = stack_paths[-1].resolve()
+    return stack
+
+
+def _merge_stack_layers(
+    stack_paths: list[Path],
+    *,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
+) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for stack_path in stack_paths:
+        resolved_path = stack_path.resolve()
+        layer = _load_file(resolved_path)
+        merged = _merge_layer(
+            merged,
+            layer,
+            merge_mode=merge_mode,
+            merger=_STACK_MERGER,
+        )
+    return merged
+
+
 def _build_config(data: dict[str, Any], config_paths: list[Path]) -> ToolConfig:
     validate(instance=data, schema=_get_config_schema())
     config = ToolConfig.model_validate(data)
@@ -251,7 +318,11 @@ def _build_config(data: dict[str, Any], config_paths: list[Path]) -> ToolConfig:
     return config
 
 
-def load_stack(path: Path) -> StackDefinition:
+def load_stack(
+    path: Path,
+    *,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
+) -> StackDefinition:
     """Load and validate a stack definition file.
 
     Args:
@@ -263,14 +334,39 @@ def load_stack(path: Path) -> StackDefinition:
     Raises:
         jsonschema.ValidationError: If the file does not match the stack schema.
     """
-    data = _load_file(path)
-    validate(instance=data, schema=_get_stack_schema())
-    stack = StackDefinition.model_validate(data)
-    stack.source_path = path.resolve()
-    return stack
+    return load_stacks(path, merge_mode=merge_mode)
 
 
-def load_config(path: Path | list[Path]) -> ToolConfig:
+def load_stacks(
+    path: Path | list[Path],
+    *,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
+) -> StackDefinition:
+    """Load and deep-merge one or more stack definition files.
+
+    Args:
+        path: `Path` or list of `Path`s to stack YAML/JSON files.
+            When a list is provided, files are deep-merged in order where later
+            files override earlier scalar values, dicts merge recursively, and
+            lists append.
+
+    Returns:
+        Validated merged stack model.
+
+    Raises:
+        jsonschema.ValidationError: If any file or the merged result does not
+            match the stack schema.
+    """
+    stack_paths = _normalize_stack_paths(path)
+    data = _merge_stack_layers(stack_paths, merge_mode=merge_mode)
+    return _build_stack(data, stack_paths)
+
+
+def load_config(
+    path: Path | list[Path],
+    *,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
+) -> ToolConfig:
     """Load, deep-merge, and validate one or more tool configuration files.
 
     Args:
@@ -286,12 +382,14 @@ def load_config(path: Path | list[Path]) -> ToolConfig:
         jsonschema.ValidationError: If the file does not match the config schema.
     """
     config_paths = _normalize_config_paths(path)
-    data = _merge_config_layers(config_paths)
+    data = _merge_config_layers(config_paths, merge_mode=merge_mode)
     return _build_config(data, config_paths)
 
 
 def load_config_with_locations(
     path: Path | list[Path],
+    *,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> tuple[ToolConfig, dict[tuple[str, ...], str]]:
     """Load config and collect source locations for inline validation specs.
 
@@ -308,5 +406,25 @@ def load_config_with_locations(
         jsonschema.ValidationError: If the file does not match the config schema.
     """
     config_paths = _normalize_config_paths(path)
-    data, locations = _merge_config_layers_with_locations(config_paths)
+    data, locations = _merge_config_layers_with_locations(
+        config_paths,
+        merge_mode=merge_mode,
+    )
     return _build_config(data, config_paths), locations
+
+
+def load_runfile(path: Path) -> RunFile:
+    """Load and validate a Stacksmith run file.
+
+    Args:
+        path: Path to a `stacksmith.yaml`, `stacksmith.yml`, or JSON run file.
+
+    Returns:
+        Validated run-file model.
+
+    Raises:
+        jsonschema.ValidationError: If the file does not match the run-file schema.
+    """
+    data = _load_file(path)
+    validate(instance=data, schema=_get_runfile_schema())
+    return RunFile.model_validate(data)

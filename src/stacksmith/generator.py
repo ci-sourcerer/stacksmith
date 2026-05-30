@@ -18,6 +18,7 @@ from .models import (
     StackDefinition,
     ToolConfig,
 )
+from .utils import derive_stack_state_key
 from .validation import InputValidationOutcome, apply_transform, validate_value
 from .vendor import get_vendor_dir, resolve_module_source
 
@@ -44,19 +45,12 @@ def _render_transform_jinja(template: str, value: Any, context: dict[str, Any]) 
         return rendered
 
 
-def _derive_state_key(stack: StackDefinition, root: Path | None = None) -> str:
-    if root is not None and stack.source_path is not None:
-        rel = stack.source_path.parent.relative_to(root.resolve())
-        return str(rel).replace("\\", "/") + "/terraform.tfstate"
-    return f"{stack.name}/terraform.tfstate"
-
-
 def _generate_terraform_block(
     config: ToolConfig,
     stack: StackDefinition,
     root: Path | None = None,
 ) -> dict[str, Any]:
-    state_key = _derive_state_key(stack, root)
+    state_key = derive_stack_state_key(stack.name, stack.source_path, root)
     return {
         "required_version": f"= {config.tofu.version}",
         "backend": {
@@ -133,6 +127,39 @@ def _is_git_source(source: str) -> bool:
     )
 
 
+def _build_module_source_fields(source: str, version: str) -> dict[str, str]:
+    if _is_git_source(source):
+        git_source = source if source.startswith("git::") else f"git::{source}"
+        query_suffix = f"ref=v{version}"
+        return {
+            "source": (
+                f"{git_source}&{query_suffix}"
+                if "?" in git_source
+                else f"{git_source}?{query_suffix}"
+            )
+        }
+    return {"source": source, "version": version}
+
+
+def _build_property_context(
+    *,
+    name: str,
+    kind: str,
+    resource_name: str,
+    resource_type: str,
+    output_name: str,
+    inputs: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "kind": kind,
+        "resource_name": resource_name,
+        "resource_type": resource_type,
+        "output_name": output_name,
+        "inputs": inputs,
+    }
+
+
 def _generate_module_blocks(
     stack: StackDefinition,
     config: ToolConfig,
@@ -180,32 +207,13 @@ def _generate_module_blocks(
                     mapping.source,
                     mapping.version,
                 )
-                if _is_git_source(mapping.source):
-                    source = mapping.source
-                    if not source.startswith("git::"):
-                        source = f"git::{source}"
-                    query_suffix = f"ref=v{mapping.version}"
-                    module_block["source"] = (
-                        f"{source}&{query_suffix}"
-                        if "?" in source
-                        else f"{source}?{query_suffix}"
-                    )
-                else:
-                    module_block["source"] = mapping.source
-                    module_block["version"] = mapping.version
-        elif _is_git_source(mapping.source):
-            source = mapping.source
-            if not source.startswith("git::"):
-                source = f"git::{source}"
-            query_suffix = f"ref=v{mapping.version}"
-            module_block["source"] = (
-                f"{source}&{query_suffix}"
-                if "?" in source
-                else f"{source}?{query_suffix}"
-            )
+                module_block.update(
+                    _build_module_source_fields(mapping.source, mapping.version)
+                )
         else:
-            module_block["source"] = mapping.source
-            module_block["version"] = mapping.version
+            module_block.update(
+                _build_module_source_fields(mapping.source, mapping.version)
+            )
 
         if mapping.providers:
             module_block["providers"] = {
@@ -231,14 +239,14 @@ def _generate_module_blocks(
                     prop_name=prop_name,
                     output_name=output_name,
                 )
-            property_context = {
-                "name": prop_name,
-                "kind": "resource_property",
-                "resource_name": resource_name,
-                "resource_type": resource.type,
-                "output_name": output_name,
-                "inputs": resolved_inputs,
-            }
+            property_context = _build_property_context(
+                name=prop_name,
+                kind="resource_property",
+                resource_name=resource_name,
+                resource_type=resource.type,
+                output_name=output_name,
+                inputs=resolved_inputs,
+            )
 
             rendered = _apply_property_spec(
                 rendered,
@@ -290,14 +298,14 @@ def _generate_module_blocks(
                     continue
 
                 rendered = input_value
-                property_context = {
-                    "name": input_name,
-                    "kind": "resource_property",
-                    "resource_name": resource_name,
-                    "resource_type": resource.type,
-                    "output_name": output_name,
-                    "inputs": resolved_inputs,
-                }
+                property_context = _build_property_context(
+                    name=input_name,
+                    kind="resource_property",
+                    resource_name=resource_name,
+                    resource_type=resource.type,
+                    output_name=output_name,
+                    inputs=resolved_inputs,
+                )
 
                 rendered = _apply_property_spec(
                     rendered,
@@ -323,14 +331,14 @@ def _generate_module_blocks(
             if output_name in module_block or prop_spec.default is None:
                 continue
 
-            property_context = {
-                "name": prop_name,
-                "kind": "module_property_default",
-                "resource_name": resource_name,
-                "resource_type": resource.type,
-                "output_name": output_name,
-                "inputs": resolved_inputs,
-            }
+            property_context = _build_property_context(
+                name=prop_name,
+                kind="module_property_default",
+                resource_name=resource_name,
+                resource_type=resource.type,
+                output_name=output_name,
+                inputs=resolved_inputs,
+            )
             module_block[output_name] = _apply_property_spec(
                 prop_spec.default,
                 prop_spec,

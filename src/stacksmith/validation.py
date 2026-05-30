@@ -32,25 +32,27 @@ from .validations.summarize import (
 )
 
 
-def _load_validation_code(
-    spec: ValidationSpec,
-    base_path: Path | None,
+def _load_inline_or_script_code(
     *,
+    inline_code: str | None,
+    script: str | None,
+    inline_origin: str,
+    invalid_spec_error: str,
+    base_path: Path | None,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
 ) -> tuple[str, str]:
-    match spec:
-        case ValidationSpec(inline=inline, script=None) if inline is not None:
-            return inline, "<inline-validation>"
-        case ValidationSpec(inline=None, script=script) if script is not None:
-            script_path = _resolve_script_path(
-                script, base_path, cache_dir=cache_dir, auth_config=auth_config
-            )
-            return script_path.read_text(encoding="utf-8"), str(script_path)
-        case _:
-            raise StacksmithValidationError(
-                "Validation spec must define exactly one of 'inline' or 'script'."
-            )
+    if inline_code is not None and script is None:
+        return inline_code, inline_origin
+    if inline_code is None and script is not None:
+        script_path = _resolve_script_path(
+            script,
+            base_path,
+            cache_dir=cache_dir,
+            auth_config=auth_config,
+        )
+        return script_path.read_text(encoding="utf-8"), str(script_path)
+    raise StacksmithValidationError(invalid_spec_error)
 
 
 def _format_validation_error(
@@ -116,28 +118,30 @@ def _load_code(
     auth_config: RemoteAuthConfig | None = None,
 ) -> tuple[str, str]:
     match spec:
-        case ValidationSpec():
-            origin_label = "<inline-validation>"
-        case TransformSpec():
-            origin_label = "<inline-transform>"
+        case ValidationSpec(inline=inline, script=script):
+            return _load_inline_or_script_code(
+                inline_code=inline,
+                script=script,
+                inline_origin="<inline-validation>",
+                invalid_spec_error="Validation spec must define exactly one of 'inline' or 'script'.",
+                base_path=base_path,
+                cache_dir=cache_dir,
+                auth_config=auth_config,
+            )
+        case TransformSpec(inline=inline, script=script):
+            return _load_inline_or_script_code(
+                inline_code=inline,
+                script=script,
+                inline_origin="<inline-transform>",
+                invalid_spec_error="Invalid specification",
+                base_path=base_path,
+                cache_dir=cache_dir,
+                auth_config=auth_config,
+            )
         case _:
             raise StacksmithValidationError(
                 "Spec must be ValidationSpec or TransformSpec"
             )
-
-    match spec:
-        case spec if spec.inline is not None:
-            return spec.inline, origin_label
-        case spec if spec.script is not None:
-            script_path = _resolve_script_path(
-                spec.script,
-                base_path,
-                cache_dir=cache_dir,
-                auth_config=auth_config,
-            )
-            return script_path.read_text(encoding="utf-8"), str(script_path)
-        case _:
-            raise StacksmithValidationError("Invalid specification")
 
 
 def _evaluate_inline_validation(
@@ -397,7 +401,7 @@ def validate_value_with_outcome(
     allow_warn: bool = False,
 ) -> tuple[PlanValidationOutcome, str]:
     try:
-        code, origin = _load_validation_code(
+        code, origin = _load_code(
             spec, base_path, cache_dir=cache_dir, auth_config=auth_config
         )
         code = textwrap.dedent(code)

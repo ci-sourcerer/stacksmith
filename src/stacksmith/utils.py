@@ -161,6 +161,27 @@ def cache_key(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()[:16]
 
 
+def derive_stack_state_key(
+    stack_name: str,
+    source_path: Path | None,
+    root: Path | None = None,
+) -> str:
+    """Return the backend state key for a stack.
+
+    Args:
+        stack_name: Logical stack name.
+        source_path: Path to the stack definition file.
+        root: Optional monorepo root used for relative state key derivation.
+
+    Returns:
+        State key path ending in `terraform.tfstate`.
+    """
+    if root is not None and source_path is not None:
+        rel = source_path.parent.relative_to(root.resolve())
+        return str(rel).replace("\\", "/") + "/terraform.tfstate"
+    return f"{stack_name}/terraform.tfstate"
+
+
 def clone_git_repo(
     repo_url: str,
     dest: Path,

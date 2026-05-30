@@ -19,7 +19,12 @@ from .discovery import (
     filter_stacks_by_tags,
     topological_sort,
 )
-from .enums import TerragruntAction, ValidationReportFormat, ValidationRowType
+from .enums import (
+    MergeMode,
+    TerragruntAction,
+    ValidationReportFormat,
+    ValidationRowType,
+)
 from .exceptions import StacksmithConfigError, StacksmithError
 from .generator import write_tf_json
 from .inspector import (
@@ -28,7 +33,7 @@ from .inspector import (
     inspect_all,
     inspect_plan_policies,
 )
-from .loader import load_config, load_config_with_locations, load_stack
+from .loader import load_config, load_config_with_locations, load_stack, load_stacks
 from .models import RemoteAuthConfig, StackDefinition, ToolConfig
 from .remote import is_remote_url, resolve_remote
 from .runner import run_terragrunt, run_terragrunt_all_ordered
@@ -63,6 +68,63 @@ def _resolve_config_paths(
             resolved.append(Path(ref).expanduser())
     LOGGER.debug("Resolved config paths: {paths}", paths=resolved)
     return resolved
+
+
+def _normalize_stack_refs(
+    stack_file: Path | str | Sequence[Path | str],
+) -> list[Path | str]:
+    if isinstance(stack_file, (Path, str)):
+        return [stack_file]
+
+    stack_refs = list(stack_file)
+    if not stack_refs:
+        raise StacksmithConfigError("At least one stack file path must be provided")
+    return stack_refs
+
+
+def _resolve_stack_paths(
+    stack_file: Path | str | Sequence[Path | str],
+    cache_dir: Path | None = None,
+) -> list[Path]:
+    stack_refs = _normalize_stack_refs(stack_file)
+    resolved: list[Path] = []
+
+    for ref in stack_refs:
+        if isinstance(ref, str) and is_remote_url(ref):
+            if cache_dir is None:
+                raise StacksmithConfigError(
+                    f"Cannot fetch remote stack without a cache directory: {ref}"
+                )
+            resolved.append(resolve_remote(ref, cache_dir))
+            continue
+
+        resolved.append(
+            ref.expanduser() if isinstance(ref, Path) else Path(ref).expanduser()
+        )
+
+    if len(resolved) == 1 and not (
+        isinstance(stack_refs[0], str) and is_remote_url(stack_refs[0])
+    ):
+        resolved[0] = _find_stack_file(resolved[0])
+
+    LOGGER.debug("Resolved stack paths: {paths}", paths=resolved)
+    return resolved
+
+
+def _load_stack_definition(
+    stack_file: Path | str | Sequence[Path | str],
+    cache_dir: Path | None = None,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
+) -> StackDefinition:
+    stack_paths = _resolve_stack_paths(stack_file, cache_dir)
+    stack = (
+        load_stack(stack_paths[0], merge_mode=merge_mode)
+        if len(stack_paths) == 1
+        else load_stacks(stack_paths, merge_mode=merge_mode)
+    )
+    if stack.source_path is None:
+        stack.source_path = stack_paths[-1].resolve()
+    return stack
 
 
 def _resolve_build_dir(stack_path: Path, build_dir: Path | None) -> Path:
@@ -297,12 +359,13 @@ def _load_runtime_config(
     *,
     base_dir: Path | None = None,
     no_cache: bool = False,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> tuple[Path, list[Path], ToolConfig]:
     cache_dir = _resolve_cache_dir(build_dir, base_dir)
     if no_cache:
         _clean_cache(cache_dir)
     config_paths = _resolve_config_paths(config, cache_dir=cache_dir)
-    return cache_dir, config_paths, load_config(config_paths)
+    return cache_dir, config_paths, load_config(config_paths, merge_mode=merge_mode)
 
 
 def _compile_tag_expression(tag_expr: str):
@@ -429,7 +492,7 @@ def _build_terragrunt_args(
 
 
 def _generate_single_stack(
-    stack_path: Path,
+    stack_path: Path | str | Sequence[Path | str],
     config_paths: list[Path],
     vars_path: str | Sequence[str] | None,
     input_layers: Sequence[InputLayer] | None,
@@ -438,10 +501,11 @@ def _generate_single_stack(
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
     use_local_modules: bool = False,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> tuple[Path, int]:
     LOGGER.debug("Loading config from paths: {config_paths}", config_paths=config_paths)
-    config = load_config(config_paths)
-    stack = load_stack(_find_stack_file(stack_path))
+    config = load_config(config_paths, merge_mode=merge_mode)
+    stack = _load_stack_definition(stack_path, cache_dir, merge_mode=merge_mode)
     LOGGER.debug(
         "Loaded stack {name} from {path}", name=stack.name, path=stack.source_path
     )
@@ -454,9 +518,12 @@ def _generate_single_stack(
         ),
         cache_dir=cache_dir,
         auth_config=auth_config,
+        merge_mode=merge_mode,
     )
     LOGGER.debug("Resolved variable keys: {keys}", keys=sorted(resolved.keys()))
-    output_dir = _resolve_build_dir(stack_path.resolve(), build_dir)
+    if stack.source_path is None:
+        raise RuntimeError("Loaded stack is missing a source path")
+    output_dir = _resolve_build_dir(stack.source_path, build_dir)
 
     write_tf_json(
         stack,
@@ -487,10 +554,26 @@ def _generate_all_stacks(
     include_tags: list[str] | None = None,
     exclude_tags: list[str] | None = None,
     use_local_modules: bool = False,
+    stack_refs: Sequence[Path | str] | None = None,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> tuple[Path, dict[str, Path], dict[str, StackDefinition]]:
     LOGGER.debug("Loading config from paths: {config_paths}", config_paths=config_paths)
-    config = load_config(config_paths)
-    stacks = discover_stacks(root)
+    config = load_config(config_paths, merge_mode=merge_mode)
+    if stack_refs:
+        stacks = {}
+        duplicates: list[str] = []
+        for stack_path in _resolve_stack_paths(stack_refs, cache_dir):
+            stack = load_stack(stack_path, merge_mode=merge_mode)
+            if stack.name in stacks:
+                duplicates.append(
+                    f"  '{stack.name}' defined in both {stacks[stack.name].source_path} and {stack_path}"
+                )
+                continue
+            stacks[stack.name] = stack
+        if duplicates:
+            raise ValueError(f"Duplicate stack names found:\n {'\n'.join(duplicates)}")
+    else:
+        stacks = discover_stacks(root)
     LOGGER.debug(
         "Discovered stack names: {stack_names}", stack_names=sorted(stacks.keys())
     )
@@ -507,19 +590,46 @@ def _generate_all_stacks(
     LOGGER.debug("Stack generation order: {order}", order=order)
 
     root_build_dir = build_dir or (root / ".stacksmith")
-    if clean and root_build_dir.exists():
-        LOGGER.debug(
-            "Cleaning existing build directory: {root_build_dir}",
-            root_build_dir=root_build_dir,
-        )
-        shutil.rmtree(root_build_dir)
+    if clean:
+        if build_dir is not None and root_build_dir.exists():
+            LOGGER.debug(
+                "Cleaning existing build directory: {root_build_dir}",
+                root_build_dir=root_build_dir,
+            )
+            shutil.rmtree(root_build_dir)
+        elif stack_refs:
+            for stack in stacks.values():
+                if stack.source_path is None:
+                    continue
+                stack_build_dir = _resolve_build_dir(stack.source_path, None)
+                if stack_build_dir.exists():
+                    LOGGER.debug(
+                        "Cleaning existing build directory: {stack_build_dir}",
+                        stack_build_dir=stack_build_dir,
+                    )
+                    shutil.rmtree(stack_build_dir)
+        elif root_build_dir.exists():
+            LOGGER.debug(
+                "Cleaning existing build directory: {root_build_dir}",
+                root_build_dir=root_build_dir,
+            )
+            shutil.rmtree(root_build_dir)
 
     stack_build_dirs: dict[str, Path] = {}
 
     for name in order:
         stack = stacks[name]
-        relative_path = stack.source_path.parent.relative_to(root.resolve())
-        stack_out = root_build_dir / relative_path
+        if stack_refs:
+            if stack.source_path is None:
+                raise RuntimeError(f"Stack '{stack.name}' is missing a source path")
+            stack_out = (
+                build_dir / name
+                if build_dir is not None
+                else _resolve_build_dir(stack.source_path, None)
+            )
+        else:
+            relative_path = stack.source_path.parent.relative_to(root.resolve())
+            stack_out = root_build_dir / relative_path
         resolved = resolve_inputs(
             vars_file=vars_path,
             input_layers=input_layers,
@@ -529,6 +639,7 @@ def _generate_all_stacks(
             ),
             cache_dir=cache_dir,
             auth_config=auth_config,
+            merge_mode=merge_mode,
         )
 
         dep_stacks = {dep: stacks[dep] for dep in stack.depends_on}
@@ -546,18 +657,27 @@ def _generate_all_stacks(
             cache_dir=cache_dir,
             auth_config=auth_config,
             use_local_modules=use_local_modules,
-            root=root,
+            root=None if stack_refs else root,
         )
         write_terragrunt_json(
-            stack, config, resolved, stack_out, dep_stacks, dep_dirs, root=root
+            stack,
+            config,
+            resolved,
+            stack_out,
+            dep_stacks,
+            dep_dirs,
+            root=None if stack_refs else root,
         )
         stack_build_dirs[name] = stack_out
 
-    LOGGER.info(
-        "Generated {count} stacks in {root_build_dir}",
-        count=len(stacks),
-        root_build_dir=root_build_dir,
-    )
+    if stack_refs:
+        LOGGER.info("Generated {count} explicit stacks", count=len(stacks))
+    else:
+        LOGGER.info(
+            "Generated {count} stacks in {root_build_dir}",
+            count=len(stacks),
+            root_build_dir=root_build_dir,
+        )
     LOGGER.debug(
         "Stack build dirs: {stack_build_dirs}", stack_build_dirs=stack_build_dirs
     )
@@ -565,7 +685,7 @@ def _generate_all_stacks(
 
 
 def validate_stack(
-    stack_file: Path,
+    stack_file: Path | str | Sequence[Path | str],
     *,
     config: list[str] | None = None,
     vars_file: str | Sequence[str] | None = None,
@@ -573,6 +693,7 @@ def validate_stack(
     build_dir: Path | None = None,
     no_cache: bool = False,
     strict_validation_warnings: bool = False,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
     validation_report_format: (
         str | ValidationReportFormat
     ) = ValidationReportFormat.JSON,
@@ -580,7 +701,7 @@ def validate_stack(
     """Validate a stack definition and its resolved variables.
 
     Args:
-        stack_file: Path to the stack definition file.
+        stack_file: Path, URL, or ordered sequence of stack definition files.
         config: Optional config file paths or URLs. Later entries override earlier ones.
         vars_file: Optional vars file path, URL, or ordered sequence of vars
             file paths or URLs.
@@ -588,6 +709,7 @@ def validate_stack(
         build_dir: Optional build directory used to derive the cache directory.
         no_cache: When `True`, clear the remote cache before resolving resources.
         strict_validation_warnings: Present for report parity across commands.
+        merge_mode: Merge strategy used for layered stacks, configs, and vars.
         validation_report_format: Format used for machine-readable validation
             report output.
 
@@ -599,8 +721,9 @@ def validate_stack(
             config,
             build_dir,
             no_cache=no_cache,
+            merge_mode=merge_mode,
         )
-        load_stack(_find_stack_file(stack_file))
+        _load_stack_definition(stack_file, cache_dir, merge_mode=merge_mode)
         LOGGER.debug(
             "Validating stack {stack_file} using config paths: {config_paths}",
             stack_file=stack_file,
@@ -617,6 +740,7 @@ def validate_stack(
             ),
             cache_dir=cache_dir,
             auth_config=loaded_config.remote_auth or None,
+            merge_mode=merge_mode,
         )
     except (
         StacksmithError,
@@ -646,20 +770,24 @@ def validate_stack(
 
 
 def diagnose_cache(
-    stack_file: Path,
+    stack_file: Path | str | Sequence[Path | str],
     *,
     config: list[str] | None = None,
     build_dir: Path | None = None,
     no_cache: bool = False,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> int:
     """Display stacksmith cache and vendor diagnostics."""
     cache_dir, config_paths, loaded_config = _load_runtime_config(
         config,
         build_dir,
         no_cache=no_cache,
+        merge_mode=merge_mode,
     )
-    stack = load_stack(_find_stack_file(stack_file))
-    build_dir_resolved = _resolve_build_dir(stack_file.resolve(), build_dir)
+    stack = _load_stack_definition(stack_file, cache_dir, merge_mode=merge_mode)
+    if stack.source_path is None:
+        raise RuntimeError("Loaded stack is missing a source path")
+    build_dir_resolved = _resolve_build_dir(stack.source_path, build_dir)
 
     _emit_human_output("Stacksmith diagnostics")
     _emit_human_output("======================")
@@ -703,7 +831,7 @@ def diagnose_cache(
 
 
 def generate_stack(
-    stack_file: Path,
+    stack_file: Path | str | Sequence[Path | str],
     *,
     config: list[str] | None = None,
     vars_file: str | Sequence[str] | None = None,
@@ -711,11 +839,12 @@ def generate_stack(
     build_dir: Path | None = None,
     no_cache: bool = False,
     use_local_modules: bool = False,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> int:
     """Generate OpenTofu and Terragrunt files for a single stack.
 
     Args:
-        stack_file: Path to the stack definition file.
+        stack_file: Path, URL, or ordered sequence of stack definition files.
         config: Optional config file paths or URLs. Later entries override earlier ones.
         vars_file: Optional vars file path, URL, or ordered sequence of vars
             file paths or URLs.
@@ -723,6 +852,7 @@ def generate_stack(
         build_dir: Optional output directory for generated files.
         no_cache: When `True`, clear the remote cache before resolving resources.
         use_local_modules: When `True`, rewrite module sources to local vendored paths.
+        merge_mode: Merge strategy used for layered stacks, configs, and vars.
 
     Returns:
         Process-style exit code from generation.
@@ -731,6 +861,7 @@ def generate_stack(
         config,
         build_dir,
         no_cache=no_cache,
+        merge_mode=merge_mode,
     )
     LOGGER.debug(
         "Generating stack {stack_file} with config paths: {config_paths}",
@@ -746,13 +877,14 @@ def generate_stack(
         cache_dir=cache_dir,
         auth_config=loaded_config.remote_auth or None,
         use_local_modules=use_local_modules,
+        merge_mode=merge_mode,
     )
     return exit_code
 
 
 def run_stack_action(
     action: str | TerragruntAction,
-    stack_file: Path,
+    stack_file: Path | str | Sequence[Path | str],
     *,
     config: list[str] | None = None,
     vars_file: str | Sequence[str] | None = None,
@@ -767,6 +899,7 @@ def run_stack_action(
     save_plan_json: Path | None = None,
     strict_validation_warnings: bool = False,
     fail_on_changes: bool = False,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
     validation_report_format: (
         str | ValidationReportFormat
     ) = ValidationReportFormat.JSON,
@@ -775,7 +908,7 @@ def run_stack_action(
 
     Args:
         action: Terragrunt action to execute.
-        stack_file: Path to the stack definition file.
+        stack_file: Path, URL, or ordered sequence of stack definition files.
         config: Optional config file paths or URLs. Later entries override earlier ones.
         vars_file: Optional vars file path, URL, or ordered sequence of vars
             file paths or URLs.
@@ -794,6 +927,7 @@ def run_stack_action(
             validations are treated as failures.
         fail_on_changes: When `True`, return a non-zero exit code if the plan
             contains any resource changes.
+        merge_mode: Merge strategy used for layered stacks, configs, and vars.
         validation_report_format: Format used for machine-readable validation
             report output.
 
@@ -804,6 +938,7 @@ def run_stack_action(
         config,
         build_dir,
         no_cache=no_cache,
+        merge_mode=merge_mode,
     )
     action_enum = TerragruntAction(action)
     if (tags or tag_expr) and action_enum not in {
@@ -823,7 +958,7 @@ def run_stack_action(
         stack_file=stack_file,
         config_paths=config_paths,
     )
-    stack = load_stack(_find_stack_file(stack_file))
+    stack = _load_stack_definition(stack_file, cache_dir, merge_mode=merge_mode)
     plan_validation_results: list[PlanValidationResult] = []
     targets: list[str] | None = None
     if tags or tag_expr:
@@ -865,6 +1000,7 @@ def run_stack_action(
         cache_dir=cache_dir,
         auth_config=loaded_config.remote_auth or None,
         use_local_modules=use_local_modules,
+        merge_mode=merge_mode,
     )
     if exit_code != 0:
         if action_enum == TerragruntAction.PLAN:
@@ -930,6 +1066,8 @@ def run_all_stacks(
     save_plan_json: Path | None = None,
     strict_validation_warnings: bool = False,
     fail_on_changes: bool = False,
+    stacks: Sequence[Path | str] | None = None,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
     validation_report_format: (
         str | ValidationReportFormat
     ) = ValidationReportFormat.JSON,
@@ -960,6 +1098,10 @@ def run_all_stacks(
             validations are treated as failures.
         fail_on_changes: When `True`, return a non-zero exit code if the plan
             contains any resource changes.
+        stacks: Optional explicit stack paths or URLs. When provided, directory
+            discovery is skipped and only these stack targets are used.
+        merge_mode: Merge strategy used for layered configs and vars, and for
+            explicit multi-layer stack refs in single-stack commands.
         validation_report_format: Format used for machine-readable validation
             report output.
 
@@ -971,6 +1113,7 @@ def run_all_stacks(
         build_dir,
         base_dir=root,
         no_cache=no_cache,
+        merge_mode=merge_mode,
     )
     action_enum = TerragruntAction(action)
     if (tags or tag_expr) and action_enum not in {
@@ -1004,6 +1147,8 @@ def run_all_stacks(
         include_tags=include_tags,
         exclude_tags=exclude_tags,
         use_local_modules=use_local_modules,
+        stack_refs=stacks,
+        merge_mode=merge_mode,
     )
 
     stack_args_by_name: dict[str, list[str]] | None = None
@@ -1087,6 +1232,7 @@ def inspect_modules(
     resource_types: list[str] | None = None,
     build_dir: Path | None = None,
     no_cache: bool = False,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> tuple[list[ResourceTypeInfo], list[PlanPolicyInfo]]:
     """Inspect configured modules and return variable/mapping metadata.
 
@@ -1095,6 +1241,7 @@ def inspect_modules(
         resource_types: Specific resource types to inspect; inspects all when `None`.
         build_dir: Optional build directory used to derive the cache directory.
         no_cache: When `True`, clear the remote cache before resolving resources.
+        merge_mode: Merge strategy used for layered configs.
 
     Returns:
         Tuple of resource inspection results and plan policy inspection results.
@@ -1103,8 +1250,12 @@ def inspect_modules(
         config,
         build_dir,
         no_cache=no_cache,
+        merge_mode=merge_mode,
     )
-    _, config_locations = load_config_with_locations(config_paths)
+    _, config_locations = load_config_with_locations(
+        config_paths,
+        merge_mode=merge_mode,
+    )
     resource_results = inspect_all(
         loaded_config,
         resource_types=resource_types,
@@ -1122,13 +1273,18 @@ def inspect_modules_context(
     resource_types: list[str] | None = None,
     build_dir: Path | None = None,
     no_cache: bool = False,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> tuple[Path, ToolConfig, list[ResourceTypeInfo], list[PlanPolicyInfo]]:
     cache_dir, config_paths, loaded_config = _load_runtime_config(
         config,
         build_dir,
         no_cache=no_cache,
+        merge_mode=merge_mode,
     )
-    _, config_locations = load_config_with_locations(config_paths)
+    _, config_locations = load_config_with_locations(
+        config_paths,
+        merge_mode=merge_mode,
+    )
     resource_results = inspect_all(
         loaded_config,
         resource_types=resource_types,

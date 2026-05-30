@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stacksmith.dev/schemas/runfile.schema.json",
+  "title": "Stacksmith Run File",
+  "description": "Defines a reproducible Stacksmith invocation with layered stack, config, and variable inputs.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "merge_mode": {
+      "type": "string",
+      "enum": [
+        "deep",
+        "override"
+      ],
+      "description": "Merge strategy for layered stacks, configs, and vars. Defaults to `deep`."
+    },
+    "stacks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Ordered stack definition paths or URLs to deep-merge for single-stack commands, or explicit stack targets for run-all."
+    },
+    "configs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Ordered tool configuration paths or URLs. Later layers override earlier scalar values while dicts merge recursively and lists append."
+    },
+    "vars": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Ordered vars-file paths or URLs applied before CLI-provided vars layers."
+    },
+    "var": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Inline variable values applied before CLI-provided vars layers. Values may use any YAML-supported type."
+    }
+  }
+}

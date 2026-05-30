@@ -46,7 +46,7 @@ def _setup_run_stack_action_mocks(
         "_load_runtime_config",
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
-    monkeypatch.setattr(api, "load_stack", lambda _: stack)
+    monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
     monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
 
     def _fake_generate_single_stack(*args, **kwargs):
@@ -367,6 +367,44 @@ def test_run_all_stacks_rejects_tag_selectors_for_init(
         api.run_all_stacks("init", tmp_path, tags=["prod"])
 
 
+def test_run_all_stacks_passes_explicit_stack_refs_to_generator(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    config = load_config(sample_config_yaml)
+    calls: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        api,
+        "_load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+
+    def _fake_generate_all_stacks(*args, **kwargs):
+        calls["generate"] = (args, kwargs)
+        return tmp_path / ".stacksmith", {}, {}
+
+    monkeypatch.setattr(api, "_generate_all_stacks", _fake_generate_all_stacks)
+    monkeypatch.setattr(
+        api,
+        "run_terragrunt_all_ordered",
+        lambda action, stack_build_dirs, **kwargs: 0,
+    )
+
+    exit_code = api.run_all_stacks(
+        "apply",
+        tmp_path,
+        stacks=["./network/stack.yaml", "./app/stack.yaml"],
+    )
+
+    assert exit_code == 0
+    assert calls["generate"][1]["stack_refs"] == [
+        "./network/stack.yaml",
+        "./app/stack.yaml",
+    ]
+
+
 def test_validate_stack_emits_single_json_report_block(
     monkeypatch,
     tmp_path: Path,
@@ -382,7 +420,7 @@ def test_validate_stack_emits_single_json_report_block(
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
     monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
-    monkeypatch.setattr(api, "load_stack", lambda _: stack)
+    monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
     monkeypatch.setattr(api, "resolve_inputs", lambda *args, **kwargs: {"ok": True})
 
     exit_code = api.validate_stack(tmp_path / "stack.yaml")
@@ -410,7 +448,7 @@ def test_validate_stack_emits_csv_report_block_when_requested(
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
     monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
-    monkeypatch.setattr(api, "load_stack", lambda _: stack)
+    monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
     monkeypatch.setattr(api, "resolve_inputs", lambda *args, **kwargs: {"ok": True})
 
     exit_code = api.validate_stack(
@@ -444,7 +482,7 @@ def test_validate_stack_var_validation_failure_emits_csv_report(
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
     monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
-    monkeypatch.setattr(api, "load_stack", lambda _: stack)
+    monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
     monkeypatch.setattr(
         api,
         "resolve_inputs",
@@ -492,7 +530,7 @@ def test_validate_stack_failure_logs_are_concise(
             ),
         )
         monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
-        monkeypatch.setattr(api, "load_stack", lambda _: stack)
+        monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
         monkeypatch.setattr(
             api,
             "resolve_inputs",
@@ -717,7 +755,7 @@ def test_diagnose_cache_writes_human_output_to_stderr(
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
     monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
-    monkeypatch.setattr(api, "load_stack", lambda _: stack)
+    monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
     monkeypatch.setattr(api, "get_vendor_dir", lambda: tmp_path / "vendor")
 
     exit_code = api.diagnose_cache(tmp_path / "stack.yaml")

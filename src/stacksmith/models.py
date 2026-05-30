@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .enums import MergeMode
+
 
 class ValidationSpec(BaseModel):
     """Reusable validation rule defined as inline code or a local script."""
@@ -72,6 +74,16 @@ class StackDefinition(BaseModel):
     mock_outputs: dict[str, Any] = Field(default_factory=dict)
     components: dict[str, ComponentDefinition]
     source_path: Path | None = Field(default=None, exclude=True)
+
+
+class RunFile(BaseModel):
+    """Stacksmith invocation manifest describing input layers."""
+
+    merge_mode: MergeMode | None = None
+    stacks: list[str] = Field(default_factory=list)
+    configs: list[str] = Field(default_factory=list)
+    vars: list[str] = Field(default_factory=list)
+    var: dict[str, Any] = Field(default_factory=dict)
 
 
 class BackendConfig(BaseModel):
