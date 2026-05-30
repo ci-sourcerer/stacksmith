@@ -224,10 +224,9 @@ def process_plan_validation_results(
                 f" for stack '{failure.stack_name}'" if failure.stack_name else ""
             )
             LOGGER.error(
-                "Plan validation '{name}' failed{stack_info}: {message}",
+                "Plan validation '{name}' failed{stack_info} (see validation report for details)",
                 name=failure.name,
                 stack_info=stack_info,
-                message=failure.message,
             )
         return PlanValidationExitCode.FAIL
 
@@ -237,10 +236,9 @@ def process_plan_validation_results(
     for warning in warnings:
         stack_info = f" for stack '{warning.stack_name}'" if warning.stack_name else ""
         LOGGER.warning(
-            "Plan validation '{name}' warned{stack_info}: {message}",
+            "Plan validation '{name}' warned{stack_info} (see validation report for details)",
             name=warning.name,
             stack_info=stack_info,
-            message=warning.message,
         )
 
     if strict_validation_warnings:

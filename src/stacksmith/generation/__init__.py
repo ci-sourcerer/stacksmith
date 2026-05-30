@@ -1,1 +1,1 @@
-"""Internal helpers for Terraform JSON generation."""
+"""Internal helpers for OpenTofu JSON generation."""

@@ -389,7 +389,6 @@ class TestEvaluatePlanValidations:
             assert exit_code == 0
             log_text = buffer.getvalue()
             assert "Plan validation 'warn_rule' warned" in log_text
-            assert "policy warning" in log_text
             assert "Strict validation warning mode enabled" not in log_text
         finally:
             LOGGER.remove(sink_id)
@@ -444,7 +443,6 @@ class TestEvaluatePlanValidations:
             assert exit_code == 1
             log_text = buffer.getvalue()
             assert "Plan validation 'fail_rule' failed" in log_text
-            assert "policy failure" in log_text
             assert "Plan validation 'warn_rule' warned" not in log_text
         finally:
             LOGGER.remove(sink_id)

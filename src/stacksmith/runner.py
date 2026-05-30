@@ -1,14 +1,20 @@
+import concurrent.futures
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 from loguru import logger as LOGGER
 
+from .enums import TerragruntAction
+from .exceptions import StacksmithError
 from .models import RemoteAuthConfig, ToolConfig
+from .utils import env_truthy
 from .validation import (
     PlanValidationExitCode,
     PlanValidationResult,
@@ -30,6 +36,94 @@ def _build_env() -> dict[str, str]:
     return env
 
 
+_TOOL_VERSION_CHECKED = False
+
+
+def _should_skip_tool_version_check() -> bool:
+    return env_truthy("SKIP_TOOL_VERSION_CHECK", prefix="STACKSMITH_")
+
+
+def _parse_tool_version(output: str) -> tuple[int, int, int]:
+    match = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", output)
+    if not match:
+        raise StacksmithError(f"Could not parse tool version from output: {output!r}")
+
+    major = int(match.group(1))
+    minor = int(match.group(2))
+    patch = int(match.group(3) or "0")
+    return major, minor, patch
+
+
+def _check_tool_version(tool_name: str, cmd: list[str]) -> None:
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+    except FileNotFoundError as exc:
+        raise StacksmithError(
+            f"Required tool '{tool_name}' was not found: {cmd[0]}"
+        ) from exc
+
+    output = (result.stdout or "") + "\n" + (result.stderr or "")
+    output = output.strip()
+    if result.returncode != 0:
+        raise StacksmithError(
+            f"Failed to query {tool_name} version using {cmd}: {output}"
+        )
+
+    version = _parse_tool_version(output)
+    if not ((1, 0, 0) <= version < (2, 0, 0)):
+        raise StacksmithError(
+            f"Unsupported {tool_name} version {version[0]}.{version[1]}.{version[2]}; "
+            "expected >=1.0.0 and <2.0.0"
+        )
+
+    LOGGER.debug(
+        "Verified {tool_name} version {version}",
+        tool_name=tool_name,
+        version=".".join(str(part) for part in version),
+    )
+
+
+def _check_required_tool_versions() -> None:
+    global _TOOL_VERSION_CHECKED
+    if _TOOL_VERSION_CHECKED:
+        return
+    if _should_skip_tool_version_check():
+        LOGGER.debug(
+            "Skipping external tool version checks because stacksmith env var is set"
+        )
+        _TOOL_VERSION_CHECKED = True
+        return
+
+    tool_path = os.environ.get("TG_TF_PATH", "tofu")
+    checks = {
+        "terragrunt": ["terragrunt", "--version"],
+        "tofu": [tool_path, "-version"],
+    }
+
+    errors: list[str] = []
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {
+            executor.submit(_check_tool_version, name, cmd): name
+            for name, cmd in checks.items()
+        }
+        for future in concurrent.futures.as_completed(futures):
+            tool_name = futures[future]
+            try:
+                future.result()
+            except StacksmithError as exc:
+                errors.append(str(exc))
+
+    if errors:
+        raise StacksmithError("; ".join(errors))
+
+    _TOOL_VERSION_CHECKED = True
+
+
 def _resolve_plan_json_output_path(
     base_path: Path,
     stack_name: str,
@@ -39,6 +133,21 @@ def _resolve_plan_json_output_path(
     if multiple or base_path.suffix.lower() != ".json":
         return base_path / f"{stack_name}.json"
     return base_path
+
+
+def _has_plan_changes(plan_data: dict[str, Any]) -> bool:
+    changes = plan_data.get("resource_changes", [])
+    if not isinstance(changes, list):
+        return False
+
+    for change in changes:
+        actions = (change.get("change") or {}).get("actions")
+        if not isinstance(actions, list):
+            return True
+        if any(isinstance(action, str) and action != "no-op" for action in actions):
+            return True
+
+    return False
 
 
 def _run_terragrunt_streaming(cmd: list[str], working_dir: Path) -> int:
@@ -104,6 +213,7 @@ def run_terragrunt(
     auth_config: RemoteAuthConfig | None = None,
     save_plan_json: Path | None = None,
     strict_validation_warnings: bool = False,
+    fail_on_changes: bool = False,
     plan_validation_results: list[PlanValidationResult] | None = None,
 ) -> int:
     """Run a single-stack Terragrunt command.
@@ -111,7 +221,7 @@ def run_terragrunt(
     Args:
         args: Terragrunt subcommand and arguments (e.g. ["plan"]).
         working_dir: Directory containing terragrunt.hcl.
-        auto_approve: if `True`, append --auto-approve for apply/destroy.
+        auto_approve: If `True`, append `--auto-approve` for apply/destroy.
         config: Optional loaded tool config used for plan validations.
         stack_name: Optional stack identifier used in validation context.
         cache_dir: Cache directory for fetching remote scripts.
@@ -125,8 +235,20 @@ def run_terragrunt(
     Returns:
         Process exit code.
     """
+    _check_required_tool_versions()
     cmd = ["terragrunt", *args]
-    if args and auto_approve and args[0] in ("apply", "destroy"):
+    first_action = None
+    if args:
+        try:
+            first_action = TerragruntAction(args[0])
+        except ValueError:
+            first_action = None
+
+    if (
+        args
+        and auto_approve
+        and first_action in {TerragruntAction.APPLY, TerragruntAction.DESTROY}
+    ):
         cmd.append("--auto-approve")
 
     LOGGER.info("Running: {command}", command=" ".join(cmd))
@@ -134,11 +256,12 @@ def run_terragrunt(
 
     if (
         args
-        and args[0] == "plan"
+        and first_action == TerragruntAction.PLAN
         and "-destroy" not in args
         and (
             save_plan_json is not None
             or (config is not None and _has_enabled_plan_validations(config))
+            or fail_on_changes
         )
     ):
         enabled_rules = (
@@ -157,7 +280,7 @@ def run_terragrunt(
             auth_config=auth_config,
             save_plan_json=save_plan_json,
             strict_validation_warnings=strict_validation_warnings,
-            plan_validation_results=plan_validation_results,
+            fail_on_changes=fail_on_changes,
         )
 
     return _run_terragrunt_streaming(cmd, working_dir)
@@ -174,6 +297,7 @@ def _run_plan_validations(
     auth_config: RemoteAuthConfig | None = None,
     save_plan_json: Path | None = None,
     strict_validation_warnings: bool = False,
+    fail_on_changes: bool = False,
     plan_validation_results: list[PlanValidationResult] | None = None,
 ) -> int | PlanValidationExitCode:
     with tempfile.NamedTemporaryFile(
@@ -185,7 +309,13 @@ def _run_plan_validations(
         plan_path = Path(tmp_plan.name)
 
     try:
-        plan_with_out_cmd = [plan_cmd[0], "plan", *args[1:], "-out", str(plan_path)]
+        plan_with_out_cmd = [
+            plan_cmd[0],
+            TerragruntAction.PLAN.value,
+            *args[1:],
+            "-out",
+            str(plan_path),
+        ]
         LOGGER.info(
             "Running plan for JSON validation: {command}",
             command=" ".join(plan_with_out_cmd),
@@ -224,6 +354,9 @@ def _run_plan_validations(
             return 1
 
         if config is None or not _has_enabled_plan_validations(config):
+            if fail_on_changes and _has_plan_changes(plan_data):
+                LOGGER.info("Failing plan because resource changes were detected")
+                return PlanValidationExitCode.FAIL
             return PlanValidationExitCode.PASS
 
         outcomes = check_plan_validations(
@@ -235,16 +368,25 @@ def _run_plan_validations(
         )
         if plan_validation_results is not None:
             plan_validation_results.extend(outcomes)
-        return process_plan_validation_results(
+
+        validation_result = process_plan_validation_results(
             outcomes,
             strict_validation_warnings=strict_validation_warnings,
         )
+        if validation_result != PlanValidationExitCode.PASS:
+            return validation_result
+
+        if fail_on_changes and _has_plan_changes(plan_data):
+            LOGGER.info("Failing plan because resource changes were detected")
+            return PlanValidationExitCode.FAIL
+
+        return PlanValidationExitCode.PASS
     finally:
         plan_path.unlink(missing_ok=True)
 
 
 def run_terragrunt_all_ordered(
-    action: str | list[str],
+    action: str | TerragruntAction | list[str],
     stack_build_dirs: dict[str, Path],
     auto_approve: bool = False,
     config: ToolConfig | None = None,
@@ -253,6 +395,7 @@ def run_terragrunt_all_ordered(
     stack_args_by_name: dict[str, list[str]] | None = None,
     save_plan_json: Path | None = None,
     strict_validation_warnings: bool = False,
+    fail_on_changes: bool = False,
     plan_validation_results: list[PlanValidationResult] | None = None,
 ) -> int:
     """Run Terragrunt across generated stack directories in dependency order.
@@ -261,7 +404,7 @@ def run_terragrunt_all_ordered(
         action: Terragrunt action or Terragrunt arg list (e.g. ["plan", "-destroy"]).
         stack_build_dirs: Ordered mapping of stack name to generated build directory.
             The expected order is dependency-first.
-        auto_approve: if `True`, append --auto-approve for apply/destroy.
+        auto_approve: If `True`, append `--auto-approve` for apply/destroy.
         config: Optional loaded tool config used for plan validations.
         cache_dir: Cache directory for fetching remote scripts.
         auth_config: Optional host-keyed auth configuration for remote fetching.
@@ -278,15 +421,28 @@ def run_terragrunt_all_ordered(
         Process exit code (first non-zero code short-circuits the run).
     """
     action_name = action[0] if isinstance(action, list) else action
+    action_enum = None
+    if isinstance(action_name, str):
+        try:
+            action_enum = TerragruntAction(action_name)
+        except ValueError:
+            action_enum = None
+    elif isinstance(action_name, TerragruntAction):
+        action_enum = action_name
+
     stack_items = list(stack_build_dirs.items())
-    if action_name == "destroy":
+    if action_enum == TerragruntAction.DESTROY:
         stack_items = list(reversed(stack_items))
 
     for stack_name, stack_dir in stack_items:
         terragrunt_args = (
             stack_args_by_name.get(stack_name)
             if stack_args_by_name is not None
-            else list(action) if isinstance(action, list) else [action]
+            else (
+                list(action)
+                if isinstance(action, list)
+                else [action.value if isinstance(action, TerragruntAction) else action]
+            )
         )
         if terragrunt_args is None:
             continue
@@ -296,7 +452,7 @@ def run_terragrunt_all_ordered(
         if (
             save_plan_json is not None
             and terragrunt_args
-            and terragrunt_args[0] == "plan"
+            and terragrunt_args[0] == TerragruntAction.PLAN.value
         ):
             stack_save_plan_json = _resolve_plan_json_output_path(
                 save_plan_json,
@@ -313,6 +469,7 @@ def run_terragrunt_all_ordered(
             auth_config=auth_config,
             save_plan_json=stack_save_plan_json,
             strict_validation_warnings=strict_validation_warnings,
+            fail_on_changes=fail_on_changes,
             plan_validation_results=plan_validation_results,
         )
         if exit_code != 0:

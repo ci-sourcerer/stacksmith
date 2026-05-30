@@ -435,5 +435,5 @@ def write_tf_json(
     )
     output_path = output_dir / "main.tf.json"
     output_path.write_text(json.dumps(tf_json, indent=2) + "\n", encoding="utf-8")
-    LOGGER.debug("Wrote generated Terraform JSON: {path}", path=output_path)
+    LOGGER.debug("Wrote generated OpenTofu JSON: {path}", path=output_path)
     return output_path

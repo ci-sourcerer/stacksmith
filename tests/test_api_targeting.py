@@ -1,7 +1,10 @@
+import csv
 import json
+from io import StringIO
 from pathlib import Path
 
 import pytest
+from loguru import logger as LOGGER
 from stacksmith import api
 from stacksmith.loader import load_config, load_stack
 from stacksmith.models import ComponentDefinition, StackDefinition
@@ -392,6 +395,124 @@ def test_validate_stack_emits_single_json_report_block(
     assert report["summary"] == {"pass": 1, "warn": 0, "fail": 0}
 
 
+def test_validate_stack_emits_csv_report_block_when_requested(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    config = load_config(sample_config_yaml)
+    stack = _build_stack("sample", "bucket", "aws_s3_bucket", set())
+
+    monkeypatch.setattr(
+        api,
+        "_load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
+    monkeypatch.setattr(api, "load_stack", lambda _: stack)
+    monkeypatch.setattr(api, "resolve_inputs", lambda *args, **kwargs: {"ok": True})
+
+    exit_code = api.validate_stack(
+        tmp_path / "stack.yaml",
+        validation_report_format="csv",
+    )
+
+    assert exit_code == 0
+    rows = list(csv.DictReader(StringIO(capsys.readouterr().out)))
+    assert len(rows) == 2
+    assert rows[0]["command"] == "validate"
+    assert rows[0]["report_status"] == "pass"
+    assert rows[0]["row_type"] == "report"
+    assert rows[1]["row_type"] == "result"
+    assert rows[1]["result_name"] == "validate"
+    assert rows[1]["result_detail_json"] == ""
+
+
+def test_validate_stack_var_validation_failure_emits_csv_report(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    config = load_config(sample_config_yaml)
+    stack = _build_stack("sample", "bucket", "aws_s3_bucket", set())
+
+    monkeypatch.setattr(
+        api,
+        "_load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
+    monkeypatch.setattr(api, "load_stack", lambda _: stack)
+    monkeypatch.setattr(
+        api,
+        "resolve_inputs",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ValueError(
+                "Input 'region' failed config validation: region must be us-east-1"
+            )
+        ),
+    )
+
+    exit_code = api.validate_stack(
+        tmp_path / "stack.yaml",
+        validation_report_format="csv",
+    )
+
+    assert exit_code == 1
+    rows = list(csv.DictReader(StringIO(capsys.readouterr().out)))
+    assert len(rows) == 2
+    assert rows[0]["report_status"] == "fail"
+    assert rows[0]["row_type"] == "report"
+    assert rows[1]["row_type"] == "result"
+    assert rows[1]["result_status"] == "fail"
+    assert "Input 'region' failed config validation" in rows[1]["result_message"]
+    assert rows[1]["result_detail_json"] == ""
+
+
+def test_validate_stack_failure_logs_are_concise(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    config = load_config(sample_config_yaml)
+    stack = _build_stack("sample", "bucket", "aws_s3_bucket", set())
+    buffer = StringIO()
+    sink_id = LOGGER.add(buffer, level="ERROR")
+
+    try:
+        monkeypatch.setattr(
+            api,
+            "_load_runtime_config",
+            lambda *args, **kwargs: (
+                tmp_path / ".cache",
+                [sample_config_yaml],
+                config,
+            ),
+        )
+        monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
+        monkeypatch.setattr(api, "load_stack", lambda _: stack)
+        monkeypatch.setattr(
+            api,
+            "resolve_inputs",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                ValueError(
+                    "Input 'region' failed config validation: region must be us-east-1"
+                )
+            ),
+        )
+
+        exit_code = api.validate_stack(tmp_path / "stack.yaml")
+        assert exit_code == 1
+
+        log_text = buffer.getvalue()
+        assert "see validation report for details" in log_text
+        assert "Input 'region' failed config validation" not in log_text
+    finally:
+        LOGGER.remove(sink_id)
+
+
 def test_run_stack_action_plan_emits_single_json_report_block(
     monkeypatch,
     tmp_path: Path,
@@ -412,7 +533,7 @@ def test_run_stack_action_plan_emits_single_json_report_block(
             api.PlanValidationResult(
                 name="warn_rule",
                 status=PlanValidationOutcome.WARN,
-                message="policy warning",
+                message="policy warning — plan values: redacted",
                 stack_name="my-stack",
             )
         )
@@ -434,6 +555,56 @@ def test_run_stack_action_plan_emits_single_json_report_block(
     assert report["status"] == "warn"
     assert report["summary"] == {"pass": 0, "warn": 1, "fail": 0}
     assert len(report["results"]) == 1
+
+
+def test_run_stack_action_plan_emits_csv_report_block_when_requested(
+    monkeypatch,
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    calls = _setup_run_stack_action_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_stack_yaml,
+        sample_config_yaml,
+        {"prod"},
+    )
+
+    def _fake_run_terragrunt(args, working_dir, **kwargs):
+        kwargs["plan_validation_results"].append(
+            api.PlanValidationResult(
+                name="warn_rule",
+                status=PlanValidationOutcome.WARN,
+                message="policy warning — plan values: redacted",
+                stack_name="my-stack",
+            )
+        )
+        calls["terragrunt"] = (args, working_dir)
+        return 0
+
+    monkeypatch.setattr(api, "run_terragrunt", _fake_run_terragrunt)
+
+    exit_code = api.run_stack_action(
+        "plan",
+        sample_stack_yaml,
+        tag_expr="contains(tags, 'prod')",
+        validation_report_format="csv",
+    )
+
+    assert exit_code == 0
+    rows = list(csv.DictReader(StringIO(capsys.readouterr().out)))
+    assert len(rows) == 2
+    assert rows[0]["command"] == "plan"
+    assert rows[0]["report_status"] == "warn"
+    assert rows[0]["row_type"] == "report"
+    assert rows[1]["row_type"] == "result"
+    assert rows[1]["result_name"] == "warn_rule"
+    assert rows[1]["result_message"] == "policy warning"
+    assert json.loads(rows[1]["result_detail_json"]) == {
+        "detail": "plan values: redacted"
+    }
 
 
 def test_run_all_plan_emits_single_json_report_block(
@@ -458,7 +629,7 @@ def test_run_all_plan_emits_single_json_report_block(
             api.PlanValidationResult(
                 name="fail_rule",
                 status=PlanValidationOutcome.FAIL,
-                message="policy failure",
+                message="policy failure — plan values: redacted",
                 stack_name="matched",
             )
         )
@@ -477,6 +648,58 @@ def test_run_all_plan_emits_single_json_report_block(
     assert report["status"] == "fail"
     assert report["summary"] == {"pass": 0, "warn": 0, "fail": 1}
     assert report["stack_count"] == 1
+
+
+def test_run_all_plan_emits_csv_report_block_when_requested(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    matched = _build_stack("matched", "bucket", "aws_s3_bucket", {"prod"})
+    stack_dirs = {"matched": tmp_path / "matched"}
+    stacks = {"matched": matched}
+    _setup_run_all_stacks_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_config_yaml,
+        stack_dirs,
+        stacks,
+    )
+
+    def _fake_run_terragrunt_all_ordered(action, stack_build_dirs, **kwargs):
+        kwargs["plan_validation_results"].append(
+            api.PlanValidationResult(
+                name="fail_rule",
+                status=PlanValidationOutcome.FAIL,
+                message="policy failure — plan values: redacted",
+                stack_name="matched",
+            )
+        )
+        return 1
+
+    monkeypatch.setattr(
+        api, "run_terragrunt_all_ordered", _fake_run_terragrunt_all_ordered
+    )
+
+    exit_code = api.run_all_stacks(
+        "plan",
+        tmp_path,
+        validation_report_format="csv",
+    )
+
+    assert exit_code == 1
+    rows = list(csv.DictReader(StringIO(capsys.readouterr().out)))
+    assert len(rows) == 2
+    assert rows[0]["command"] == "run-all plan"
+    assert rows[0]["report_status"] == "fail"
+    assert rows[0]["row_type"] == "report"
+    assert rows[1]["row_type"] == "result"
+    assert rows[1]["result_name"] == "fail_rule"
+    assert rows[1]["result_message"] == "policy failure"
+    assert json.loads(rows[1]["result_detail_json"]) == {
+        "detail": "plan values: redacted"
+    }
 
 
 def test_diagnose_cache_writes_human_output_to_stderr(

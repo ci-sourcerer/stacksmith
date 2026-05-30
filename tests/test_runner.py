@@ -7,6 +7,21 @@ from stacksmith.models import PlanValidation, ValidationSpec
 from stacksmith.validation import PlanValidationOutcome
 
 
+class FakeVersionResult:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _supported_tool_version_result(cmd: list[str]) -> FakeVersionResult | None:
+    if cmd[:2] == ["terragrunt", "--version"]:
+        return FakeVersionResult(returncode=0, stdout="terragrunt version v1.5.0")
+    if cmd[:2] == ["tofu", "-version"]:
+        return FakeVersionResult(returncode=0, stdout="tofu v1.5.0")
+    return None
+
+
 def _stack_dirs(
     tmp_path: Path,
     names: tuple[str, ...] = ("vpc", "rds", "web"),
@@ -30,6 +45,7 @@ def _patch_run_terragrunt(monkeypatch, handler):
         auth_config=None,
         save_plan_json=None,
         strict_validation_warnings: bool = False,
+        fail_on_changes: bool = False,
         plan_validation_results=None,
     ) -> int:
         return handler(
@@ -211,6 +227,7 @@ def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path)
         auth_config=None,
         save_plan_json=None,
         strict_validation_warnings: bool = False,
+        fail_on_changes: bool = False,
         plan_validation_results=None,
     ) -> int:
         calls["plan_cmd"] = plan_cmd
@@ -223,6 +240,15 @@ def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path)
         return 0
 
     monkeypatch.setattr(runner, "_run_plan_validations", _fake_run_plan_validations)
+    monkeypatch.setattr(
+        runner,
+        "subprocess",
+        SimpleNamespace(
+            run=lambda cmd, **kwargs: _supported_tool_version_result(cmd)
+            or FakeVersionResult(returncode=0, stdout="terragrunt plan simulated")
+        ),
+    )
+    runner._TOOL_VERSION_CHECKED = False
 
     config = SimpleNamespace(
         plan_validations={"check": PlanValidation(rule=ValidationSpec(inline="'pass'"))}
@@ -252,10 +278,13 @@ def test_run_terragrunt_plan_destroy_skips_plan_validations(monkeypatch, tmp_pat
     class FakeResult:
         returncode = 0
 
-    def _fake_subprocess_run(*args, **kwargs):
-        return FakeResult()
+    def _fake_subprocess_run(cmd, **kwargs):
+        if cmd[:2] == ["terragrunt", "--version"] or cmd[:2] == ["tofu", "-version"]:
+            return _supported_tool_version_result(cmd)
+        return FakeVersionResult(returncode=0, stdout="terragrunt plan simulated")
 
     monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
+    runner._TOOL_VERSION_CHECKED = False
 
     config = SimpleNamespace(
         plan_validations={"check": PlanValidation(rule=ValidationSpec(inline="'pass'"))}
@@ -278,6 +307,8 @@ def test_run_terragrunt_strict_warning_mode_fails_on_warning(monkeypatch, tmp_pa
             self.stderr = stderr
 
     def _fake_subprocess_run(cmd, **kwargs):
+        if cmd[:2] == ["terragrunt", "--version"] or cmd[:2] == ["tofu", "-version"]:
+            return _supported_tool_version_result(cmd)
         if cmd[:2] == ["terragrunt", "plan"]:
             return FakeResult(returncode=0)
         if cmd[:3] == ["terragrunt", "show", "-json"]:
@@ -285,6 +316,7 @@ def test_run_terragrunt_strict_warning_mode_fails_on_warning(monkeypatch, tmp_pa
         raise AssertionError(f"Unexpected command: {cmd}")
 
     monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
+    runner._TOOL_VERSION_CHECKED = False
     monkeypatch.setattr(
         runner,
         "check_plan_validations",
@@ -323,6 +355,8 @@ def test_run_terragrunt_delegates_plan_result_processing(monkeypatch, tmp_path):
     calls: dict[str, object] = {}
 
     def _fake_subprocess_run(cmd, **kwargs):
+        if cmd[:2] == ["terragrunt", "--version"] or cmd[:2] == ["tofu", "-version"]:
+            return _supported_tool_version_result(cmd)
         if cmd[:2] == ["terragrunt", "plan"]:
             return FakeResult(returncode=0)
         if cmd[:3] == ["terragrunt", "show", "-json"]:
@@ -330,6 +364,7 @@ def test_run_terragrunt_delegates_plan_result_processing(monkeypatch, tmp_path):
         raise AssertionError(f"Unexpected command: {cmd}")
 
     monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
+    runner._TOOL_VERSION_CHECKED = False
     monkeypatch.setattr(
         runner,
         "check_plan_validations",
@@ -381,6 +416,8 @@ def test_run_terragrunt_saves_plan_json(monkeypatch, tmp_path):
     calls: list[list[str]] = []
 
     def _fake_subprocess_run(cmd, **kwargs):
+        if cmd[:2] == ["terragrunt", "--version"] or cmd[:2] == ["tofu", "-version"]:
+            return _supported_tool_version_result(cmd)
         calls.append(cmd)
         if cmd[:2] == ["terragrunt", "plan"]:
             return FakeResult(returncode=0)
@@ -389,6 +426,7 @@ def test_run_terragrunt_saves_plan_json(monkeypatch, tmp_path):
         raise AssertionError(f"Unexpected command: {cmd}")
 
     monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
+    runner._TOOL_VERSION_CHECKED = False
 
     output_path = tmp_path / "saved-plan.json"
     exit_code = runner.run_terragrunt(
@@ -402,6 +440,72 @@ def test_run_terragrunt_saves_plan_json(monkeypatch, tmp_path):
     assert exit_code == 0
     assert output_path.exists()
     assert '"ok": true' in output_path.read_text(encoding="utf-8")
+
+
+def test_run_terragrunt_fail_on_changes(monkeypatch, tmp_path):
+    class FakeResult:
+        def __init__(self, returncode=0, stdout="", stderr=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def _fake_subprocess_run(cmd, **kwargs):
+        if cmd[:2] == ["terragrunt", "--version"] or cmd[:2] == ["tofu", "-version"]:
+            return _supported_tool_version_result(cmd)
+        if cmd[:2] == ["terragrunt", "plan"]:
+            return FakeResult(returncode=0)
+        if cmd[:3] == ["terragrunt", "show", "-json"]:
+            return FakeResult(
+                returncode=0,
+                stdout='{"resource_changes": [{"address": "aws_s3_bucket.example", "change": {"actions": ["create"]}}]}',
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
+    runner._TOOL_VERSION_CHECKED = False
+
+    exit_code = runner.run_terragrunt(
+        ["plan"],
+        tmp_path,
+        config=None,
+        stack_name="web",
+        fail_on_changes=True,
+    )
+
+    assert exit_code == 1
+
+
+def test_run_terragrunt_fail_on_changes_no_change(monkeypatch, tmp_path):
+    class FakeResult:
+        def __init__(self, returncode=0, stdout="", stderr=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def _fake_subprocess_run(cmd, **kwargs):
+        if cmd[:2] == ["terragrunt", "--version"] or cmd[:2] == ["tofu", "-version"]:
+            return _supported_tool_version_result(cmd)
+        if cmd[:2] == ["terragrunt", "plan"]:
+            return FakeResult(returncode=0)
+        if cmd[:3] == ["terragrunt", "show", "-json"]:
+            return FakeResult(
+                returncode=0,
+                stdout='{"resource_changes": [{"address": "aws_s3_bucket.example", "change": {"actions": ["no-op"]}}]}',
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
+    runner._TOOL_VERSION_CHECKED = False
+
+    exit_code = runner.run_terragrunt(
+        ["plan"],
+        tmp_path,
+        config=None,
+        stack_name="web",
+        fail_on_changes=True,
+    )
+
+    assert exit_code == 0
 
 
 def test_run_terragrunt_all_ordered_saves_stack_specific_plan_json(
@@ -427,3 +531,35 @@ def test_run_terragrunt_all_ordered_saves_stack_specific_plan_json(
 
     assert exit_code == 0
     assert calls == [output_dir / "vpc.json", output_dir / "web.json"]
+
+
+def test_check_required_tool_versions_runs_both_tools(monkeypatch):
+    calls: list[list[str]] = []
+
+    def _fake_subprocess_run(cmd, **kwargs):
+        calls.append(cmd)
+        return FakeVersionResult(returncode=0, stdout=f"{cmd[0]} version v1.5.0")
+
+    monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
+    runner._TOOL_VERSION_CHECKED = False
+
+    runner._check_required_tool_versions()
+
+    assert ["terragrunt", "--version"] in calls
+    assert ["tofu", "-version"] in calls
+
+
+def test_check_required_tool_versions_skips_when_disabled(monkeypatch):
+    monkeypatch.setenv("STACKSMITH_SKIP_TOOL_VERSION_CHECK", "1")
+    calls: list[list[str]] = []
+
+    def _fake_subprocess_run(cmd, **kwargs):
+        calls.append(cmd)
+        return FakeVersionResult(returncode=0, stdout="ignored")
+
+    monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
+    runner._TOOL_VERSION_CHECKED = False
+
+    runner._check_required_tool_versions()
+
+    assert calls == []

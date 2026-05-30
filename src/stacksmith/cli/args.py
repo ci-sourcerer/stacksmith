@@ -5,6 +5,7 @@ from pathlib import Path
 
 from loguru import logger as LOGGER
 
+from ..enums import InspectOutputFormat, ValidationReportFormat
 from ..utils import env_truthy, stacksmith_env
 
 STACKSMITH_LOG_CATEGORIES = (
@@ -266,6 +267,18 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     _add_logging_verbosity_args(parser)
 
 
+def _add_validation_report_format_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--validation-report-format",
+        choices=[format_name.value for format_name in ValidationReportFormat],
+        default=ValidationReportFormat.JSON.value,
+        help=(
+            "Format for machine-readable validation reports emitted by "
+            "validate, plan, and run-all plan."
+        ),
+    )
+
+
 def _configure_inspect_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "resource_type",
@@ -274,7 +287,7 @@ def _configure_inspect_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--format",
-        choices=["table", "json", "yaml"],
+        choices=[format_name.value for format_name in InspectOutputFormat],
         default=None,
         help="Output format (default: table)",
     )

@@ -243,6 +243,22 @@ def test_plan_subcommand_supports_strict_validation_warnings(parser):
     assert args.strict_validation_warnings is True
 
 
+def test_validate_subcommand_supports_validation_report_format(parser):
+    args = parser.parse_args(
+        ["validate", "stack.yaml", "--validation-report-format", "csv"]
+    )
+
+    assert args.validation_report_format == "csv"
+
+
+def test_plan_subcommand_supports_validation_report_format(parser):
+    args = parser.parse_args(
+        ["plan", "stack.yaml", "--validation-report-format", "csv"]
+    )
+
+    assert args.validation_report_format == "csv"
+
+
 def test_plan_subcommand_supports_debug_and_save_plan_json(tmp_path):
     parser = stacksmith.cli.main._build_parser()
     args = parser.parse_args(
@@ -257,6 +273,12 @@ def test_plan_subcommand_supports_debug_and_save_plan_json(tmp_path):
 
     assert args.debug is True
     assert args.save_plan_json == tmp_path / "plan.json"
+
+
+def test_plan_subcommand_supports_fail_on_changes(parser):
+    args = parser.parse_args(["plan", "stack.yaml", "--fail-on-changes"])
+
+    assert args.fail_on_changes is True
 
 
 def test_plan_subcommand_supports_quiet_and_save_plan_json(tmp_path):
@@ -296,6 +318,12 @@ def test_run_all_subcommand_supports_debug_and_save_plan_json(tmp_path, parser):
 
     assert args.debug is True
     assert args.save_plan_json == tmp_path / "plans"
+
+
+def test_run_all_subcommand_supports_fail_on_changes(parser):
+    args = parser.parse_args(["run-all", "plan", "--fail-on-changes"])
+
+    assert args.fail_on_changes is True
 
 
 def test_run_all_subcommand_supports_quiet_and_save_plan_json(tmp_path, parser):
@@ -370,6 +398,12 @@ def test_run_all_subcommand_supports_strict_validation_warnings(parser):
     args = parser.parse_args(["run-all", "plan", "--strict-validation-warnings"])
 
     assert args.strict_validation_warnings is True
+
+
+def test_run_all_subcommand_supports_validation_report_format(parser):
+    args = parser.parse_args(["run-all", "plan", "--validation-report-format", "csv"])
+
+    assert args.validation_report_format == "csv"
 
 
 def test_run_all_subcommand_supports_label_filters(parser):
@@ -450,6 +484,28 @@ def test_cmd_run_all_passes_save_plan_json(monkeypatch, tmp_path, parser):
     assert calls["run"][2]["save_plan_json"] == tmp_path / "plans"
 
 
+def test_cmd_run_all_passes_fail_on_changes(monkeypatch, parser):
+    calls = _capture_run_all_stacks_call(monkeypatch)
+
+    args = parser.parse_args(["run-all", "plan", "--fail-on-changes"])
+
+    exit_code = cli_main._cmd_run_all(args)
+
+    assert exit_code == 0
+    assert calls["run"][2]["fail_on_changes"] is True
+
+
+def test_cmd_run_all_passes_validation_report_format(monkeypatch, parser):
+    calls = _capture_run_all_stacks_call(monkeypatch)
+
+    args = parser.parse_args(["run-all", "plan", "--validation-report-format", "csv"])
+
+    exit_code = cli_main._cmd_run_all(args)
+
+    assert exit_code == 0
+    assert calls["run"][2]["validation_report_format"] == "csv"
+
+
 def test_cmd_run_all_passes_tags(monkeypatch, parser):
     calls = _capture_run_all_stacks_call(monkeypatch)
 
@@ -507,6 +563,50 @@ def test_cmd_terragrunt_action_passes_save_plan_json(monkeypatch, tmp_path, pars
     assert calls["run"][2]["save_plan_json"] == tmp_path / "plan.json"
 
 
+def test_cmd_terragrunt_action_passes_fail_on_changes(monkeypatch, parser):
+    calls = _capture_run_stack_action_call(monkeypatch)
+
+    args = parser.parse_args(["plan", "stack.yaml", "--fail-on-changes"])
+
+    exit_code = cli_main._cmd_terragrunt_action(args, "plan")
+
+    assert exit_code == 0
+    assert calls["run"][2]["fail_on_changes"] is True
+
+
+def test_cmd_terragrunt_action_passes_validation_report_format(monkeypatch, parser):
+    calls = _capture_run_stack_action_call(monkeypatch)
+
+    args = parser.parse_args(
+        ["plan", "stack.yaml", "--validation-report-format", "csv"]
+    )
+
+    exit_code = cli_main._cmd_terragrunt_action(args, "plan")
+
+    assert exit_code == 0
+    assert calls["run"][2]["validation_report_format"] == "csv"
+
+
+def test_cmd_validate_passes_validation_report_format(monkeypatch, parser):
+    calls: dict[str, object] = {}
+
+    def _fake_validate_stack(stack_file, **kwargs):
+        calls["run"] = (stack_file, kwargs)
+        return 0
+
+    monkeypatch.setattr(cli_main, "validate_stack", _fake_validate_stack)
+
+    args = parser.parse_args(
+        ["validate", "stack.yaml", "--validation-report-format", "csv"]
+    )
+
+    exit_code = cli_main._cmd_validate(args)
+
+    assert exit_code == 0
+    assert calls["run"][0] == Path("stack.yaml")
+    assert calls["run"][1]["validation_report_format"] == "csv"
+
+
 def test_cmd_terragrunt_action_uses_runner(monkeypatch):
     calls = _capture_run_stack_action_call(monkeypatch)
 
@@ -525,6 +625,14 @@ def test_cmd_run_all_rejects_tag_expr_for_init(parser):
     args = parser.parse_args(
         ["run-all", "init", "--tag", "prod", "--tag-expr", "contains(tags, 'prod')"]
     )
+
+    exit_code = cli_main._cmd_run_all(args)
+
+    assert exit_code == 1
+
+
+def test_cmd_run_all_rejects_validation_report_format_for_non_plan(parser):
+    args = parser.parse_args(["run-all", "apply", "--validation-report-format", "csv"])
 
     exit_code = cli_main._cmd_run_all(args)
 

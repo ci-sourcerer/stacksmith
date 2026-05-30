@@ -4,8 +4,6 @@
 
 Stacksmith is a CLI tool that lets teams define infrastructure stacks in a simple YAML (or JSON) format and deploy them via [OpenTofu](https://opentofu.org) and [Terragrunt](https://terragrunt.gruntwork.io). It bridges the gap between a developer writing a plain component list and the OpenTofu ecosystem by abstracting module wiring, backend configuration, variable resolution, policy checks, and monorepo orchestration.
 
-Essentially, Stacksmith is a wrapper around Terragrunt which itself wraps around OpenTofu.
-
 ## Concepts
 
 ### Stack
@@ -57,6 +55,7 @@ Plan validation rules can return `pass`, `warn`, or `fail` outcomes.
 - Legacy boolean behavior is still supported, where truthy values pass and falsey values fail.
 - Warnings are non-blocking by default.
 - Use `--strict-validation-warnings` to treat warning outcomes as failures.
+- Use `--fail-on-changes` on `plan` or `run-all plan` to return a non-zero exit code whenever the rendered plan contains any resource changes. This is useful for automated drift detection or CI checks where only a non-empty plan should fail.
 
 ### Remote resources
 
@@ -68,6 +67,7 @@ Config files, vars files, validation scripts, and transform scripts can be resol
 2. Stacksmith reads an org-managed config that maps component types to real OpenTofu modules and declares the shared backend and providers.
 3. Stacksmith generates a `.tf.json` file (module calls + provider requirements) and a `terragrunt.hcl.json` file (backend, inputs, dependency wiring) into a build directory.
 4. Terragrunt is invoked to run `init`, `plan`, `apply`, or `destroy` against that build directory, using OpenTofu as its executor.
+5. For drift-aware workflows, pass `--fail-on-changes` to `plan` or `run-all plan` so the command exits non-zero when there are any planned updates, creates, or destroys.
 
 ## Configuration
 
@@ -78,7 +78,7 @@ This section shows managed config authoring details. Conceptual definitions for 
 
 backend:
   type: s3
-  bucket: my-org-terraform-state
+  bucket: my-org-state
   region: us-east-1
 
 tofu:
@@ -123,7 +123,7 @@ Each provider instance `config` must use exactly one top-level source key:
 - `inline`: Inline Python defining `config(**context)` that returns a dictionary of provider arguments.
 - `script`: Path or URL to a Python script defining `config(**context)` that returns a dictionary of provider arguments.
 
-Stacksmith can also introspect remote module sources to discover which Terraform `variable` inputs the module actually exposes. When `auto_inject: true` is enabled for a module mapping, stacksmith uses that discovery data to inject same-name resolved inputs automatically, without requiring empty `{}` property declarations for every module input. This means that only module variables that actually exist are auto-injected, unmapped stack inputs that might be organizational like `environment` are not leaked into a module that does not declare them, and explicit `mapped_to` mappings and property overrides still work as before.
+Stacksmith can also introspect remote module sources to discover which OpenTofu `variable` inputs the module actually exposes. When `auto_inject: true` is enabled for a module mapping, stacksmith uses that discovery data to inject same-name resolved inputs automatically, without requiring empty `{}` property declarations for every module input. This means that only module variables that actually exist are auto-injected, unmapped stack inputs that might be organizational like `environment` are not leaked into a module that does not declare them, and explicit `mapped_to` mappings and property overrides still work as before.
 
 A few things to note about the config are as follows.
 
@@ -276,10 +276,10 @@ Single-stack commands default to `stack.yaml` in the current directory (with fal
 Paths passed to `--env-file`, `--build-dir`, `--root`, and the positional stack file argument support `~` expansion.
 
 ```shell
-stacksmith validate [<stack_file>] [--config <config> ...]
+stacksmith validate [<stack_file>] [--config <config> ...] [--validation-report-format <json|csv>]
 stacksmith generate [<stack_file>] [--config <config> ...] [--build-dir <dir>]
 stacksmith init     [<stack_file>] [--config <config> ...]
-stacksmith plan     [<stack_file>] [--config <config> ...]
+stacksmith plan     [<stack_file>] [--config <config> ...] [--validation-report-format <json|csv>]
 stacksmith apply    [<stack_file>] [--config <config> ...] [--auto-approve]
 stacksmith destroy  [<stack_file>] [--config <config> ...] [--auto-approve]
 stacksmith info inspect [--config <config> ...]
@@ -299,6 +299,7 @@ Common flags available on single-stack commands:
 | `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via `STACKSMITH_ONLY_USE_LOCAL_MODULES=1`. |
 | `--no-local-modules` | Disable local module rewriting even if `STACKSMITH_ONLY_USE_LOCAL_MODULES` is set. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This affects `plan` and `run-all plan`. |
+| `--validation-report-format` | Report format for `validate`, `plan`, and `run-all plan`. Choices: `json` (default) and `csv`. |
 | `--debug` | Enable debug logging and developer diagnostics, including per-rule validation checks and generated JSON file paths. |
 
 Run-all targeting and plan flags:
@@ -310,6 +311,7 @@ Run-all targeting and plan flags:
 | `--include-tag` | Repeatable stack filter for `run-all`. Includes stacks that contain at least one of the provided tags. |
 | `--exclude-tag` | Repeatable stack filter for `run-all`. Excludes stacks that contain any of the provided tags. |
 | `--save-plan-json` | On `plan` and `run-all plan`, persist rendered plan JSON to the given file or directory. Single-stack `plan` accepts either a file path or directory. `run-all plan` writes one `<stack>.json` file per stack into the given directory. |
+| `--validation-report-format` | On `run-all plan`, output the validation report as `json` (default) or `csv`. |
 
 `plan` already serves as the dry-run mode for targeted execution, so a separate target dry-run flag is not required.
 
@@ -334,7 +336,12 @@ Targeted execution is additive. It does not replace normal multi-stack orchestra
 
 ### Validation report output
 
-`validate`, `plan`, and `run-all plan` emit one machine-readable JSON report block to stdout.
+`validate`, `plan`, and `run-all plan` emit one machine-readable report block to stdout.
+
+Use `--validation-report-format` to select output shape.
+
+- `json` (default) preserves the existing structured payload.
+- `csv` emits one row per validation result with summary fields repeated per row.
 
 Human-oriented logs, Terragrunt/OpenTofu progress output, and diagnostics are written to stderr so stdout can be piped directly into tools like `jq`.
 
@@ -360,7 +367,35 @@ Human-oriented logs, Terragrunt/OpenTofu progress output, and diagnostics are wr
 }
 ```
 
+### CSV schema
+
+When using `--validation-report-format csv`, Stacksmith emits two row types.
+
+- One `report` row with overall command status and summary counts.
+- One `result` row per validation result.
+
+Result rows leave report-level columns empty to reduce duplication. Columns and meanings:
+
+| Column | Description |
+| - | - |
+| `row_type` | Either `report` or `result`. |
+| `command` | The CLI command that produced the report (e.g. `plan`, `validate`). |
+| `report_status` | Overall report status: `pass`, `warn`, or `fail`. |
+| `exit_code` | Numeric exit code emitted by the CLI process. |
+| `strict_validation_warnings` | `true` if `--strict-validation-warnings` was used, else `false`. |
+| `stack_count` | Number of stacks included in a multi-stack run (typically populated on `report` rows). |
+| `summary_pass` | Count of passing validation results. |
+| `summary_warn` | Count of warnings. |
+| `summary_fail` | Count of failures. |
+| `stack_name` | Stack name associated with the row (report stack for single-stack commands, result stack for `result` rows). |
+| `result_name` | Validation rule name (or `validate` for var/validate commands). Populated on `result` rows. |
+| `result_status` | Result status for this rule: `pass`, `warn`, or `fail`. Populated on `result` rows. |
+| `result_message` | Short human-readable summary for the result. Populated on `result` rows. |
+| `result_detail_json` | JSON-encoded detail payload for the result, including the long plan/value text when present. Populated on `result` rows. |
+
 Exit behavior is as follows.
+
+> Note: The CSV output format is subject to change; prefer `json` for stable machine-readable output.
 
 - Exit code is `1` when at least one validation result is `fail`.
 - Exit code is `1` for warnings only when `--strict-validation-warnings` is set.
@@ -369,6 +404,7 @@ This direct pipeline works without extra filtering.
 
 ```shell
 stacksmith plan stack.yaml --config ./stacksmith-config.yaml | jq '.status'
+stacksmith plan stack.yaml --config ./stacksmith-config.yaml --validation-report-format csv > validation-report.csv
 ```
 
 ## Info commands
@@ -498,3 +534,7 @@ poe build-image --build-args "TOFU_PROVIDER_SPEC=$(yq -r '.providers | to_entrie
 - Using a monorepo and concerned about who can edit what? Use GitHub's [CODEOWNERS](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners) file to restrict write access to certain stack files while allowing broader read access. Similarly, the managed config can be locked down to a small team of platform engineers, while the validation policies themselves can be tightly controlled by a security team.
 - Doing a lot of `get` calls on dictionaries in your validation scripts? Try using `jmespath` instead to query complex nested structures with ease. For example, `jmespath.search("components.*.properties.bucket", stack)` would return a list of all bucket properties across all components in the stack.
 - Want to take existing resources into consideration for validation rules? Import `boto3` and use it to query AWS directly from your validation scripts. Just be mindful of latency implications.
+
+## Roadmap
+
+- A pre-built Docker image with no pre-installed providers available on Docker Hub as `docker.io/cisourcerer/stacksmith:<tag>`.
