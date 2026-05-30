@@ -472,7 +472,7 @@ def main() -> None:
 
     # Parse per-category --log flags, which look like: --log transforms=DEBUG
     def _parse_log_flags(raw: list[str] | None) -> dict[str, int]:
-        mapping: dict[str, int] = {}
+        mapping = {}
         if not raw:
             return mapping
         for entry in raw:

@@ -51,7 +51,7 @@ def is_debug_enabled(args: argparse.Namespace | None = None) -> bool:
         args: Command-line arguments namespace.
 
     Returns:
-        True if debug mode is enabled, False otherwise.
+        `True` if debug mode is enabled, `False` otherwise.
     """
     if args is not None and getattr(args, "debug", False):
         return True
@@ -65,7 +65,7 @@ def is_quiet_enabled(args: argparse.Namespace | None = None) -> bool:
         args: Command-line arguments namespace.
 
     Returns:
-        True if quiet mode is enabled, False otherwise.
+        `True` if quiet mode is enabled, `False` otherwise.
     """
     return bool(args is not None and getattr(args, "quiet", False))
 
