@@ -8,6 +8,7 @@ import stacksmith.cli.main
 from stacksmith import api
 from stacksmith.cli import args as cli_args
 from stacksmith.cli import main as cli_main
+from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.inspector import InputInfo, ResourceTypeInfo
 
 
@@ -351,6 +352,16 @@ def test_is_quiet_enabled_reads_namespace_flag():
     assert cli_args.is_quiet_enabled(SimpleNamespace(quiet=True)) is True
     assert cli_args.is_quiet_enabled(SimpleNamespace(quiet=False)) is False
     assert cli_args.is_quiet_enabled(None) is False
+
+
+def test_parse_var_args_raises_stacksmith_config_error_on_invalid_format():
+    with pytest.raises(StacksmithConfigError, match="Invalid --var format"):
+        cli_args.parse_var_args(["missing_equals"])
+
+
+def test_parse_input_layers_raises_stacksmith_config_error_on_invalid_var_layer():
+    with pytest.raises(StacksmithConfigError, match="Invalid --var format"):
+        cli_args.parse_input_layers([("var", "missing_equals")])
 
 
 def test_validate_help_lists_stacksmith_log_categories(parser, capsys):

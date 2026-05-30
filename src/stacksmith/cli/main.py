@@ -236,7 +236,9 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
     if args.action != TerragruntAction.PLAN.value and args.save_plan_json is not None:
         LOGGER.error("--save-plan-json is only supported for run-all plan")
         return 1
-    if args.action != TerragruntAction.PLAN.value and getattr(args, "fail_on_changes", False):
+    if args.action != TerragruntAction.PLAN.value and getattr(
+        args, "fail_on_changes", False
+    ):
         LOGGER.error("--fail-on-changes is only supported for run-all plan")
         return 1
     if (

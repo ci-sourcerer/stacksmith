@@ -1,11 +1,9 @@
 import argparse
 import os
-import sys
 from pathlib import Path
 
-from loguru import logger as LOGGER
-
 from ..enums import InspectOutputFormat, ValidationReportFormat
+from ..exceptions import StacksmithConfigError
 from ..utils import env_truthy, stacksmith_env
 
 STACKSMITH_LOG_CATEGORIES = (
@@ -78,17 +76,26 @@ def parse_var_args(var_list: list[str] | None) -> dict[str, str]:
 
     Returns:
         Dictionary of parsed key-value pairs.
+
+    Raises:
+        StacksmithConfigError: If an entry is not in `key=value` format.
     """
     if not var_list:
         return {}
-    result: dict[str, str] = {}
+    result = {}
     for item in var_list:
-        if "=" not in item:
-            LOGGER.error("Invalid --var format: {item}. Expected key=value.", item=item)
-            sys.exit(1)
-        key, val = item.split("=", 1)
-        result[key.strip()] = val.strip()
+        key, val = _parse_var_assignment(item)
+        result[key] = val
     return result
+
+
+def _parse_var_assignment(value: str) -> tuple[str, str]:
+    if "=" not in value:
+        raise StacksmithConfigError(
+            f"Invalid --var format: {value}. Expected key=value."
+        )
+    key, val = value.split("=", 1)
+    return key.strip(), val.strip()
 
 
 def parse_input_layers(
@@ -101,17 +108,17 @@ def parse_input_layers(
 
     Returns:
         The normalized ordered input layers, or `None` when none were provided.
+
+    Raises:
+        StacksmithConfigError: If a `var` layer is not in `key=value` format.
     """
     if not input_layers:
         return None
 
     normalized_layers: list[tuple[str, str]] = []
     for kind, value in input_layers:
-        if kind == "var" and "=" not in value:
-            LOGGER.error(
-                "Invalid --var format: {item}. Expected key=value.", item=value
-            )
-            sys.exit(1)
+        if kind == "var":
+            _parse_var_assignment(value)
         normalized_layers.append((kind, value))
     return normalized_layers
 
