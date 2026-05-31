@@ -34,10 +34,12 @@ Stacksmith supports both stack-level and component-level targeting.
 
 Input resolution order from lowest to highest priority:
 
-1. Vars files from `STACKSMITH_VARS`, when used
+1. Vars files from `STACKSMITH_VARS`, when used without `--run-file`
 2. Environment variables prefixed with `STACKSMITH_VAR_`
 3. `stacksmith.yaml` `vars` and `var` entries, when a run file is used
 4. Explicit `--vars` and `--var key=value` entries, deep-merged in the order they appear on the command line
+
+When `--run-file` is used, Stacksmith treats run-file `vars` as the vars-file source for that invocation and does not apply `STACKSMITH_VARS` defaults or CLI `--vars` entries.
 
 ### Validation and transforms
 
@@ -375,13 +377,16 @@ If `--run-file` is omitted, Stacksmith checks `STACKSMITH_RUN_FILE` and then aut
 
 This repository includes a reusable GitHub Actions workflow plus example wrapper workflows for manual plan and apply runs.
 
-- `.github/workflows/stacksmith-gitops-reusable.yml` runs one environment in `plan` or `apply` mode.
+- `.github/workflows/stacksmith-gitops-reusable.yml` runs one environment in `plan` or `apply` operation mode.
 - `examples/github-actions/stacksmith-plan.yml` is an example manual dispatcher for `plan`.
 - `examples/github-actions/stacksmith-apply.yml` is an example manual dispatcher for `apply`.
 
-The example wrapper workflows select environments by changed files when manually invoked.
+The example wrapper workflows currently expose `workflow_dispatch` only.
 
 - `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.
+- `operation` mode is fixed by each wrapper (`plan` in the plan example, `apply` in the apply example) and passed to the reusable workflow contract.
+- The reusable workflow itself is `workflow_call` only and does not support direct manual dispatch.
+- Change-detection behavior for push/PR contexts is shown as commented `base_ref` logic in the examples; it is not active unless you add those triggers and wire `base_ref`.
 
 By default, the workflows look for manifests under `examples/gitops-repo`.
 
@@ -453,7 +458,7 @@ Common flags available on single-stack commands:
 | `--merge-mode` | Merge strategy for layered stacks, configs, and vars. `deep` (default) recursively merges dict/list structures. `override` replaces earlier layer values with later ones. |
 | `--stack` | Repeatable path or URL to a stack definition. On single-stack commands, repeated `--stack` entries are deep-merged in order. On `run-all`, repeated `--stack` entries bypass discovery and target those stacks explicitly. Supports `http(s)://` and `git+` URLs. |
 | `--config` | Path or URL to `stacksmith-config.yaml` (repeatable). Files are deep-merged in order, with later files overriding earlier files. Supports `http(s)://` and `git+` URLs. Default: `STACKSMITH_CONFIG` using a single value or colon-delimited list. Quote items containing colons. |
-| `--vars` | Repeatable path or URL to a vars YAML/JSON file. Explicit `--vars` entries deep-merge with `--var` in the order they are provided on the command line; dicts merge recursively and lists append. Supports `http(s)://` and `git+` URLs. Default: `STACKSMITH_VARS` using a single value or colon-delimited list. Quote items containing colons. |
+| `--vars` | Repeatable path or URL to a vars YAML/JSON file. Explicit `--vars` entries deep-merge with `--var` in the order they are provided on the command line; dicts merge recursively and lists append. Supports `http(s)://` and `git+` URLs. Default: `STACKSMITH_VARS` using a single value or colon-delimited list when `--run-file` is not used. Quote items containing colons. |
 | `--var key=val` | Input override, repeatable. Deep-merges in CLI order alongside `--vars`. Run-file `var` entries are applied before these CLI overrides and may use non-string YAML values. |
 | `--build-dir` | Output directory (default: `.stacksmith/` next to the stack file) |
 | `--env-file` | Load environment variables from a dotenv-style file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. When omitted, Stacksmith will automatically load `.env` from the current working directory if present. |
