@@ -373,13 +373,13 @@ If `--run-file` is omitted, Stacksmith checks `STACKSMITH_RUN_FILE` and then aut
 
 ## GitHub Actions GitOps workflow
 
-This repository includes a reusable GitHub Actions workflow plus caller workflows for PR plan and merge apply.
+This repository includes a reusable GitHub Actions workflow plus example wrapper workflows for manual plan and apply runs.
 
 - `.github/workflows/stacksmith-gitops-reusable.yml` runs one environment in `plan` or `apply` mode.
-- `.github/workflows/stacksmith-plan.yml` runs `plan` on pull requests and manual dispatch.
-- `.github/workflows/stacksmith-apply.yml` runs `apply` on merges to `main` and manual dispatch.
+- `examples/github-actions/stacksmith-plan.yml` is an example manual dispatcher for `plan`.
+- `examples/github-actions/stacksmith-apply.yml` is an example manual dispatcher for `apply`.
 
-The caller workflows select environments by changed files.
+The example wrapper workflows select environments by changed files when manually invoked.
 
 - `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.
 

@@ -1,154 +1,154 @@
 name: stacksmith-gitops-reusable
 
 on:
-    workflow_call:
-        inputs:
-            operation:
-                description: Plan or apply operation.
-                required: true
-                type: string
-            environment:
-                description: Deployment environment name.
-                required: true
-                type: string
-            run_file:
-                description: Path or URL to the Stacksmith run file for this environment.
-                required: true
-                type: string
-            workdir:
-                description: Working directory to run Stacksmith from.
-                required: false
-                type: string
-                default: .
-            env_file:
-                description: Env file path to pass to Stacksmith (use /dev/null to disable implicit .env loading).
-                required: false
-                type: string
-                default: /dev/null
-            stacksmith_args:
-                description: Extra CLI args appended to Stacksmith commands.
-                required: false
-                type: string
-                default: ""
-            image_version:
-                description: Tag for the custom Stackmith container image.
-                required: false
-                type: string
-                default: latest
-            dockerhub_username:
-                description: Docker Hub username for container image pulls.
-                required: false
-                type: string
-                default: ""
-            dockerhub_token:
-                description: Docker Hub token for container image pulls.
-                required: false
-                type: string
-                default: ""
-            validation_report_format:
-                description: Validation report format for plan output.
-                required: false
-                type: string
-                default: json
-            upload_artifacts:
-                description: Upload plan artifacts when operation is plan.
-                required: false
-                type: boolean
-                default: true
-    workflow_dispatch: {}
+  workflow_call:
+    inputs:
+      operation:
+        description: Plan or apply operation.
+        required: true
+        type: string
+      environment:
+        description: Deployment environment name.
+        required: true
+        type: string
+      run_file:
+        description: Path or URL to the Stacksmith run file for this environment.
+        required: true
+        type: string
+      workdir:
+        description: Working directory to run Stacksmith from.
+        required: false
+        type: string
+        default: .
+      env_file:
+        description: Env file path to pass to Stacksmith (use /dev/null to disable implicit .env loading).
+        required: false
+        type: string
+        default: /dev/null
+      stacksmith_args:
+        description: Extra CLI args appended to Stacksmith commands.
+        required: false
+        type: string
+        default: ""
+      image_version:
+        description: Tag for the custom Stackmith container image.
+        required: false
+        type: string
+        default: latest
+      dockerhub_username:
+        description: Docker Hub username for container image pulls.
+        required: false
+        type: string
+        default: ""
+      dockerhub_token:
+        description: Docker Hub token for container image pulls.
+        required: false
+        type: string
+        default: ""
+      validation_report_format:
+        description: Validation report format for plan output.
+        required: false
+        type: string
+        default: json
+      upload_artifacts:
+        description: Upload plan artifacts when operation is plan.
+        required: false
+        type: boolean
+        default: true
+  workflow_dispatch: {}
 
 permissions:
-    contents: read
+  contents: read
 
 jobs:
-    plan:
-        if: ${{ inputs.operation == 'plan' }}
-        name: stacksmith-plan-${{ inputs.environment }}
-        runs-on: ubuntu-latest
-        container:
-            image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
-            credentials:
-                username: ${{ inputs.dockerhub_username || secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_USERNAME }}
-                password: ${{ inputs.dockerhub_token || secrets.DOCKERHUB_TOKEN || env.DOCKERHUB_TOKEN }}
-        defaults:
-            run:
-                shell: bash
-                working-directory: ${{ inputs.workdir }}
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v6
-              with:
-                  fetch-depth: 0
+  plan:
+    if: ${{ inputs.operation == 'plan' }}
+    name: stacksmith-plan-${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
+      credentials:
+        username: ${{ inputs.dockerhub_username || secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_USERNAME }}
+        password: ${{ inputs.dockerhub_token || secrets.DOCKERHUB_TOKEN || env.DOCKERHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.workdir }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-            - name: Run Stacksmith plan
-              run: |
-                  set -euo pipefail
-                  artifact_dir=".stacksmith-ci/${{ inputs.environment }}"
-                  mkdir -p "$artifact_dir"
+      - name: Run Stacksmith plan
+        run: |
+          set -euo pipefail
+          artifact_dir=".stacksmith-ci/${{ inputs.environment }}"
+          mkdir -p "$artifact_dir"
 
-                  stacksmith plan \
-                      --env-file "${{ inputs.env_file }}" \
-                      --run-file "${{ inputs.run_file }}" \
-                      --save-plan-json "$artifact_dir/plan.json" \
-                      --validation-report-format "${{ inputs.validation_report_format }}" \
-                      ${{ inputs.stacksmith_args }} \
-                      | tee "$artifact_dir/validation-report.${{ inputs.validation_report_format }}"
+          stacksmith plan \
+              --env-file "${{ inputs.env_file }}" \
+              --run-file "${{ inputs.run_file }}" \
+              --save-plan-json "$artifact_dir/plan.json" \
+              --validation-report-format "${{ inputs.validation_report_format }}" \
+              ${{ inputs.stacksmith_args }} \
+              | tee "$artifact_dir/validation-report.${{ inputs.validation_report_format }}"
 
-            - name: Upload plan artifacts
-              if: ${{ inputs.upload_artifacts }}
-              uses: actions/upload-artifact@v7
-              with:
-                  name: stacksmith-plan-${{ inputs.environment }}-${{ github.sha }}
-                  path: |
-                      ${{ inputs.workdir }}/.stacksmith-ci/${{ inputs.environment }}/validation-report.${{ inputs.validation_report_format }}
-                      ${{ inputs.workdir }}/.stacksmith-ci/${{ inputs.environment }}/plan.json
+      - name: Upload plan artifacts
+        if: ${{ inputs.upload_artifacts }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: stacksmith-plan-${{ inputs.environment }}-${{ github.sha }}
+          path: |
+            ${{ inputs.workdir }}/.stacksmith-ci/${{ inputs.environment }}/validation-report.${{ inputs.validation_report_format }}
+            ${{ inputs.workdir }}/.stacksmith-ci/${{ inputs.environment }}/plan.json
 
-            - name: Summarize plan
-              run: |
-                  {
-                      echo "## Stacksmith Plan"
-                      echo ""
-                      echo "- Environment: `${{ inputs.environment }}`"
-                      echo "- Run file: `${{ inputs.run_file }}`"
-                      echo "- Operation: `plan`"
-                      echo "- Report: `.stacksmith-ci/${{ inputs.environment }}/validation-report.${{ inputs.validation_report_format }}`"
-                  } >> "$GITHUB_STEP_SUMMARY"
+      - name: Summarize plan
+        run: |
+          {
+              echo "## Stacksmith Plan"
+              echo ""
+              echo "- Environment: `${{ inputs.environment }}`"
+              echo "- Run file: `${{ inputs.run_file }}`"
+              echo "- Operation: `plan`"
+              echo "- Report: `.stacksmith-ci/${{ inputs.environment }}/validation-report.${{ inputs.validation_report_format }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-    apply:
-        if: ${{ inputs.operation == 'apply' }}
-        name: stacksmith-apply-${{ inputs.environment }}
-        runs-on: ubuntu-latest
-        environment: ${{ inputs.environment }}
-        container:
-            image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
-            credentials:
-                username: ${{ inputs.dockerhub_username || secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_USERNAME }}
-                password: ${{ inputs.dockerhub_token || secrets.DOCKERHUB_TOKEN || env.DOCKERHUB_TOKEN }}
-        defaults:
-            run:
-                shell: bash
-                working-directory: ${{ inputs.workdir }}
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v6
-              with:
-                  fetch-depth: 0
+  apply:
+    if: ${{ inputs.operation == 'apply' }}
+    name: stacksmith-apply-${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    container:
+      image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
+      credentials:
+        username: ${{ inputs.dockerhub_username || secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_USERNAME }}
+        password: ${{ inputs.dockerhub_token || secrets.DOCKERHUB_TOKEN || env.DOCKERHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.workdir }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-            - name: Run Stacksmith apply
-              run: |
-                  set -euo pipefail
-                  stacksmith apply \
-                      --env-file "${{ inputs.env_file }}" \
-                      --run-file "${{ inputs.run_file }}" \
-                      --auto-approve \
-                      ${{ inputs.stacksmith_args }}
+      - name: Run Stacksmith apply
+        run: |
+          set -euo pipefail
+          stacksmith apply \
+              --env-file "${{ inputs.env_file }}" \
+              --run-file "${{ inputs.run_file }}" \
+              --auto-approve \
+              ${{ inputs.stacksmith_args }}
 
-            - name: Summarize apply
-              run: |
-                  {
-                      echo "## Stacksmith Apply"
-                      echo ""
-                      echo "- Environment: `${{ inputs.environment }}`"
-                      echo "- Run file: `${{ inputs.run_file }}`"
-                      echo "- Operation: `apply`"
-                  } >> "$GITHUB_STEP_SUMMARY"
+      - name: Summarize apply
+        run: |
+          {
+              echo "## Stacksmith Apply"
+              echo ""
+              echo "- Environment: `${{ inputs.environment }}`"
+              echo "- Run file: `${{ inputs.run_file }}`"
+              echo "- Operation: `apply`"
+          } >> "$GITHUB_STEP_SUMMARY"

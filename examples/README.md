@@ -11,6 +11,9 @@ The example is intentionally split into two repository-style directories.
 
 ```text
 examples/
+  github-actions/
+    stacksmith-plan.yml
+    stacksmith-apply.yml
   stack-repo/
     bucket-and-ec2/
       stack.yaml
@@ -22,6 +25,14 @@ examples/
       transforms/
       validations/
 ```
+
+## Example GitHub Actions wrappers
+
+This example also includes GitHub Actions wrapper workflows under `examples/github-actions`.
+They demonstrate how a repository can invoke the reusable workflow from this project for manual `plan` and `apply` runs.
+
+- `examples/github-actions/stacksmith-plan.yml` shows a manual trigger for `plan`.
+- `examples/github-actions/stacksmith-apply.yml` shows a manual trigger for `apply`.
 
 The stack repo contains stack definitions and environment vars.
 
