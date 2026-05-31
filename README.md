@@ -699,4 +699,6 @@ poe build-image --build-args "TOFU_PROVIDER_SPEC=$(yq -r '.providers | to_entrie
 
 ## Roadmap
 
-- A pre-built Docker image with no pre-installed providers available on Docker Hub as `docker.io/cisourcerer/stacksmith:<tag>`.
+No items at this time. Recent releases:
+
+- A pre-built Docker image with no pre-installed providers is available on Docker Hub as `docker.io/cisourcerer/stacksmith:<tag>`.
