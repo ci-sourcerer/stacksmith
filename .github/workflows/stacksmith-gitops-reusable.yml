@@ -55,6 +55,11 @@ on:
         required: false
         type: boolean
         default: true
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -67,8 +72,8 @@ jobs:
     container:
       image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
       credentials:
-        username: ${{ inputs.dockerhub_username || secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_USERNAME }}
-        password: ${{ inputs.dockerhub_token || secrets.DOCKERHUB_TOKEN || env.DOCKERHUB_TOKEN }}
+        username: ${{ inputs.dockerhub_username || secrets.DOCKERHUB_USERNAME }}
+        password: ${{ inputs.dockerhub_token || secrets.DOCKERHUB_TOKEN }}
     defaults:
       run:
         shell: bash
@@ -121,8 +126,8 @@ jobs:
     container:
       image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
       credentials:
-        username: ${{ inputs.dockerhub_username || secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_USERNAME }}
-        password: ${{ inputs.dockerhub_token || secrets.DOCKERHUB_TOKEN || env.DOCKERHUB_TOKEN }}
+        username: ${{ inputs.dockerhub_username || secrets.DOCKERHUB_USERNAME }}
+        password: ${{ inputs.dockerhub_token || secrets.DOCKERHUB_TOKEN }}
     defaults:
       run:
         shell: bash

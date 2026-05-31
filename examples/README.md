@@ -28,11 +28,18 @@ examples/
 
 ## Example GitHub Actions wrappers
 
-This example also includes GitHub Actions wrapper workflows under `examples/github-actions`.
-They demonstrate how a repository can invoke the reusable workflow from this project for manual `plan` and `apply` runs.
+This example also includes GitHub Actions wrapper workflow templates under `examples/github-actions`.
+These wrappers are references that call reusable workflows from this repository using `uses`.
 
-- `examples/github-actions/stacksmith-plan.yml` shows a manual trigger for `plan`.
-- `examples/github-actions/stacksmith-apply.yml` shows a manual trigger for `apply`.
+- `examples/github-actions/stacksmith-plan.yml` triggers on pull requests to `main`, pushes to `main`, and manual dispatch.
+- `examples/github-actions/stacksmith-apply.yml` triggers on pushes to `main` and manual dispatch.
+- Both templates call `cisourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main`.
+
+You can call that reusable workflow directly from your own workflow and keep your trigger policy in your repository.
+
+These files do not run in this repository because they are intentionally stored outside `.github/workflows`.
+
+When adapting them, update path filters and defaults for your repository structure.
 
 The stack repo contains stack definitions and environment vars.
 
