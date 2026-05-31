@@ -373,21 +373,92 @@ If `--run-file` is omitted, Stacksmith checks `STACKSMITH_RUN_FILE` and then aut
 
 ## GitHub Actions GitOps workflow
 
-This repository includes a reusable GitHub Actions workflow plus example wrapper workflows for manual plan and apply runs.
+This repository hosts reusable workflows and opinionated wrapper templates.
 
-- `.github/workflows/stacksmith-gitops-reusable.yml` runs one environment in `plan` or `apply` mode.
-- `examples/github-actions/stacksmith-plan.yml` is an example manual dispatcher for `plan`.
-- `examples/github-actions/stacksmith-apply.yml` is an example manual dispatcher for `apply`.
+- `.github/workflows/stacksmith-gitops-reusable.yml` executes one environment in `plan` or `apply` mode.
+- `.github/workflows/stacksmith-gitops-opinionated-reusable.yml` discovers environments and fans out to the single-environment reusable workflow.
+- `examples/github-actions/stacksmith-plan.yml` and `examples/github-actions/stacksmith-apply.yml` are trigger wrappers that call the opinionated reusable workflow using `uses`.
 
-The example wrapper workflows select environments by changed files when manually invoked.
+The wrappers under `examples/` do not execute in this repository because they are outside `.github/workflows`.
+In your own repository, you can either:
 
+- call `cisourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main` from your workflow, or
+- use the example wrappers as reference for trigger configuration.
+
+The opinionated reusable workflow discovers target environments and then calls `cisourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@main` for each selected environment.
 - `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.
-
-By default, the workflows look for manifests under `examples/gitops-repo`.
-
-- Set repository variable `STACKSMITH_GITOPS_ROOT` to use a different root path.
-- On manual runs (`workflow_dispatch`), pass `gitops_root` to override for that invocation.
+- `STACKSMITH_GITOPS_ROOT` defaults to `.` and can be overridden per run with `gitops_root`.
 - Changes under `<gitops_root>/common` and `<gitops_root>/manifests/common` fan out to all environments; changes under `<gitops_root>/environments/<env>` target only that environment.
+
+The wrappers pass reusable workflow inputs from repository variables when available.
+
+- `STACKSMITH_GITOPS_ROOT` (default `.`)
+- `STACKSMITH_WORKDIR` (default `.`)
+- `STACKSMITH_ENV_FILE` (default `/dev/null`)
+- `STACKSMITH_IMAGE_VERSION` (default `latest`)
+- `STACKSMITH_PLAN_ARGS` and `STACKSMITH_APPLY_ARGS` (default empty)
+- `STACKSMITH_VALIDATION_REPORT_FORMAT` (default `json`, plan template)
+- `DOCKERHUB_USERNAME` (optional variable)
+
+Set secrets like `DOCKERHUB_TOKEN` in your repository or environments and use `secrets: inherit` in the caller template.
+
+**Consumer Quickstart**
+
+Call the opinionated reusable workflow from your repository using `uses:`. Keep triggers and approval policies local and delegate discovery + per-environment execution to the reusable workflow here.
+
+Plan on PR/push/manual (minimal example):
+
+```yaml
+name: stacksmith-plan
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  run-plan:
+    uses: cisourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main
+    with:
+      operation: plan
+      gitops_root: ${{ vars.STACKSMITH_GITOPS_ROOT || '.' }}
+      environments: ${{ github.event.inputs.environments || '' }}
+      image_version: ${{ vars.STACKSMITH_IMAGE_VERSION || 'latest' }}
+      validation_report_format: json
+      caller_event_name: ${{ github.event_name }}
+      caller_base_ref: ${{ github.base_ref || '' }}
+      caller_event_before: ${{ github.event.before || '' }}
+      caller_sha: ${{ github.sha }}
+    secrets: inherit
+```
+
+Apply on push/manual (minimal example):
+
+```yaml
+name: stacksmith-apply
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  run-apply:
+    uses: cisourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main
+    with:
+      operation: apply
+      gitops_root: ${{ vars.STACKSMITH_GITOPS_ROOT || '.' }}
+      environments: ${{ github.event.inputs.environments || '' }}
+      image_version: ${{ vars.STACKSMITH_IMAGE_VERSION || 'latest' }}
+      caller_event_name: ${{ github.event_name }}
+      caller_event_before: ${{ github.event.before || '' }}
+      caller_sha: ${{ github.sha }}
+    secrets: inherit
+```
+
+Tip: pin the `uses:` reference to a release tag (for example `@v1.2.0`) for stable downstream usage.
 
 Example layout for common and environment-specific manifests.
 
