@@ -8,7 +8,15 @@ from unittest.mock import patch
 import pytest
 from stacksmith.generator import generate_tf_json, write_tf_json
 from stacksmith.loader import load_config, load_stack
-from stacksmith.models import ModulePropertySpec, TransformSpec, ValidationSpec
+from stacksmith.models import (
+    ModuleMapping,
+    ModulePropertySpec,
+    TransformSpec,
+    ValidationSpec,
+    render_module_source_fields,
+    render_module_source_identity,
+    render_provider_source_fields,
+)
 from stacksmith.vendor import vendor_path
 
 
@@ -62,6 +70,49 @@ def _disable_auto_inject(config) -> None:
 
 
 class TestGenerateTfJson:
+    def test_generate_tf_json_passes_formatter_options(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+        _disable_auto_inject(config)
+
+        module_options_calls: list[dict[str, object] | None] = []
+        provider_options_calls: list[dict[str, object] | None] = []
+
+        def _module_formatter(target, source, *, options=None):
+            module_options_calls.append(options)
+            return render_module_source_fields(source)
+
+        def _provider_formatter(target, source, *, options=None):
+            provider_options_calls.append(options)
+            return render_provider_source_fields(source)
+
+        with (
+            patch(
+                "stacksmith.generator.render_module_source_for",
+                side_effect=_module_formatter,
+            ),
+            patch(
+                "stacksmith.generation.providers.render_provider_source_for",
+                side_effect=_provider_formatter,
+            ),
+        ):
+            generate_tf_json(
+                stack,
+                config,
+                {"bucket_name": "my-bucket-test"},
+                formatter_options={
+                    "module_source": {"dialect": "terraform"},
+                    "provider_source": {"dialect": "terraform"},
+                },
+            )
+
+        assert module_options_calls
+        assert provider_options_calls
+        assert all(call == {"dialect": "terraform"} for call in module_options_calls)
+        assert all(call == {"dialect": "terraform"} for call in provider_options_calls)
+
     def test_terraform_block(self, sample_stack_yaml: Path, sample_config_yaml: Path):
         stack = load_stack(sample_stack_yaml)
         config = load_config(sample_config_yaml)
@@ -93,36 +144,49 @@ class TestGenerateTfJson:
         self, sample_stack_yaml: Path, tmp_path: Path
     ):
         config_path = tmp_path / "config.yaml"
-        config_path.write_text("""backend:
-    type: azurerm
-    storage_account_name: testaccount
-    container_name: testcontainer
-    resource_group_name: testrg
+        config_path.write_text(
+            textwrap.dedent("""
+                backend:
+                    type: azurerm
+                    storage_account_name: testaccount
+                    container_name: testcontainer
+                    resource_group_name: testrg
 
-tofu:
-  version: "1.8.0"
+                tofu:
+                    version: "1.8.0"
 
-provider_mappings:
-  aws:
-    source: "hashicorp/aws"
-    version: "~> 5.0"
-    instances:
-      default:
-        config:
-                    data:
-                        region: us-east-1
+                provider_mappings:
+                    aws:
+                        source:
+                            source: registry
+                            data:
+                                address: "hashicorp/aws"
+                                version: "~> 5.0"
+                        instances:
+                            default:
+                                config:
+                                    data:
+                                        region: us-east-1
 
-module_mappings:
-  aws_s3_bucket:
-    source: "https://github.com/org/terraform-aws-s3.git"
-    version: "1.0.0"
-    properties:
-      acl:
-        mapped_to: bucket_acl
-  aws_ec2_instance:
-    source: "https://github.com/org/terraform-aws-ec2.git"
-    version: "2.0.0"
-""")
+                module_mappings:
+                    aws_s3_bucket:
+                        source:
+                            source: git
+                            data:
+                                repo: "https://github.com/org/terraform-aws-s3.git"
+                                ref: "1.0.0"
+                        properties:
+                            acl:
+                                mapped_to: bucket_acl
+                    aws_ec2_instance:
+                        source:
+                            source: git
+                            data:
+                                repo: "https://github.com/org/terraform-aws-ec2.git"
+                                ref: "2.0.0"
+                """).strip() + "\n",
+            encoding="utf-8",
+        )
         config = load_config(config_path)
         stack = load_stack(sample_stack_yaml)
         result = generate_tf_json(stack, config, {"bucket_name": "my-bucket-test"})
@@ -142,38 +206,47 @@ module_mappings:
         config_path = tmp_path / "config.yaml"
         config_path.write_text(
             textwrap.dedent("""
-                backend:
-                  type: local
-                  path: .state
+                                backend:
+                                    type: local
+                                    path: .state
 
-                tofu:
-                  version: "1.8.0"
+                                tofu:
+                                    version: "1.8.0"
 
-                provider_mappings:
-                  aws:
-                    source: "hashicorp/aws"
-                    version: "~> 5.0"
-                    instances:
-                      default:
-                        config:
+                                provider_mappings:
+                                    aws:
+                                        source:
+                                            source: registry
+                                            data:
+                                                address: "hashicorp/aws"
+                                                version: "~> 5.0"
+                                        instances:
+                                            default:
+                                                config:
                                                     data:
                                                         region: "us-east-1"
-                      secondary:
-                        alias: "secondary"
-                        config:
+                                            secondary:
+                                                alias: "secondary"
+                                                config:
                                                     data:
                                                         region: "us-west-2"
 
-                module_mappings:
-                  aws_s3_bucket:
-                    source: "https://github.com/org/terraform-aws-s3.git"
-                    version: "1.0.0"
-                    providers:
-                      aws: aws.secondary
-                  aws_ec2_instance:
-                    source: "https://github.com/org/terraform-aws-ec2.git"
-                    version: "2.0.0"
-                """).strip() + "\n",
+                                module_mappings:
+                                    aws_s3_bucket:
+                                        source:
+                                            source: git
+                                            data:
+                                                repo: "https://github.com/org/terraform-aws-s3.git"
+                                                ref: "1.0.0"
+                                        providers:
+                                            aws: aws.secondary
+                                    aws_ec2_instance:
+                                        source:
+                                            source: git
+                                            data:
+                                                repo: "https://github.com/org/terraform-aws-ec2.git"
+                                                ref: "2.0.0"
+                                """).strip() + "\n",
             encoding="utf-8",
         )
 
@@ -194,34 +267,43 @@ module_mappings:
         config_path = tmp_path / "config.yaml"
         config_path.write_text(
             textwrap.dedent("""
-                backend:
-                  type: local
-                  path: .state
+                                backend:
+                                    type: local
+                                    path: .state
 
-                tofu:
-                  version: "1.8.0"
+                                tofu:
+                                    version: "1.8.0"
 
-                provider_mappings:
-                  aws:
-                    source: "hashicorp/aws"
-                    version: "~> 5.0"
-                    instances:
-                      secondary:
-                        alias: "secondary"
-                        config:
+                                provider_mappings:
+                                    aws:
+                                        source:
+                                            source: registry
+                                            data:
+                                                address: "hashicorp/aws"
+                                                version: "~> 5.0"
+                                        instances:
+                                            secondary:
+                                                alias: "secondary"
+                                                config:
                                                     data:
                                                         region: "us-west-2"
 
-                module_mappings:
-                  aws_s3_bucket:
-                    source: "https://github.com/org/terraform-aws-s3.git"
-                    version: "1.0.0"
-                    providers:
-                      aws: aws.secondary
-                  aws_ec2_instance:
-                    source: "https://github.com/org/terraform-aws-ec2.git"
-                    version: "2.0.0"
-                """).strip() + "\n",
+                                module_mappings:
+                                    aws_s3_bucket:
+                                        source:
+                                            source: git
+                                            data:
+                                                repo: "https://github.com/org/terraform-aws-s3.git"
+                                                ref: "1.0.0"
+                                        providers:
+                                            aws: aws.secondary
+                                    aws_ec2_instance:
+                                        source:
+                                            source: git
+                                            data:
+                                                repo: "https://github.com/org/terraform-aws-ec2.git"
+                                                ref: "2.0.0"
+                                """).strip() + "\n",
             encoding="utf-8",
         )
 
@@ -241,38 +323,47 @@ module_mappings:
         config_path = tmp_path / "config.yaml"
         config_path.write_text(
             textwrap.dedent("""
-                backend:
-                  type: local
-                  path: .state
+                                backend:
+                                    type: local
+                                    path: .state
 
-                tofu:
-                  version: "1.8.0"
+                                tofu:
+                                    version: "1.8.0"
 
-                provider_mappings:
-                  aws:
-                    source: "hashicorp/aws"
-                    version: "~> 5.0"
-                    instances:
-                      default:
-                        config:
-                          inline: |
-                            def config(**context):
-                                return {
-                                    "region": context["inputs"]["aws_region"],
-                                    "assume_role": {
-                                        "role_arn": context["inputs"]["role_arn"],
-                                        "external_id": context["inputs"]["external_id"],
-                                    },
-                                }
+                                provider_mappings:
+                                    aws:
+                                        source:
+                                            source: registry
+                                            data:
+                                                address: "hashicorp/aws"
+                                                version: "~> 5.0"
+                                        instances:
+                                            default:
+                                                config:
+                                                    inline: |
+                                                        def config(**context):
+                                                                return {
+                                                                        "region": context["inputs"]["aws_region"],
+                                                                        "assume_role": {
+                                                                                "role_arn": context["inputs"]["role_arn"],
+                                                                                "external_id": context["inputs"]["external_id"],
+                                                                        },
+                                                                }
 
-                module_mappings:
+                                module_mappings:
                                     aws_s3_bucket:
-                                        source: "https://github.com/org/terraform-aws-s3.git"
-                                        version: "1.0.0"
+                                        source:
+                                            source: git
+                                            data:
+                                                repo: "https://github.com/org/terraform-aws-s3.git"
+                                                ref: "1.0.0"
                                     aws_ec2_instance:
-                                        source: "https://github.com/org/terraform-aws-ec2.git"
-                                        version: "2.0.0"
-                """).strip() + "\n",
+                                        source:
+                                            source: git
+                                            data:
+                                                repo: "https://github.com/org/terraform-aws-ec2.git"
+                                                ref: "2.0.0"
+                                """).strip() + "\n",
             encoding="utf-8",
         )
 
@@ -310,7 +401,7 @@ module_mappings:
         bucket_mod = modules["my-bucket"]
         assert (
             bucket_mod["source"]
-            == "git::https://github.com/org/terraform-aws-s3.git?ref=v1.0.0"
+            == "git::https://github.com/org/terraform-aws-s3.git?ref=1.0.0"
         )
         assert bucket_mod["bucket_acl"] == "private"
         assert bucket_mod["bucket"] == "my-bucket-gen"
@@ -347,8 +438,14 @@ module_mappings:
     ):
         stack = load_stack(sample_stack_yaml)
         config = load_config(sample_config_yaml)
-        config.module_mappings["aws_s3_bucket"].source = "hashicorp/aws"
-        config.module_mappings["aws_s3_bucket"].version = "5.12.0"
+        mapping_data = config.module_mappings["aws_s3_bucket"].model_dump()
+        mapping_data["source"] = {
+            "source": "registry",
+            "data": {"address": "hashicorp/aws", "version": "5.12.0"},
+        }
+        config.module_mappings["aws_s3_bucket"] = ModuleMapping.model_validate(
+            mapping_data
+        )
 
         result = generate_tf_json(stack, config, {"bucket_name": "my-bucket-gen"})
 
@@ -595,8 +692,11 @@ class TestPropertyValidation:
             "  version: '1.8.0'\n"
             "provider_mappings:\n"
             "  aws:\n"
-            "    source: hashicorp/aws\n"
-            "    version: '~> 5.0'\n"
+            "    source:\n"
+            "      source: registry\n"
+            "      data:\n"
+            "        address: hashicorp/aws\n"
+            "        version: '~> 5.0'\n"
             "    instances:\n"
             "      default:\n"
             "        config:\n"
@@ -604,16 +704,25 @@ class TestPropertyValidation:
             "            region: us-east-1\n"
             "module_mappings:\n"
             "  aws_s3_bucket:\n"
-            "    source: https://github.com/org/terraform-aws-s3.git\n"
-            "    version: '1.0.0'\n"
+            "    source:\n"
+            "      source: git\n"
+            "      data:\n"
+            "        repo: https://github.com/org/terraform-aws-s3.git\n"
+            "        ref: '1.0.0'\n"
             "    properties:\n"
             "      acl:\n"
             "        mapped_to: bucket_acl\n"
             "        validation:\n"
-            "          script: validators/bucket_acl.py\n"
+            "          script:\n"
+            "            source: local\n"
+            "            data:\n"
+            "              path: validators/bucket_acl.py\n"
             "  aws_ec2_instance:\n"
-            "    source: https://github.com/org/terraform-aws-ec2.git\n"
-            "    version: '2.0.0'\n",
+            "    source:\n"
+            "      source: git\n"
+            "      data:\n"
+            "        repo: https://github.com/org/terraform-aws-ec2.git\n"
+            "        ref: '2.0.0'\n",
             encoding="utf-8",
         )
         stack = load_stack(sample_stack_yaml)
@@ -756,8 +865,11 @@ def transform(value, **context):
             "  version: '1.8.0'\n"
             "provider_mappings:\n"
             "  aws:\n"
-            "    source: hashicorp/aws\n"
-            "    version: '~> 5.0'\n"
+            "    source:\n"
+            "      source: registry\n"
+            "      data:\n"
+            "        address: hashicorp/aws\n"
+            "        version: '~> 5.0'\n"
             "    instances:\n"
             "      default:\n"
             "        config:\n"
@@ -765,16 +877,25 @@ def transform(value, **context):
             "            region: us-east-1\n"
             "module_mappings:\n"
             "  aws_s3_bucket:\n"
-            "    source: https://github.com/org/terraform-aws-s3.git\n"
-            "    version: '1.0.0'\n"
+            "    source:\n"
+            "      source: git\n"
+            "      data:\n"
+            "        repo: https://github.com/org/terraform-aws-s3.git\n"
+            "        ref: '1.0.0'\n"
             "    properties:\n"
             "      acl:\n"
             "        mapped_to: bucket_acl\n"
             "        transform:\n"
-            "          script: transforms/acl_transform.py\n"
+            "          script:\n"
+            "            source: local\n"
+            "            data:\n"
+            "              path: transforms/acl_transform.py\n"
             "  aws_ec2_instance:\n"
-            "    source: https://github.com/org/terraform-aws-ec2.git\n"
-            "    version: '2.0.0'\n",
+            "    source:\n"
+            "      source: git\n"
+            "      data:\n"
+            "        repo: https://github.com/org/terraform-aws-ec2.git\n"
+            "        ref: '2.0.0'\n",
             encoding="utf-8",
         )
         stack = load_stack(sample_stack_yaml)
@@ -984,7 +1105,8 @@ class TestLocalModuleVendoring:
 
         # Create vendored directories for both modules
         for mod in config.module_mappings.values():
-            vendor_path(mod.source, mod.version, tmp_path).mkdir(parents=True)
+            source, version = render_module_source_identity(mod.source)
+            vendor_path(source, version, tmp_path).mkdir(parents=True)
 
         result = generate_tf_json(
             stack,
@@ -997,8 +1119,9 @@ class TestLocalModuleVendoring:
         bucket_mod = result["module"]["my-bucket"]
         expected = str(
             vendor_path(
-                config.module_mappings["aws_s3_bucket"].source,
-                config.module_mappings["aws_s3_bucket"].version,
+                *render_module_source_identity(
+                    config.module_mappings["aws_s3_bucket"].source
+                ),
                 tmp_path,
             )
         )
@@ -1043,7 +1166,8 @@ class TestLocalModuleVendoring:
         config = load_config(sample_config_yaml)
 
         for mod in config.module_mappings.values():
-            vendor_path(mod.source, mod.version, tmp_path).mkdir(parents=True)
+            source, version = render_module_source_identity(mod.source)
+            vendor_path(source, version, tmp_path).mkdir(parents=True)
 
         result1 = generate_tf_json(
             stack,

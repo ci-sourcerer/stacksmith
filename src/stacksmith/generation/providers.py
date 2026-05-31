@@ -1,13 +1,17 @@
 import textwrap
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from ..exceptions import StacksmithConfigError, StacksmithNotFoundError
+from ..formatters import render_provider_source_for
 from ..models import (
     RemoteAuthConfig,
     ToolConfig,
     parse_provider_instance_reference,
+    render_file_reference,
 )
+from ..remote import is_remote_url, resolve_remote
 
 
 def _load_provider_config_code(
@@ -24,11 +28,21 @@ def _load_provider_config_code(
             "Provider config data does not require code loading"
         )
     if getattr(spec, "script", None) is not None:
-        script_path = (
-            base_path / spec.script
-            if base_path and not Path(spec.script).is_absolute()
-            else Path(spec.script)
-        )
+        script_ref = spec.script
+        if is_remote_url(script_ref):
+            if cache_dir is None:
+                raise StacksmithConfigError(
+                    "Cannot fetch remote provider config script without a cache directory: "
+                    f"{render_file_reference(script_ref)}"
+                )
+            script_path = resolve_remote(script_ref, cache_dir, auth_config)
+        else:
+            rendered = render_file_reference(script_ref)
+            script_path = (
+                base_path / rendered
+                if base_path and not Path(rendered).is_absolute()
+                else Path(rendered)
+            )
         if not script_path.is_absolute():
             script_path = script_path.resolve()
         if not script_path.exists():
@@ -77,12 +91,17 @@ def _evaluate_provider_config(
     return evaluated
 
 
-def _build_required_providers(config: ToolConfig) -> dict[str, dict[str, str]]:
+def _build_required_providers(
+    config: ToolConfig,
+    *,
+    formatter_options: Mapping[str, Any] | None = None,
+) -> dict[str, dict[str, str]]:
     return {
-        provider_name: {
-            "source": provider_family.source,
-            "version": provider_family.version,
-        }
+        provider_name: render_provider_source_for(
+            "terraform",
+            provider_family.source,
+            options=formatter_options,
+        )
         for provider_name, provider_family in config.provider_mappings.items()
     }
 

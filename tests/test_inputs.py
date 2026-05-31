@@ -117,6 +117,48 @@ class TestResolveInputs:
             "some": ["base", "thing", "late"],
         }
 
+    def test_vars_files_override_mode_replaces_previous_values(self, tmp_path: Path):
+        base_values_file = tmp_path / "base.yaml"
+        base_values_file.write_text(
+            (
+                "settings:\n"
+                "  nested:\n"
+                "    y: 20\n"
+                "    z: 30\n"
+                "items:\n"
+                "  - one\n"
+            ),
+            encoding="utf-8",
+        )
+        override_values_file = tmp_path / "override.yaml"
+        override_values_file.write_text(
+            ("settings:\n" "  nested:\n" "    x: 1\n" "items:\n" "  - two\n"),
+            encoding="utf-8",
+        )
+
+        result = resolve_inputs(
+            vars_file=[base_values_file, override_values_file],
+            merge_mode="override",
+        )
+
+        assert result["settings"] == {"nested": {"x": 1}}
+        assert result["items"] == ["two"]
+
+    def test_input_layers_override_mode_replaces_values(self, tmp_path: Path):
+        vars_file = tmp_path / "values.yaml"
+        vars_file.write_text(
+            "settings:\n  nested:\n    y: 20\n    z: 30\n",
+            encoding="utf-8",
+        )
+
+        result = resolve_inputs(
+            vars_file=vars_file,
+            input_layers=[("var", 'settings={"nested": {"y": 99, "x": 1}}')],
+            merge_mode="override",
+        )
+
+        assert result["settings"] == {"nested": {"y": 99, "x": 1}}
+
     def test_env_input_parsed_as_json(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("STACKSMITH_VAR_ENABLED", "true")
         monkeypatch.setenv("STACKSMITH_VAR_COUNT", "7")
@@ -192,7 +234,14 @@ class TestConfigLevelValidation:
 
         result = resolve_inputs(
             input_layers=[("var", "name=prod-app")],
-            config_validations={"name": ValidationSpec(script="validators/prefix.py")},
+            config_validations={
+                "name": ValidationSpec(
+                    script={
+                        "source": "local",
+                        "data": {"path": "validators/prefix.py"},
+                    }
+                )
+            },
             config_validation_base_path=tmp_path,
         )
 

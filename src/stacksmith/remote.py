@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from .exceptions import StacksmithNotFoundError, StacksmithRemoteError
+from .models import is_file_reference_remote, render_file_reference
 from .utils import cache_key as _cache_key
 from .utils import (
     clone_git_repo,
@@ -24,7 +25,7 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
-    from .models import RemoteAuthConfig
+    from .models import FileReference, RemoteAuthConfig
 
 _REMOTE_PREFIXES = ("http://", "https://", "git+https://", "git+ssh://")
 
@@ -44,9 +45,12 @@ class GitRef:
     ref: str | None
 
 
-def is_remote_url(reference: str) -> bool:
-    """Return True when `reference` looks like a remote URL."""
-    return any(reference.startswith(prefix) for prefix in _REMOTE_PREFIXES)
+def is_remote_url(reference: str | Path | "FileReference") -> bool:
+    """Return True when `reference` is a remote URL or structured remote ref."""
+    if is_file_reference_remote(reference):
+        return True
+    normalized = render_file_reference(reference)
+    return any(normalized.startswith(prefix) for prefix in _REMOTE_PREFIXES)
 
 
 def parse_git_url(url: str) -> GitRef:
@@ -260,7 +264,7 @@ def _fetch_git(
 
 
 def resolve_remote(
-    reference: str,
+    reference: str | Path | "FileReference",
     cache_dir: Path,
     auth_config: RemoteAuthConfig | None = None,
 ) -> Path:
@@ -280,18 +284,19 @@ def resolve_remote(
         StacksmithRemoteError: If a git clone fails.
         StacksmithNotFoundError: If the requested path does not exist in the cloned repo.
     """
+    normalized = render_file_reference(reference)
     if not is_remote_url(reference):
-        raise StacksmithRemoteError(f"Not a remote URL: {reference}")
+        raise StacksmithRemoteError(f"Not a remote URL: {normalized}")
 
-    if reference.startswith("git+"):
+    if normalized.startswith("git+"):
         _require_git()
-        return _fetch_git(parse_git_url(reference), cache_dir, auth_config)
+        return _fetch_git(parse_git_url(normalized), cache_dir, auth_config)
 
-    return _fetch_http(reference, cache_dir, auth_config)
+    return _fetch_http(normalized, cache_dir, auth_config)
 
 
 def read_reference_content(
-    reference: str,
+    reference: str | Path | "FileReference",
     cache_dir: Path,
     auth_config: RemoteAuthConfig | None = None,
 ) -> str:
@@ -312,7 +317,7 @@ def _require_git() -> None:
 
 
 def resolve_if_remote(
-    reference: str,
+    reference: str | Path | "FileReference",
     cache_dir: Path,
     auth_config: RemoteAuthConfig | None = None,
 ) -> Path:
@@ -332,4 +337,4 @@ def resolve_if_remote(
     """
     if is_remote_url(reference):
         return resolve_remote(reference, cache_dir, auth_config)
-    return Path(reference)
+    return Path(render_file_reference(reference))

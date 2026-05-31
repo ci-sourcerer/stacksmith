@@ -8,7 +8,9 @@ import stacksmith.cli.main
 from stacksmith import api
 from stacksmith.cli import args as cli_args
 from stacksmith.cli import main as cli_main
+from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.inspector import InputInfo, ResourceTypeInfo
+from stacksmith.models import RunFile, render_file_reference
 
 
 @pytest.fixture
@@ -129,6 +131,14 @@ def test_default_dotenv_file_is_detected(tmp_path, monkeypatch):
     assert cli_args.get_env_file_paths(["validate", "stack.yaml"]) == [env_path]
 
 
+def test_default_run_file_is_detected(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    run_file = tmp_path / "stacksmith.yaml"
+    run_file.write_text("stacks:\n  - ./stack.yaml\n", encoding="utf-8")
+
+    assert cli_args.get_default_run_file() == str(run_file)
+
+
 def test_stack_file_default_from_env_var(monkeypatch):
     monkeypatch.setenv("STACKSMITH_STACK", "/tmp/other-stack.yaml")
     parser = stacksmith.cli.main._build_parser()
@@ -210,6 +220,26 @@ def test_config_is_repeatable(monkeypatch, parser):
     )
 
     assert args.config == ["/tmp/base.yaml", "/tmp/override.yaml"]
+
+
+def test_stack_flag_is_repeatable(parser):
+    args = parser.parse_args(
+        [
+            "validate",
+            "--stack",
+            "./base-stack.yaml",
+            "--stack",
+            "./override-stack.yaml",
+        ]
+    )
+
+    assert args.stack == ["./base-stack.yaml", "./override-stack.yaml"]
+
+
+def test_merge_mode_flag_is_supported(parser):
+    args = parser.parse_args(["validate", "--merge-mode", "override"])
+
+    assert args.merge_mode == "override"
 
 
 def test_plan_subcommand_supports_destroy_flag(parser):
@@ -351,6 +381,16 @@ def test_is_quiet_enabled_reads_namespace_flag():
     assert cli_args.is_quiet_enabled(SimpleNamespace(quiet=True)) is True
     assert cli_args.is_quiet_enabled(SimpleNamespace(quiet=False)) is False
     assert cli_args.is_quiet_enabled(None) is False
+
+
+def test_parse_var_args_raises_stacksmith_config_error_on_invalid_format():
+    with pytest.raises(StacksmithConfigError, match="Invalid --var format"):
+        cli_args.parse_var_args(["missing_equals"])
+
+
+def test_parse_input_layers_raises_stacksmith_config_error_on_invalid_var_layer():
+    with pytest.raises(StacksmithConfigError, match="Invalid --var format"):
+        cli_args.parse_input_layers([("var", "missing_equals")])
 
 
 def test_validate_help_lists_stacksmith_log_categories(parser, capsys):
@@ -607,6 +647,73 @@ def test_cmd_validate_passes_validation_report_format(monkeypatch, parser):
     assert calls["run"][1]["validation_report_format"] == "csv"
 
 
+def test_cmd_validate_prepends_runfile_layers(monkeypatch, tmp_path):
+    calls: dict[str, object] = {}
+
+    def _fake_validate_stack(stack_file, **kwargs):
+        calls["run"] = (stack_file, kwargs)
+        return 0
+
+    monkeypatch.setattr(cli_main, "validate_stack", _fake_validate_stack)
+    monkeypatch.setattr(
+        cli_main,
+        "load_runfile",
+        lambda path: RunFile(
+            merge_mode="override",
+            stacks=[{"source": "local", "data": {"path": "./base-stack.yaml"}}],
+            configs=[{"source": "local", "data": {"path": "./base-config.yaml"}}],
+            vars=[{"source": "local", "data": {"path": "./base-vars.yaml"}}],
+            var={"replicas": 2},
+        ),
+    )
+
+    parser = stacksmith.cli.main._build_parser()
+    args = parser.parse_args(
+        [
+            "validate",
+            "--run-file",
+            str(tmp_path / "stacksmith.yaml"),
+            "--stack",
+            "./override-stack.yaml",
+            "--config",
+            "./override-config.yaml",
+            "--vars",
+            "./override-vars.yaml",
+            "--var",
+            "feature=true",
+        ]
+    )
+
+    exit_code = cli_main._cmd_validate(args)
+
+    assert exit_code == 0
+    stack_refs = [
+        render_file_reference(ref) if hasattr(ref, "source") else str(ref)
+        for ref in calls["run"][0]
+    ]
+    assert stack_refs[:2] == ["./base-stack.yaml", "./override-stack.yaml"]
+
+    config_refs = [
+        render_file_reference(ref) if hasattr(ref, "source") else str(ref)
+        for ref in calls["run"][1]["config"]
+    ]
+    assert config_refs == ["./base-config.yaml", "./override-config.yaml"]
+    assert calls["run"][1]["merge_mode"] == "override"
+    assert calls["run"][1]["vars_file"] == []
+    rendered_layers = []
+    for kind, value in calls["run"][1]["input_layers"]:
+        if kind == "vars" and hasattr(value, "source"):
+            rendered_layers.append((kind, render_file_reference(value)))
+        else:
+            rendered_layers.append((kind, value))
+    assert rendered_layers == [
+        ("vars", "./base-vars.yaml"),
+        ("var", "replicas=2"),
+        ("vars", "./override-vars.yaml"),
+        ("var", "feature=true"),
+    ]
+
+
 def test_cmd_terragrunt_action_uses_runner(monkeypatch):
     calls = _capture_run_stack_action_call(monkeypatch)
 
@@ -619,6 +726,67 @@ def test_cmd_terragrunt_action_uses_runner(monkeypatch):
     assert calls["run"][0] == "plan"
     assert calls["run"][1] == Path("stack.yaml")
     assert calls["run"][2]["destroy"] is True
+
+
+def test_cmd_run_all_passes_explicit_stacks_from_run_file(monkeypatch, tmp_path):
+    calls = _capture_run_all_stacks_call(monkeypatch)
+    monkeypatch.setattr(
+        cli_main,
+        "load_runfile",
+        lambda path: RunFile(
+            stacks=[
+                {"source": "local", "data": {"path": "./network/stack.yaml"}},
+                {"source": "local", "data": {"path": "./app/stack.yaml"}},
+            ]
+        ),
+    )
+
+    parser = stacksmith.cli.main._build_parser()
+    args = parser.parse_args(
+        ["run-all", "plan", "--run-file", str(tmp_path / "stacksmith.yaml")]
+    )
+
+    exit_code = cli_main._cmd_run_all(args)
+
+    assert exit_code == 0
+    assert [
+        render_file_reference(ref) if hasattr(ref, "source") else str(ref)
+        for ref in calls["run"][2]["stacks"]
+    ] == ["./network/stack.yaml", "./app/stack.yaml"]
+
+
+def test_cli_merge_mode_overrides_runfile(monkeypatch, tmp_path):
+    calls: dict[str, object] = {}
+
+    def _fake_validate_stack(stack_file, **kwargs):
+        calls["run"] = (stack_file, kwargs)
+        return 0
+
+    monkeypatch.setattr(cli_main, "validate_stack", _fake_validate_stack)
+    monkeypatch.setattr(
+        cli_main,
+        "load_runfile",
+        lambda path: RunFile(
+            merge_mode="deep",
+            stacks=[{"source": "local", "data": {"path": "./stack.yaml"}}],
+        ),
+    )
+
+    parser = stacksmith.cli.main._build_parser()
+    args = parser.parse_args(
+        [
+            "validate",
+            "--run-file",
+            str(tmp_path / "stacksmith.yaml"),
+            "--merge-mode",
+            "override",
+        ]
+    )
+
+    exit_code = cli_main._cmd_validate(args)
+
+    assert exit_code == 0
+    assert calls["run"][1]["merge_mode"] == "override"
 
 
 def test_cmd_run_all_rejects_tag_expr_for_init(parser):
@@ -667,6 +835,8 @@ def test_cmd_run_all_uses_ordered_runner(monkeypatch, tmp_path):
         tag_expr=None,
         save_plan_json=None,
         strict_validation_warnings=False,
+        run_file=None,
+        stack=None,
     )
 
     exit_code = cli_main._cmd_run_all(args)
@@ -759,7 +929,7 @@ def test_validate_stack_is_reusable_without_namespace(monkeypatch, tmp_path):
         calls["config_paths"] = (config_args, cache_dir)
         return [tmp_path / "stacksmith-config.yaml"]
 
-    def _fake_load_config(config_paths):
+    def _fake_load_config(config_paths, **kwargs):
         calls["load_config"] = config_paths
         return SimpleNamespace(
             remote_auth=None,
@@ -767,7 +937,7 @@ def test_validate_stack_is_reusable_without_namespace(monkeypatch, tmp_path):
             source_path=tmp_path / "stacksmith-config.yaml",
         )
 
-    def _fake_load_stack(stack_file):
+    def _fake_load_stack(stack_file, **kwargs):
         calls["stack_file"] = stack_file
         return SimpleNamespace(source_path=stack_path)
 
@@ -778,7 +948,9 @@ def test_validate_stack_is_reusable_without_namespace(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "_resolve_config_paths", _fake_resolve_config_paths)
     monkeypatch.setattr(api, "load_config", _fake_load_config)
     monkeypatch.setattr(api, "load_stack", _fake_load_stack)
-    monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
+    monkeypatch.setattr(
+        api, "_resolve_stack_paths", lambda path, cache_dir=None: [path]
+    )
     monkeypatch.setattr(api, "resolve_inputs", _fake_resolve_inputs)
 
     exit_code = api.validate_stack(
@@ -802,6 +974,7 @@ def test_validate_stack_is_reusable_without_namespace(monkeypatch, tmp_path):
         "config_validation_base_path": tmp_path,
         "cache_dir": tmp_path / ".stacksmith" / ".cache",
         "auth_config": None,
+        "merge_mode": "deep",
     }
 
 

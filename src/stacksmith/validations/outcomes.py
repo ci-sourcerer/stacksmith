@@ -25,11 +25,16 @@ class PlanValidationResult:
     stack_name: str | None = None
 
     def to_dict(self) -> dict[str, str]:
+        """Return a dict suitable for JSON reports."""
         payload = {
             "name": self.name,
             "status": self.status.value,
-            "message": self.message,
         }
+        # Split into short message and optional detail (em-dash separator used elsewhere)
+        summary, sep, detail = self.message.partition(" — ")
+        payload["message"] = summary
+        if detail:
+            payload["detail"] = detail
         if self.stack_name is not None:
             payload["stack_name"] = self.stack_name
         return payload

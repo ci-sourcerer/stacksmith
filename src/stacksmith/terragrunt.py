@@ -6,6 +6,7 @@ from loguru import logger as LOGGER
 
 from .enums import TerragruntAction
 from .models import StackDefinition, ToolConfig
+from .utils import derive_stack_state_key
 
 
 def generate_terragrunt_json(
@@ -35,11 +36,7 @@ def generate_terragrunt_json(
     dependency_build_dirs = dependency_build_dirs or {}
 
     backend_type = config.backend.type
-    if root is not None and stack.source_path is not None:
-        rel = stack.source_path.parent.relative_to(root.resolve())
-        state_key = str(rel).replace("\\", "/") + "/terraform.tfstate"
-    else:
-        state_key = f"{stack.name}/terraform.tfstate"
+    state_key = derive_stack_state_key(stack.name, stack.source_path, root)
 
     remote_state = {
         "backend": backend_type,

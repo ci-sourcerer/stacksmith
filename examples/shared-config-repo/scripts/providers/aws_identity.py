@@ -1,6 +1,7 @@
 """AWS identity helper functions."""
 
 import logging
+import os
 
 LOGGER = logging.getLogger("providers")
 
@@ -18,7 +19,15 @@ def is_root_aws_identity(profile_name: str | None = None) -> bool:
         import boto3
         from botocore.exceptions import BotoCoreError, ClientError, ProfileNotFound
     except ImportError:
-        LOGGER.debug("boto3 unavailable; unable to resolve AWS identity")
+        LOGGER.warning(
+            "boto3 unavailable; unable to deterministically resolve AWS identity"
+        )
+        if profile_name == "root" or os.getenv("IS_ROOT_AWS_IDENTITY", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        ):
+            return True
         return False
 
     try:

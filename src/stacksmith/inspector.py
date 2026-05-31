@@ -7,12 +7,15 @@ from loguru import logger as LOGGER
 
 from .introspection import discover_module_variables
 from .models import (
+    FileReference,
     ModuleMapping,
     ModulePropertySpec,
     RemoteAuthConfig,
     ToolConfig,
     TransformSpec,
     ValidationSpec,
+    render_file_reference,
+    render_module_source_identity,
 )
 from .remote import is_remote_url
 from .vendor import get_vendor_dir
@@ -57,15 +60,18 @@ class PlanPolicyInfo:
     enabled: bool = True
 
 
-def _format_script_location(script: str, config: ToolConfig | None) -> str:
+def _format_script_location(
+    script: FileReference | str, config: ToolConfig | None
+) -> str:
+    rendered = render_file_reference(script)
     if is_remote_url(script):
-        return script
+        return rendered
     if config is None or config.source_path is None:
-        return script
+        return rendered
     try:
-        return str(Path(script).relative_to(config.source_path.parent))
+        return str(Path(rendered).relative_to(config.source_path.parent))
     except Exception:
-        return script
+        return rendered
 
 
 def _describe_location(
@@ -122,7 +128,9 @@ def _describe_script_reference(
 ) -> str | None:
     if spec is None:
         return None
-    return spec.script
+    if spec.script is None:
+        return None
+    return render_file_reference(spec.script)
 
 
 def _resolve_var_validation_location(
@@ -218,10 +226,11 @@ def inspect_resource_type(
     Returns:
         An `ResourceTypeInfo` containing input metadata for the module.
     """
+    mapping_source, mapping_version = render_module_source_identity(mapping.source)
     try:
         discovered_vars = discover_module_variables(
-            mapping.source,
-            mapping.version,
+            mapping_source,
+            mapping_version,
             cache_dir=cache_dir,
             auth_config=auth_config,
             vendor_dir=vendor_dir or get_vendor_dir(),
@@ -274,8 +283,8 @@ def inspect_resource_type(
     return ResourceTypeInfo(
         resource_type=resource_type,
         display_name=mapping.description or resource_type,
-        module_source=mapping.source,
-        module_version=mapping.version,
+        module_source=mapping_source,
+        module_version=mapping_version,
         auto_inject=mapping.auto_inject,
         tags=sorted(mapping.tags),
         inputs=inputs,

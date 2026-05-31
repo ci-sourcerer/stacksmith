@@ -183,8 +183,11 @@ def test_check_plan_validations_uses_config_base_path(tmp_path):
         "  version: '1.8.0'\n"
         "provider_mappings:\n"
         "  aws:\n"
-        "    source: hashicorp/aws\n"
-        "    version: '~> 5.0'\n"
+        "    source:\n"
+        "      source: registry\n"
+        "      data:\n"
+        "        address: hashicorp/aws\n"
+        "        version: '~> 5.0'\n"
         "    instances:\n"
         "      default:\n"
         "        config:\n"
@@ -192,12 +195,18 @@ def test_check_plan_validations_uses_config_base_path(tmp_path):
         "            region: us-east-1\n"
         "module_mappings:\n"
         "  aws_s3_bucket:\n"
-        "    source: https://github.com/org/terraform-aws-s3.git\n"
-        "    version: '1.0.0'\n"
+        "    source:\n"
+        "      source: git\n"
+        "      data:\n"
+        "        repo: https://github.com/org/terraform-aws-s3.git\n"
+        "        ref: '1.0.0'\n"
         "plan_validations:\n"
         "  no_bad_plan:\n"
         "    rule:\n"
-        "      script: validators/plan_rule.py\n",
+        "      script:\n"
+        "        source: local\n"
+        "        data:\n"
+        "          path: validators/plan_rule.py\n",
         encoding="utf-8",
     )
     config = load_config(config_file)
@@ -215,6 +224,7 @@ def test_check_plan_validations_uses_config_base_path(tmp_path):
 
 def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path):
     calls: dict[str, object] = {}
+    report_results: list[runner.PlanValidationResult] = []
 
     def _fake_run_plan_validations(
         plan_cmd: list[str],
@@ -258,6 +268,7 @@ def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path)
         tmp_path,
         config=config,
         stack_name="web",
+        plan_validation_results=report_results,
     )
 
     assert exit_code == 0
@@ -267,6 +278,7 @@ def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path)
     assert calls["stack_name"] == "web"
     assert calls["save_plan_json"] is None
     assert calls["strict_validation_warnings"] is False
+    assert calls["plan_validation_results"] is report_results
 
 
 def test_run_terragrunt_plan_destroy_skips_plan_validations(monkeypatch, tmp_path):

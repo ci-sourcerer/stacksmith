@@ -5,6 +5,220 @@
   "description": "Defines backend, provider mappings, module mappings, OpenTofu version, and validation rules for stacksmith.",
   "type": "object",
   "$defs": {
+    "localReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "local",
+          "description": "Reference source type for local files."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Local filesystem path to the referenced file."
+            }
+          }
+        }
+      }
+    },
+    "gitReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "git",
+          "description": "Reference source type for Git-hosted files."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "repo",
+            "path"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "repo": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(https?://|ssh://|git://|git@).+",
+              "description": "Git repository URL for the referenced file."
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Path inside the Git repository to the referenced file."
+            },
+            "ref": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Git ref, branch, or tag used to resolve the reference."
+            }
+          }
+        }
+      }
+    },
+    "httpReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "http",
+          "description": "Reference source type for HTTP(S) URLs."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^https?://",
+              "description": "HTTP or HTTPS URL for the referenced resource."
+            }
+          }
+        }
+      }
+    },
+    "registryReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "registry",
+          "description": "Reference source type for registry module references."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "address",
+            "version"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "address": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\s]+/[^\\s]+$",
+              "description": "Registry module address in the format <namespace>/<name>."
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Registry module version to use."
+            }
+          }
+        }
+      }
+    },
+    "moduleGitSourceReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "git",
+          "description": "Reference source type for Git-hosted modules."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "repo",
+            "ref"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "repo": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(https?://|ssh://|git://|git@).+",
+              "description": "Git repository URL for the referenced module source."
+            },
+            "ref": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Git ref, branch, or tag used to resolve the module source."
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional path within the Git repository to the module source."
+            }
+          }
+        }
+      }
+    },
+    "sourceReference": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/localReference"
+        },
+        {
+          "$ref": "#/$defs/gitReference"
+        },
+        {
+          "$ref": "#/$defs/httpReference"
+        },
+        {
+          "$ref": "#/$defs/registryReference"
+        }
+      ]
+    },
+    "fileReference": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/localReference"
+        },
+        {
+          "$ref": "#/$defs/gitReference"
+        },
+        {
+          "$ref": "#/$defs/httpReference"
+        }
+      ]
+    },
+    "moduleSourceReference": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/registryReference"
+        },
+        {
+          "$ref": "#/$defs/moduleGitSourceReference"
+        }
+      ]
+    },
+    "providerSourceReference": {
+      "$ref": "#/$defs/registryReference"
+    },
     "validationSpec": {
       "oneOf": [
         {
@@ -29,9 +243,8 @@
           "additionalProperties": false,
           "properties": {
             "script": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Relative or absolute path to a local Python validation script. Relative paths resolve from the config file directory."
+              "$ref": "#/$defs/fileReference",
+              "description": "Structured reference to a Python validation script."
             }
           }
         }
@@ -75,9 +288,8 @@
           "additionalProperties": false,
           "properties": {
             "script": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Relative or absolute path to a local Python transform script defining `transform(value, **context)`. Relative paths resolve from the config file directory."
+              "$ref": "#/$defs/fileReference",
+              "description": "Structured reference to a Python transform script defining `transform(value, **context)`."
             }
           }
         }
@@ -95,10 +307,12 @@
           "description": "Default value used when no explicit value is supplied for this module property."
         },
         "transform": {
-          "$ref": "#/$defs/transformSpec"
+          "$ref": "#/$defs/transformSpec",
+          "description": "Optional transformation applied to the property value before it is passed to the module."
         },
         "validation": {
-          "$ref": "#/$defs/validationSpec"
+          "$ref": "#/$defs/validationSpec",
+          "description": "Optional validation rule applied to the resolved property value."
         },
         "auto_inject": {
           "type": "boolean",
@@ -141,11 +355,13 @@
           "description": "Provider alias used for non-default instances."
         },
         "config": {
-          "$ref": "#/$defs/providerConfigSpec"
+          "$ref": "#/$defs/providerConfigSpec",
+          "description": "Provider configuration for this instance."
         }
       }
     },
     "providerConfigSpec": {
+      "description": "Provider configuration specification as inline code, script reference, or static data.",
       "oneOf": [
         {
           "type": "object",
@@ -169,9 +385,8 @@
           "additionalProperties": false,
           "properties": {
             "script": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Relative or absolute path to a local Python provider config script defining `config(**context)`."
+              "$ref": "#/$defs/fileReference",
+              "description": "Structured reference to a Python provider config script defining `config(**context)`."
             }
           }
         },
@@ -196,18 +411,13 @@
       "type": "object",
       "required": [
         "source",
-        "version",
         "instances"
       ],
       "additionalProperties": false,
       "properties": {
         "source": {
-          "type": "string",
-          "description": "Provider source address (e.g. hashicorp/aws)."
-        },
-        "version": {
-          "type": "string",
-          "description": "Provider version constraint."
+          "$ref": "#/$defs/providerSourceReference",
+          "description": "Structured provider source reference."
         },
         "instances": {
           "type": "object",
@@ -322,8 +532,7 @@
       "additionalProperties": {
         "type": "object",
         "required": [
-          "source",
-          "version"
+          "source"
         ],
         "additionalProperties": false,
         "properties": {
@@ -333,12 +542,8 @@
             "description": "Optional friendly display name for the module. Used by stacksmith inspect output when present."
           },
           "source": {
-            "type": "string",
-            "description": "Module source address. Must be a Git repository URL (git::, git@, ssh://, http(s)://*.git*) or a OpenTofu registry source. Local paths are not allowed."
-          },
-          "version": {
-            "type": "string",
-            "description": "Module version. For Git-style sources, appended as ?ref=v<version>. For registry sources, used as the module's literal version attribute. Required for all sources."
+            "$ref": "#/$defs/moduleSourceReference",
+            "description": "Structured module source reference. Use `source: git` with `data.repo`/`data.ref` and optional `data.path`, or `source: registry` with `data.address`/`data.version`."
           },
           "auto_inject": {
             "type": "boolean",

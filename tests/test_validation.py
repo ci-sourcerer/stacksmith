@@ -284,7 +284,9 @@ else:
         script_path.write_text("x = 1 + 1\n", encoding="utf-8")
 
         outcome, msg = validate_value(
-            ValidationSpec(script=str(script_path)),
+            ValidationSpec(
+                script={"source": "local", "data": {"path": str(script_path)}}
+            ),
             "anything",
             base_path=tmp_path,
         )
@@ -315,7 +317,12 @@ else:
         )
 
         outcome, msg = validate_value(
-            ValidationSpec(script="validators/prefix_check.py"),
+            ValidationSpec(
+                script={
+                    "source": "local",
+                    "data": {"path": "validators/prefix_check.py"},
+                }
+            ),
             "prod-app",
             base_path=tmp_path,
         )
@@ -325,7 +332,12 @@ else:
 
     def test_missing_script_path_fails(self, tmp_path):
         outcome, msg = validate_value(
-            ValidationSpec(script="validators/missing.py"),
+            ValidationSpec(
+                script={
+                    "source": "local",
+                    "data": {"path": "validators/missing.py"},
+                }
+            ),
             "prod-app",
             base_path=tmp_path,
         )

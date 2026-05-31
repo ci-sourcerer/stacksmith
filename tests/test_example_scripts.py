@@ -9,9 +9,17 @@ def test_transform_s3_write_policy_uses_actual_bucket_arn_from_inputs() -> None:
     config_root = Path(__file__).resolve().parents[1]
     base_path = config_root / "examples" / "shared-config-repo"
     spec = TransformSpec(
-        script=str(
-            base_path / "scripts" / "transforms" / "transform_s3_write_policy.py"
-        )
+        script={
+            "source": "local",
+            "data": {
+                "path": str(
+                    base_path
+                    / "scripts"
+                    / "transforms"
+                    / "transform_s3_write_policy.py"
+                )
+            },
+        }
     )
 
     context = {

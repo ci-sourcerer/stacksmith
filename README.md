@@ -36,7 +36,8 @@ Input resolution order from lowest to highest priority:
 
 1. Vars files from `STACKSMITH_VARS`, when used
 2. Environment variables prefixed with `STACKSMITH_VAR_`
-3. Explicit `--vars` and `--var key=value` entries, deep-merged in the order they appear on the command line
+3. `stacksmith.yaml` `vars` and `var` entries, when a run file is used
+4. Explicit `--vars` and `--var key=value` entries, deep-merged in the order they appear on the command line
 
 ### Validation and transforms
 
@@ -59,7 +60,7 @@ Plan validation rules can return `pass`, `warn`, or `fail` outcomes.
 
 ### Remote resources
 
-Config files, vars files, validation scripts, and transform scripts can be resolved from HTTP(S) and git URLs. Operational details are documented in [Remote resources](#remote-resources).
+Config files, vars files, stack files, run files, validation scripts, and transform scripts can be resolved from HTTP(S) and git URLs. Operational details are documented in [Remote resources](#remote-resources).
 
 ## How to use Stacksmith
 
@@ -163,54 +164,87 @@ Concept-level details for tags, input resolution, validations, plan validations,
 
 ## Remote resources
 
-Stacksmith can pull scripts, config files, and vars files from remote locations. Anywhere a local file path is accepted for validation scripts, transform scripts, vars files, or config files, a remote URL can be used instead.
+Stacksmith can pull scripts, config files, vars files, stack files, and run files from remote locations. Anywhere a local file path is accepted for validation scripts, transform scripts, vars files, stack files, config files, or `stacksmith.yaml`, a remote URL can be used instead.
 
-### Supported URL formats
+### Structured references
 
-HTTP(S) URLs fetch a single file directly.
+Run files and config script references use a structured `source` + `data` object.
 
-```text
-https://raw.githubusercontent.com/my-org/shared-config/main/validators/bucket.py
-```
+Supported sources are:
 
-Git URLs use the `git+` prefix with a double-slash to separate the repo from the path within it, and an optional `@ref` suffix.
+- `local` with `data.path`
+- `git` with `data.repo`, `data.path`, optional `data.ref`
+- `http` with `data.url`
+- `registry` with `data.address`, `data.version`
 
-```text
-git+https://github.com/my-org/shared-config.git//validators/bucket.py@v1.0.0
-git+ssh://git@github.com/my-org/shared-config.git//validators/bucket.py@main
+Stacksmith treats this as the canonical representation and renders tool-specific
+syntax server-side before invoking downstream tools.
+
+### Canonical vs rendered target syntax
+
+| Canonical reference | Terraform/OpenTofu rendered value | CLI flag rendered value |
+| - | - | - |
+| `source: local`, `data.path: ./vars.dev.yaml` | `./vars.dev.yaml` | `./vars.dev.yaml` |
+| `source: http`, `data.url: https://example.com/base.yaml` | `https://example.com/base.yaml` | `https://example.com/base.yaml` |
+| `source: git`, `data.repo: https://github.com/org/shared.git`, `data.path: vars/base.yaml`, `data.ref: v1.2.3` | `git::https://github.com/org/shared.git//vars/base.yaml?ref=v1.2.3` | `git+https://github.com/org/shared.git//vars/base.yaml@v1.2.3` |
+| `source: registry`, `data.address: hashicorp/aws`, `data.version: ~> 6.0` | `{ source = "hashicorp/aws", version = "~> 6.0" }` (provider/module fields) | Not used for file-style CLI flags |
+
+```yaml
+script:
+  source: git
+  data:
+    repo: https://github.com/my-org/shared-config.git
+    path: validators/bucket.py
+    ref: v1.0.0
 ```
 
 ### Usage examples
 
-In a stack's variable validation or a config's managed validation/transform, use a URL instead of a local path.
+In config validations/transforms, use a structured script reference.
 
 ```yaml
 # stacksmith-config.yaml – remote managed input validation script
 var_validations:
   bucket_name:
-    script: "https://raw.githubusercontent.com/my-org/shared/main/validators/bucket.py"
+    script:
+      source: http
+      data:
+        url: https://raw.githubusercontent.com/my-org/shared/main/validators/bucket.py
 ```
 
 ```yaml
 # stacksmith-config.yaml – remote transform script from a git repo
-modules:
+module_mappings:
   aws_s3_bucket:
-    source: "https://github.com/my-org/terraform-aws-s3.git"
-    version: "3.2.1"
+    source:
+      source: git
+      data:
+        repo: https://github.com/my-org/terraform-aws-s3.git
+        ref: 3.2.1
     properties:
       acl:
         mapped_to: bucket_acl
         transform:
-          script: "git+https://github.com/my-org/shared.git//transforms/acl.py@v2.0.0"
+          script:
+            source: git
+            data:
+              repo: https://github.com/my-org/shared.git
+              path: transforms/acl.py
+              ref: v2.0.0
 ```
 
-Config files and vars files also support remote URLs via `--config` and `--vars`.
+Config files, vars files, stack files, and run files also support remote URLs via CLI flags (`--config`, `--vars`, `--stack`, `--run-file`) where URL strings are passed directly.
 
 ```shell
 stacksmith plan \
   --config https://example.com/org-config.yaml \
   --vars git+https://github.com/org/defaults.git//env/base.yaml@v1.2.0 \
   --vars git+https://github.com/org/service-defaults.git//bucket-writer/dev.yaml@v3.4.1
+```
+
+```shell
+stacksmith validate \
+  --run-file git+https://github.com/org/platform-live.git//services/payments/stacksmith.yaml@main
 ```
 
 ### Caching
@@ -222,6 +256,8 @@ Fetched resources are cached under a `.cache/` directory inside the build output
 `STACKSMITH_CONFIG` and `STACKSMITH_VARS` can provide default config and vars references when the corresponding CLI flags are omitted.
 
 `STACKSMITH_STACK` can provide a default stack file path when no positional stack argument is given.
+
+`STACKSMITH_RUN_FILE` can provide a default run-file reference when `--run-file` is omitted. If it is not set, Stacksmith auto-loads `./stacksmith.yaml` when present.
 
 Use colon-delimited lists.
 
@@ -269,30 +305,156 @@ When no matching `remote_auth` entry exists, stacksmith checks the following env
 
 > **Note:** Remote config files are fetched _before_ the config is loaded, so `remote_auth` entries are not available for config-level URLs. Use environment variables for authentication when fetching remote configs.
 
+## Run file
+
+`stacksmith.yaml` is a reproducible invocation file for Stacksmith itself. It solves the GitOps problem of recording exactly which stack layers, shared configs, vars files, and inline variables were used for a deployment-oriented command instead of relying on an ephemeral shell history entry.
+
+This is useful when platform teams publish a shared repo of base stack layers and managed defaults while application teams add service-specific overlays on top.
+
+```yaml
+merge_mode: deep
+
+stacks:
+  - source: git
+    data:
+      repo: https://github.com/org/platform-stacks.git
+      path: base/payments/stack.yaml
+      ref: v1.4.0
+  - source: local
+    data:
+      path: ./stack.yaml
+
+configs:
+  - source: git
+    data:
+      repo: https://github.com/org/platform-config.git
+      path: stacksmith-config.yaml
+      ref: v3.2.1
+  - source: local
+    data:
+      path: ./stacksmith-config.override.yaml
+
+vars:
+  - source: git
+    data:
+      repo: https://github.com/org/platform-config.git
+      path: vars/common.yaml
+      ref: v3.2.1
+  - source: local
+    data:
+      path: ./vars.dev.yaml
+
+var:
+  replicas: 2
+  feature_flags:
+    canary: true
+```
+
+Layering rules are deterministic.
+
+- `stacks` are applied first and deep-merged in order for single-stack commands.
+- `configs` are applied first, and later CLI `--config` flags append after them.
+- `vars` and `var` act as a base layer ahead of CLI `--vars` and `--var` entries.
+- `var` values can use any YAML type, including objects, arrays, booleans, and numbers.
+- `merge_mode` controls how layering is applied. `deep` is the default. `override` makes each later layer replace the previous value wholesale.
+
+Stack merge semantics use deep merge by default.
+
+- Dicts merge recursively.
+- Lists append in order.
+- Later scalar values replace earlier ones.
+- Set-like model fields such as tags deduplicate when parsed into the final model.
+
+For `run-all`, `stacks` can also be used as an explicit target list instead of directory discovery.
+
+If `--run-file` is omitted, Stacksmith checks `STACKSMITH_RUN_FILE` and then auto-detects `./stacksmith.yaml` when present.
+
+`--merge-mode` on the CLI always takes precedence over the run-file `merge_mode` value.
+
+## GitHub Actions GitOps workflow
+
+This repository includes a reusable GitHub Actions workflow plus example wrapper workflows for manual plan and apply runs.
+
+- `.github/workflows/stacksmith-gitops-reusable.yml` runs one environment in `plan` or `apply` mode.
+- `examples/github-actions/stacksmith-plan.yml` is an example manual dispatcher for `plan`.
+- `examples/github-actions/stacksmith-apply.yml` is an example manual dispatcher for `apply`.
+
+The example wrapper workflows select environments by changed files when manually invoked.
+
+- `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.
+
+By default, the workflows look for manifests under `examples/gitops-repo`.
+
+- Set repository variable `STACKSMITH_GITOPS_ROOT` to use a different root path.
+- On manual runs (`workflow_dispatch`), pass `gitops_root` to override for that invocation.
+- Changes under `<gitops_root>/common` and `<gitops_root>/manifests/common` fan out to all environments; changes under `<gitops_root>/environments/<env>` target only that environment.
+
+Example layout for common and environment-specific manifests.
+
+```text
+examples/gitops-repo/
+  common/
+    stacksmith.yaml
+  manifests/
+    common/
+      platform-base.stack.yaml
+      platform-tags.stack.yaml
+    environments/
+      dev/service.stack.yaml
+      prod/service.stack.yaml
+  environments/
+    dev/stacksmith.yaml
+    prod/stacksmith.yaml
+```
+
+In this pattern, each environment run file references shared stack layers first and environment overlays last.
+
+```yaml
+merge_mode: deep
+stacks:
+  - examples/gitops-repo/manifests/common/platform-base.stack.yaml
+  - examples/gitops-repo/manifests/common/platform-tags.stack.yaml
+  - examples/gitops-repo/manifests/environments/dev/service.stack.yaml
+configs:
+  - examples/shared-config-repo/stacksmith-config.yaml
+vars:
+  - examples/stack-repo/bucket-and-ec2/vars.dev.yaml
+var:
+  environment: dev
+```
+
+For production use, add GitHub Environment protections and secrets per environment. The reusable workflow maps `apply` jobs to the matching GitHub Environment name so approvals and scoped credentials can gate deployment.
+
+The reusable workflow passes `--env-file /dev/null` by default so CI runs are deterministic and do not implicitly load repository `.env` values. Override `env_file` in the workflow call if you intentionally want env-file layering.
+
 ## CLI reference
 
-Single-stack commands default to `stack.yaml` in the current directory (with fallback to `stack.yml` then `stack.json`). `--config` is repeatable; config files are deep-merged in order and later files override earlier ones. If `--config` is omitted, defaults come from `STACKSMITH_CONFIG` (supports one or more paths separated by your OS path separator), otherwise `./stacksmith-config.yaml`.
+Single-stack commands default to `stack.yaml` in the current directory (with fallback to `stack.yml` then `stack.json`) when neither `--stack`, `STACKSMITH_STACK`, nor `stacksmith.yaml` supplies stack refs. `--config` is repeatable; config files are deep-merged in order and later files override earlier ones. If `--config` is omitted, defaults come from `STACKSMITH_CONFIG` (supports one or more paths separated by your OS path separator), otherwise `./stacksmith-config.yaml`.
 
 Paths passed to `--env-file`, `--build-dir`, `--root`, and the positional stack file argument support `~` expansion.
 
 ```shell
-stacksmith validate [<stack_file>] [--config <config> ...] [--validation-report-format <json|csv>]
-stacksmith generate [<stack_file>] [--config <config> ...] [--build-dir <dir>]
-stacksmith init     [<stack_file>] [--config <config> ...]
-stacksmith plan     [<stack_file>] [--config <config> ...] [--validation-report-format <json|csv>]
-stacksmith apply    [<stack_file>] [--config <config> ...] [--auto-approve]
-stacksmith destroy  [<stack_file>] [--config <config> ...] [--auto-approve]
-stacksmith info inspect [--config <config> ...]
-stacksmith info diagnose [<stack_file>] [--config <config> ...]
+stacksmith validate [<stack_file>] [--stack <stack> ...] [--run-file <run-file>] [--config <config> ...] [--validation-report-format <json|csv>]
+stacksmith generate [<stack_file>] [--stack <stack> ...] [--run-file <run-file>] [--config <config> ...] [--build-dir <dir>]
+stacksmith init     [<stack_file>] [--stack <stack> ...] [--run-file <run-file>] [--config <config> ...]
+stacksmith plan     [<stack_file>] [--stack <stack> ...] [--run-file <run-file>] [--config <config> ...] [--validation-report-format <json|csv>]
+stacksmith apply    [<stack_file>] [--stack <stack> ...] [--run-file <run-file>] [--config <config> ...] [--auto-approve]
+stacksmith destroy  [<stack_file>] [--stack <stack> ...] [--run-file <run-file>] [--config <config> ...] [--auto-approve]
+stacksmith run-all  <action> [--stack <stack> ...] [--run-file <run-file>] [--root <root>] [--config <config> ...]
+stacksmith info inspect [--run-file <run-file>] [--config <config> ...]
+stacksmith info diagnose [<stack_file>] [--stack <stack> ...] [--run-file <run-file>] [--config <config> ...]
 ```
 
 Common flags available on single-stack commands:
 
 | Flag | Description |
 | - | - |
+| `--run-file` | Path or URL to `stacksmith.yaml`. Provides a reproducible base layer for stacks, configs, vars files, and inline vars. Defaults to `STACKSMITH_RUN_FILE`, then auto-detects `./stacksmith.yaml` when present. Supports `http(s)://` and `git+` URLs. |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. `deep` (default) recursively merges dict/list structures. `override` replaces earlier layer values with later ones. |
+| `--stack` | Repeatable path or URL to a stack definition. On single-stack commands, repeated `--stack` entries are deep-merged in order. On `run-all`, repeated `--stack` entries bypass discovery and target those stacks explicitly. Supports `http(s)://` and `git+` URLs. |
 | `--config` | Path or URL to `stacksmith-config.yaml` (repeatable). Files are deep-merged in order, with later files overriding earlier files. Supports `http(s)://` and `git+` URLs. Default: `STACKSMITH_CONFIG` using a single value or colon-delimited list. Quote items containing colons. |
 | `--vars` | Repeatable path or URL to a vars YAML/JSON file. Explicit `--vars` entries deep-merge with `--var` in the order they are provided on the command line; dicts merge recursively and lists append. Supports `http(s)://` and `git+` URLs. Default: `STACKSMITH_VARS` using a single value or colon-delimited list. Quote items containing colons. |
-| `--var key=val` | Input override, repeatable. Deep-merges in CLI order alongside `--vars`. |
+| `--var key=val` | Input override, repeatable. Deep-merges in CLI order alongside `--vars`. Run-file `var` entries are applied before these CLI overrides and may use non-string YAML values. |
 | `--build-dir` | Output directory (default: `.stacksmith/` next to the stack file) |
 | `--env-file` | Load environment variables from a dotenv-style file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. When omitted, Stacksmith will automatically load `.env` from the current working directory if present. |
 | `--no-cache` | Force re-fetch of all remote resources, ignoring the local cache |

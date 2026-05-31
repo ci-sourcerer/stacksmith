@@ -13,8 +13,13 @@ def _base_tool_config_payload() -> dict:
         },
         "provider_mappings": {
             "aws": {
-                "source": "hashicorp/aws",
-                "version": "6.39.0",
+                "source": {
+                    "source": "registry",
+                    "data": {
+                        "address": "hashicorp/aws",
+                        "version": "6.39.0",
+                    },
+                },
                 "instances": {
                     "default": {
                         "config": {
@@ -28,45 +33,84 @@ def _base_tool_config_payload() -> dict:
         },
         "module_mappings": {
             "aws_s3_bucket": {
-                "source": "https://github.com/org/terraform-aws-s3.git",
-                "version": "1.0.0",
+                "source": {
+                    "source": "git",
+                    "data": {
+                        "repo": "https://github.com/org/terraform-aws-s3.git",
+                        "ref": "1.0.0",
+                    },
+                },
             }
         },
     }
 
 
 class TestModuleSourceValidation:
-    def test_rejects_file_protocol(self):
-        with pytest.raises(ValueError, match="not a local path"):
-            ModuleMapping(source="file:///tmp/module", version="1.0.0")
-
-    def test_rejects_relative_dot_slash(self):
-        with pytest.raises(ValueError, match="not a local path"):
-            ModuleMapping(source="./local-module", version="1.0.0")
-
-    def test_rejects_relative_dotdot_slash(self):
-        with pytest.raises(ValueError, match="not a local path"):
-            ModuleMapping(source="../parent-module", version="1.0.0")
-
-    def test_rejects_absolute_path(self):
-        with pytest.raises(ValueError, match="not an absolute local path"):
-            ModuleMapping(source="/opt/modules/my-mod", version="1.0.0")
-
     def test_allows_git_url(self):
         m = ModuleMapping(
-            source="https://github.com/org/terraform-aws-s3.git", version="1.0.0"
+            source={
+                "source": "git",
+                "data": {
+                    "repo": "https://github.com/org/terraform-aws-s3.git",
+                    "ref": "1.0.0",
+                },
+            }
         )
-        assert m.source == "https://github.com/org/terraform-aws-s3.git"
+        assert m.source.data.repo == "https://github.com/org/terraform-aws-s3.git"
+        assert m.source.data.ref == "1.0.0"
 
     def test_allows_registry_address(self):
-        m = ModuleMapping(source="hashicorp/aws", version="5.12.0")
-        assert m.source == "hashicorp/aws"
+        m = ModuleMapping(
+            source={
+                "source": "registry",
+                "data": {
+                    "address": "hashicorp/aws",
+                    "version": "5.12.0",
+                },
+            }
+        )
+        assert m.source.data.address == "hashicorp/aws"
+        assert m.source.data.version == "5.12.0"
 
     def test_allows_double_slash_subdir(self):
         m = ModuleMapping(
-            source="git::https://github.com/org/modules.git//vpc", version="1.0.0"
+            source={
+                "source": "git",
+                "data": {
+                    "repo": "https://github.com/org/modules.git",
+                    "path": "vpc",
+                    "ref": "1.0.0",
+                },
+            }
         )
-        assert "//vpc" in m.source
+        assert m.source.data.path == "vpc"
+
+    def test_rejects_missing_git_ref(self):
+        with pytest.raises(ValueError, match="ref"):
+            ModuleMapping(
+                source={
+                    "source": "git",
+                    "data": {"repo": "https://github.com/org/modules.git"},
+                }
+            )
+
+    def test_rejects_invalid_git_repo_prefix(self):
+        with pytest.raises(ValueError, match="start with"):
+            ModuleMapping(
+                source={
+                    "source": "git",
+                    "data": {"repo": "github.com/org/modules.git", "ref": "1.0.0"},
+                }
+            )
+
+    def test_rejects_registry_address_without_namespace(self):
+        with pytest.raises(ValueError, match="<namespace>/<name>"):
+            ModuleMapping(
+                source={
+                    "source": "registry",
+                    "data": {"address": "aws", "version": "5.12.0"},
+                }
+            )
 
 
 class TestProviderValidation:
@@ -84,8 +128,11 @@ class TestProviderValidation:
         assert spec.inline is not None
 
     def test_provider_config_spec_accepts_script(self):
-        spec = ProviderConfigSpec(script="scripts/provider_config.py")
-        assert spec.script == "scripts/provider_config.py"
+        spec = ProviderConfigSpec(
+            script={"source": "local", "data": {"path": "scripts/provider_config.py"}}
+        )
+        assert spec.script is not None
+        assert spec.script.data.path == "scripts/provider_config.py"
 
     def test_provider_config_spec_accepts_data(self):
         spec = ProviderConfigSpec(data={"region": "us-east-1"})

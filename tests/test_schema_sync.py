@@ -12,6 +12,7 @@ from stacksmith.models import (
     ProviderConfigSpec,
     ProviderFamily,
     ProviderInstance,
+    RunFile,
     StackDefinition,
     StackMeta,
     TofuConfig,
@@ -95,7 +96,7 @@ def test_tool_config_fields_match_config_schema():
 
     assert _field_names(TofuConfig) == {"version"}
 
-    assert _field_names(ProviderFamily) == {"source", "version", "instances"}
+    assert _field_names(ProviderFamily) == {"source", "instances"}
     assert _field_names(ProviderConfigSpec) == {"inline", "script", "data"}
     assert _field_names(ProviderInstance) == {"alias", "config"}
     provider_family_ref = schema["properties"]["provider_mappings"][
@@ -106,7 +107,6 @@ def test_tool_config_fields_match_config_schema():
     assert len(provider_config_spec["oneOf"]) == 3
     assert set(schema["$defs"]["providerFamily"]["properties"]) == {
         "source",
-        "version",
         "instances",
     }
     assert set(schema["$defs"]["providerInstance"]["properties"]) == {
@@ -117,7 +117,6 @@ def test_tool_config_fields_match_config_schema():
     assert _field_names(ModuleMapping) == {
         "description",
         "source",
-        "version",
         "auto_inject",
         "tags",
         "providers",
@@ -128,7 +127,6 @@ def test_tool_config_fields_match_config_schema():
     ) == {
         "description",
         "source",
-        "version",
         "auto_inject",
         "tags",
         "providers",
@@ -167,6 +165,25 @@ def test_tool_config_fields_match_config_schema():
     }
 
 
+def test_runfile_fields_match_runfile_schema():
+    schema = _load_schema("runfile.schema.json")
+
+    assert _field_names(RunFile) == {
+        "merge_mode",
+        "stacks",
+        "configs",
+        "vars",
+        "var",
+    }
+    assert set(schema["properties"]) == {
+        "merge_mode",
+        "stacks",
+        "configs",
+        "vars",
+        "var",
+    }
+
+
 @pytest.mark.parametrize(
     "schema_name, model, expected_properties",
     [
@@ -187,6 +204,11 @@ def test_tool_config_fields_match_config_schema():
             "stack.schema.json",
             StackDefinition,
             {"name", "tags", "depends_on", "mock_outputs", "components"},
+        ),
+        (
+            "runfile.schema.json",
+            RunFile,
+            {"merge_mode", "stacks", "configs", "vars", "var"},
         ),
     ],
 )
