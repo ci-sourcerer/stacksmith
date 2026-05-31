@@ -199,7 +199,7 @@ def _fetch_http(
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     headers = _resolve_auth_headers(parsed.hostname or "", auth_config)
-    verify = env_truthy("STACKSMITH_SSL_VERIFY", default=True)
+    verify = env_truthy("SSL_VERIFY", default=True, prefix="STACKSMITH_")
     LOGGER.debug("Fetching HTTP resource: {url}", url=url)
     resp = requests.get(url, headers=headers, verify=verify, timeout=60)
     if resp.status_code in {401, 403}:
