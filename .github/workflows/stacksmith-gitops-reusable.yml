@@ -31,7 +31,7 @@ on:
         type: string
         default: ""
       image_version:
-        description: Tag for the custom Stackmith container image.
+        description: Tag for the custom Stacksmith container image.
         required: false
         type: string
         default: latest
