@@ -388,6 +388,7 @@ In your own repository, you can either:
 - use the example wrappers as reference for trigger configuration.
 
 The opinionated reusable workflow discovers target environments and then calls `cisourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@main` for each selected environment.
+
 - `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.
 - `STACKSMITH_GITOPS_ROOT` defaults to `.` and can be overridden per run with `gitops_root`.
 - Changes under `<gitops_root>/common` and `<gitops_root>/manifests/common` fan out to all environments; changes under `<gitops_root>/environments/<env>` target only that environment.
@@ -404,7 +405,7 @@ The wrappers pass reusable workflow inputs from repository variables when availa
 
 Set secrets like `DOCKERHUB_TOKEN` in your repository or environments and use `secrets: inherit` in the caller template.
 
-**Consumer Quickstart**
+### Consumer quickstart
 
 Call the opinionated reusable workflow from your repository using `uses:`. Keep triggers and approval policies local and delegate discovery + per-environment execution to the reusable workflow here.
 
