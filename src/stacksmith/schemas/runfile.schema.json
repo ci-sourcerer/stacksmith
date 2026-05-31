@@ -5,6 +5,118 @@
   "description": "Defines a reproducible Stacksmith invocation with layered stack, config, and variable inputs.",
   "type": "object",
   "additionalProperties": false,
+  "$defs": {
+    "localReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "local",
+          "description": "Reference source type for local files."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Local filesystem path to the referenced runfile resource."
+            }
+          }
+        }
+      }
+    },
+    "gitReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "git",
+          "description": "Reference source type for Git-hosted files."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "repo",
+            "path"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "repo": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(https?://|ssh://|git://|git@).+",
+              "description": "Git repository URL for the referenced runfile resource."
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Path inside the Git repository to the referenced runfile resource."
+            },
+            "ref": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Git ref, branch, or tag used to resolve the reference."
+            }
+          }
+        }
+      }
+    },
+    "httpReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "http",
+          "description": "Reference source type for HTTP(S) URLs."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^https?://",
+              "description": "HTTP or HTTPS URL for the referenced resource."
+            }
+          }
+        }
+      }
+    },
+    "fileReference": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/localReference"
+        },
+        {
+          "$ref": "#/$defs/gitReference"
+        },
+        {
+          "$ref": "#/$defs/httpReference"
+        }
+      ]
+    }
+  },
   "properties": {
     "merge_mode": {
       "type": "string",
@@ -17,26 +129,23 @@
     "stacks": {
       "type": "array",
       "items": {
-        "type": "string",
-        "minLength": 1
+        "$ref": "#/$defs/fileReference"
       },
-      "description": "Ordered stack definition paths or URLs to deep-merge for single-stack commands, or explicit stack targets for run-all."
+      "description": "Ordered stack definition references to deep-merge for single-stack commands, or explicit stack targets for run-all."
     },
     "configs": {
       "type": "array",
       "items": {
-        "type": "string",
-        "minLength": 1
+        "$ref": "#/$defs/fileReference"
       },
-      "description": "Ordered tool configuration paths or URLs. Later layers override earlier scalar values while dicts merge recursively and lists append."
+      "description": "Ordered tool configuration references. Later layers override earlier scalar values while dicts merge recursively and lists append."
     },
     "vars": {
       "type": "array",
       "items": {
-        "type": "string",
-        "minLength": 1
+        "$ref": "#/$defs/fileReference"
       },
-      "description": "Ordered vars-file paths or URLs applied before CLI-provided vars layers."
+      "description": "Ordered vars-file references applied before CLI-provided vars layers."
     },
     "var": {
       "type": "object",

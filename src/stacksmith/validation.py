@@ -13,10 +13,12 @@ from .exceptions import (
     StacksmithValidationError,
 )
 from .models import (
+    FileReference,
     PlanValidation,
     RemoteAuthConfig,
     TransformSpec,
     ValidationSpec,
+    render_file_reference,
 )
 from .remote import is_remote_url, resolve_remote
 from .utils import stacksmith_env
@@ -35,7 +37,7 @@ from .validations.summarize import (
 def _load_inline_or_script_code(
     *,
     inline_code: str | None,
-    script: str | None,
+    script: FileReference | None,
     inline_origin: str,
     invalid_spec_error: str,
     base_path: Path | None,
@@ -83,24 +85,26 @@ def _format_validation_error(
 
 
 def _resolve_script_path(
-    script: str,
+    script: FileReference | str,
     base_path: Path | None,
     *,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
 ) -> Path:
+    script_reference = render_file_reference(script)
     if is_remote_url(script):
         if cache_dir is None:
             raise StacksmithValidationError(
-                f"Cannot fetch remote script without a cache directory: {script}"
+                "Cannot fetch remote script without a cache directory: "
+                f"{script_reference}"
             )
         return resolve_remote(script, cache_dir, auth_config)
 
-    script_path = Path(script)
+    script_path = Path(script_reference)
     if not script_path.is_absolute():
         if base_path is None:
             raise StacksmithValidationError(
-                f"Cannot resolve relative script path: {script}"
+                f"Cannot resolve relative script path: {script_reference}"
             )
         script_path = base_path / script_path
 

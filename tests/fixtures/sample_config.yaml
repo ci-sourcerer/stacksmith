@@ -9,8 +9,11 @@ tofu:
 
 provider_mappings:
   aws:
-    source: "hashicorp/aws"
-    version: "~> 5.0"
+    source:
+      source: registry
+      data:
+        address: "hashicorp/aws"
+        version: "~> 5.0"
     instances:
       default:
         config:
@@ -19,11 +22,17 @@ provider_mappings:
 
 module_mappings:
   aws_s3_bucket:
-    source: "https://github.com/org/terraform-aws-s3.git"
-    version: "1.0.0"
+    source:
+      source: git
+      data:
+        repo: "https://github.com/org/terraform-aws-s3.git"
+        ref: "1.0.0"
     properties:
       acl:
         mapped_to: bucket_acl
   aws_ec2_instance:
-    source: "https://github.com/org/terraform-aws-ec2.git"
-    version: "2.0.0"
+    source:
+      source: git
+      data:
+        repo: "https://github.com/org/terraform-aws-ec2.git"
+        ref: "2.0.0"

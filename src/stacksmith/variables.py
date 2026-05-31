@@ -9,13 +9,18 @@ import yaml
 from deepmerge import Merger
 
 from .enums import MergeMode
-from .models import RemoteAuthConfig, ValidationSpec
+from .models import (
+    FileReference,
+    RemoteAuthConfig,
+    ValidationSpec,
+    render_file_reference,
+)
 from .remote import is_remote_url, resolve_remote
 from .utils import stacksmith_env_list
 from .validation import InputValidationOutcome, validate_value
 
 _ENV_PREFIX = "STACKSMITH_VAR_"
-InputLayer: TypeAlias = tuple[Literal["vars", "var"], str]
+InputLayer: TypeAlias = tuple[Literal["vars", "var"], str | FileReference]
 _VAR_MERGER = Merger(
     [(dict, ["merge"]), (list, ["append"]), (set, ["union"])],
     ["override"],
@@ -68,18 +73,19 @@ def _merge_resolved_value(
 
 
 def _load_vars_file(
-    path_or_url: str | Path,
+    path_or_url: str | Path | FileReference,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
 ) -> dict[str, Any]:
-    if isinstance(path_or_url, str) and is_remote_url(path_or_url):
+    if is_remote_url(path_or_url):
         if cache_dir is None:
             raise ValueError(
-                f"Cannot fetch remote vars file without a cache directory: {path_or_url}"
+                "Cannot fetch remote vars file without a cache directory: "
+                f"{render_file_reference(path_or_url)}"
             )
         path = resolve_remote(path_or_url, cache_dir, auth_config)
     else:
-        path = Path(path_or_url).expanduser()
+        path = Path(render_file_reference(path_or_url)).expanduser()
     suffix = path.suffix.lower()
     text = path.read_text(encoding="utf-8")
     match suffix:
@@ -92,11 +98,11 @@ def _load_vars_file(
 
 
 def _iter_vars_files(
-    vars_file: str | Path | Sequence[str | Path] | None,
-) -> list[str | Path]:
+    vars_file: str | Path | FileReference | Sequence[str | Path | FileReference] | None,
+) -> list[str | Path | FileReference]:
     if vars_file is None:
         return stacksmith_env_list("VARS") or []
-    if isinstance(vars_file, str | Path):
+    if isinstance(vars_file, (str, Path)) or hasattr(vars_file, "source"):
         return [vars_file]
     return list(vars_file)
 
@@ -114,7 +120,7 @@ def _parse_var_item(raw_item: str) -> tuple[str, str]:
 
 def _apply_vars_source(
     resolved: dict[str, Any],
-    vars_path: str | Path,
+    vars_path: str | Path | FileReference,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
     merge_mode: str | MergeMode = MergeMode.DEEP,
@@ -143,7 +149,9 @@ def _apply_cli_var_item(
 
 
 def resolve_inputs(
-    vars_file: str | Path | Sequence[str | Path] | None = None,
+    vars_file: (
+        str | Path | FileReference | Sequence[str | Path | FileReference] | None
+    ) = None,
     input_layers: Sequence[InputLayer] | None = None,
     config_validations: dict[str, ValidationSpec] | None = None,
     config_validation_base_path: Path | None = None,

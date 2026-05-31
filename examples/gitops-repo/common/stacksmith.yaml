@@ -1,0 +1,23 @@
+# NOTE: For a GitOps workflow these referenced files often live in other repositories
+# (e.g. a shared config repo, or a repo containing stack manifests). For local
+# testing we use relative paths within this example checkout. In a real setup you
+# would typically reference a remote Git repo. Example structured reference:
+#
+#   source: git
+#   data:
+#     repo: https://github.com/ci-sourcerer/stacksmith.git
+#     path: examples/shared-config-repo/stacksmith-config.yaml
+#     ref: main
+#
+# Replace the local paths below with your remote URLs when integrating with GitOps.
+merge_mode: deep
+configs:
+  - source: local
+    data:
+      path: examples/shared-config-repo/stacksmith-config.yaml
+vars:
+  - source: local
+    data:
+      path: examples/stack-repo/bucket-and-ec2/vars.dev.yaml
+var:
+  owner: platform

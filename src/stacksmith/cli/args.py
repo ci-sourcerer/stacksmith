@@ -99,8 +99,8 @@ def _parse_var_assignment(value: str) -> tuple[str, str]:
 
 
 def parse_input_layers(
-    input_layers: list[tuple[str, str]] | None,
-) -> list[tuple[str, str]] | None:
+    input_layers: list[tuple[str, object]] | None,
+) -> list[tuple[str, object]] | None:
     """Validate and normalize ordered CLI input layers.
 
     Args:
@@ -115,9 +115,13 @@ def parse_input_layers(
     if not input_layers:
         return None
 
-    normalized_layers: list[tuple[str, str]] = []
+    normalized_layers: list[tuple[str, object]] = []
     for kind, value in input_layers:
         if kind == "var":
+            if not isinstance(value, str):
+                raise StacksmithConfigError(
+                    "Invalid --var value in input layer; expected key=value string."
+                )
             _parse_var_assignment(value)
         normalized_layers.append((kind, value))
     return normalized_layers

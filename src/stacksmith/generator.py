@@ -1,11 +1,12 @@
 import json
-import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from jinja2.sandbox import SandboxedEnvironment
 from loguru import logger as LOGGER
 
+from .formatters import render_module_source_for
 from .generation.providers import (
     _build_provider_blocks,
     _build_required_providers,
@@ -17,6 +18,7 @@ from .models import (
     RemoteAuthConfig,
     StackDefinition,
     ToolConfig,
+    render_module_source_identity,
 )
 from .utils import derive_stack_state_key
 from .validation import InputValidationOutcome, apply_transform, validate_value
@@ -49,6 +51,8 @@ def _generate_terraform_block(
     config: ToolConfig,
     stack: StackDefinition,
     root: Path | None = None,
+    *,
+    provider_source_formatter_options: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     state_key = derive_stack_state_key(stack.name, stack.source_path, root)
     return {
@@ -56,7 +60,10 @@ def _generate_terraform_block(
         "backend": {
             config.backend.type: config.backend.config_with_state_key(state_key)
         },
-        "required_providers": _build_required_providers(config),
+        "required_providers": _build_required_providers(
+            config,
+            formatter_options=provider_source_formatter_options,
+        ),
     }
 
 
@@ -120,27 +127,6 @@ def _apply_property_spec(
     return rendered
 
 
-def _is_git_source(source: str) -> bool:
-    normalized = source.lower()
-    return bool(
-        re.search(r"^(?:git::|git@|ssh://|https?://).*\.git|\.git$", normalized)
-    )
-
-
-def _build_module_source_fields(source: str, version: str) -> dict[str, str]:
-    if _is_git_source(source):
-        git_source = source if source.startswith("git::") else f"git::{source}"
-        query_suffix = f"ref=v{version}"
-        return {
-            "source": (
-                f"{git_source}&{query_suffix}"
-                if "?" in git_source
-                else f"{git_source}?{query_suffix}"
-            )
-        }
-    return {"source": source, "version": version}
-
-
 def _build_property_context(
     *,
     name: str,
@@ -168,6 +154,8 @@ def _generate_module_blocks(
     auth_config: RemoteAuthConfig | None = None,
     use_local_modules: bool = False,
     vendor_dir: Path | None = None,
+    *,
+    module_source_formatter_options: Mapping[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
     context = {"inputs": resolved_inputs}
     modules: dict[str, dict[str, Any]] = {}
@@ -183,12 +171,13 @@ def _generate_module_blocks(
                 f"Available types: {', '.join(config.module_mappings.keys())}"
             )
 
+        mapping_source, mapping_version = render_module_source_identity(mapping.source)
         LOGGER.info(
             "Generating module block for component '{resource_name}' of type '{resource_type}' using module {source}@{version}",
             resource_name=resource_name,
             resource_type=resource.type,
-            source=mapping.source,
-            version=mapping.version,
+            source=mapping_source,
+            version=mapping_version,
         )
         if mapping.auto_inject:
             LOGGER.debug(
@@ -199,20 +188,30 @@ def _generate_module_blocks(
         if use_local_modules:
             try:
                 module_block["source"] = resolve_module_source(
-                    mapping.source, mapping.version, vendor_dir=vendor_dir
+                    mapping_source,
+                    mapping_version,
+                    vendor_dir=vendor_dir,
                 )
             except FileNotFoundError:
                 LOGGER.debug(
                     "Vendored module not found for %s@%s; falling back to remote source",
-                    mapping.source,
-                    mapping.version,
+                    mapping_source,
+                    mapping_version,
                 )
                 module_block.update(
-                    _build_module_source_fields(mapping.source, mapping.version)
+                    render_module_source_for(
+                        "terraform",
+                        mapping.source,
+                        options=module_source_formatter_options,
+                    )
                 )
         else:
             module_block.update(
-                _build_module_source_fields(mapping.source, mapping.version)
+                render_module_source_for(
+                    "terraform",
+                    mapping.source,
+                    options=module_source_formatter_options,
+                )
             )
 
         if mapping.providers:
@@ -261,8 +260,8 @@ def _generate_module_blocks(
         injected_keys = []
         if mapping.auto_inject:
             discovered_vars = discover_module_variables(
-                mapping.source,
-                mapping.version,
+                mapping_source,
+                mapping_version,
                 cache_dir=cache_dir,
                 auth_config=auth_config,
                 vendor_dir=vendor_dir if use_local_modules else None,
@@ -362,6 +361,7 @@ def generate_tf_json(
     use_local_modules: bool = False,
     vendor_dir: Path | None = None,
     root: Path | None = None,
+    formatter_options: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Generate the complete .tf.json structure for a stack.
 
@@ -373,15 +373,24 @@ def generate_tf_json(
         auth_config: Optional host-keyed auth configuration for remote fetching.
         use_local_modules: When True, rewrite module sources to local vendored paths.
         vendor_dir: Root directory containing vendored modules.
+        formatter_options: Optional formatter option mappings keyed by
+            `module_source` and `provider_source`.
 
     Returns:
         Dict representing the entire .tf.json file content.
     """
+    module_source_options = None
+    provider_source_options = None
+    if formatter_options is not None:
+        module_source_options = formatter_options.get("module_source")
+        provider_source_options = formatter_options.get("provider_source")
+
     return {
         "terraform": _generate_terraform_block(
             config,
             stack,
             root,
+            provider_source_formatter_options=provider_source_options,
         ),
         "provider": _build_provider_blocks(
             config,
@@ -400,6 +409,7 @@ def generate_tf_json(
             auth_config=auth_config,
             use_local_modules=use_local_modules,
             vendor_dir=vendor_dir,
+            module_source_formatter_options=module_source_options,
         ),
     }
 
@@ -414,6 +424,7 @@ def write_tf_json(
     use_local_modules: bool = False,
     vendor_dir: Path | None = None,
     root: Path | None = None,
+    formatter_options: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> Path:
     """Generate and write main.tf.json to the output directory.
 
@@ -426,6 +437,8 @@ def write_tf_json(
         auth_config: Optional host-keyed auth configuration for remote fetching.
         use_local_modules: When True, rewrite module sources to local vendored paths.
         vendor_dir: Root directory containing vendored modules.
+        formatter_options: Optional formatter option mappings keyed by
+            `module_source` and `provider_source`.
 
     Returns:
         Path to the written main.tf.json file.
@@ -440,6 +453,7 @@ def write_tf_json(
         use_local_modules=use_local_modules,
         vendor_dir=vendor_dir,
         root=root,
+        formatter_options=formatter_options,
     )
     output_path = output_dir / "main.tf.json"
     output_path.write_text(json.dumps(tf_json, indent=2) + "\n", encoding="utf-8")

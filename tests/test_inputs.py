@@ -234,7 +234,14 @@ class TestConfigLevelValidation:
 
         result = resolve_inputs(
             input_layers=[("var", "name=prod-app")],
-            config_validations={"name": ValidationSpec(script="validators/prefix.py")},
+            config_validations={
+                "name": ValidationSpec(
+                    script={
+                        "source": "local",
+                        "data": {"path": "validators/prefix.py"},
+                    }
+                )
+            },
             config_validation_base_path=tmp_path,
         )
 

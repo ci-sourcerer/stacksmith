@@ -1,17 +1,229 @@
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .enums import MergeMode
+
+_GIT_REPO_PREFIXES = ("https://", "http://", "ssh://", "git://", "git@")
+
+
+class LocalReferenceData(BaseModel):
+    """Local file reference payload."""
+
+    path: str
+
+    @model_validator(mode="after")
+    def _validate_path(self) -> "LocalReferenceData":
+        if not self.path.strip():
+            raise ValueError("Local reference path must be a non-empty string")
+        return self
+
+
+class GitReferenceData(BaseModel):
+    """Git file reference payload."""
+
+    repo: str
+    path: str
+    ref: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_git_fields(self) -> "GitReferenceData":
+        if not self.repo.strip():
+            raise ValueError("Git reference repo must be a non-empty string")
+        if not self.repo.startswith(_GIT_REPO_PREFIXES):
+            raise ValueError(
+                "Git reference repo must start with one of https://, http://, ssh://, git://, or git@"
+            )
+        if not self.path.strip():
+            raise ValueError("Git reference path must be a non-empty string")
+        return self
+
+
+class HttpReferenceData(BaseModel):
+    """HTTP file reference payload."""
+
+    url: str
+
+    @model_validator(mode="after")
+    def _validate_url(self) -> "HttpReferenceData":
+        if not self.url.startswith(("http://", "https://")):
+            raise ValueError("HTTP reference url must start with http:// or https://")
+        return self
+
+
+class LocalReference(BaseModel):
+    """Structured local file reference."""
+
+    source: Literal["local"]
+    data: LocalReferenceData
+
+
+class GitReference(BaseModel):
+    """Structured git file reference."""
+
+    source: Literal["git"]
+    data: GitReferenceData
+
+
+class HttpReference(BaseModel):
+    """Structured HTTP file reference."""
+
+    source: Literal["http"]
+    data: HttpReferenceData
+
+
+FileReference: TypeAlias = Annotated[
+    LocalReference | GitReference | HttpReference,
+    Field(discriminator="source"),
+]
+
+
+def render_file_reference(reference: FileReference | str | Path) -> str:
+    """Render a file reference to a path/URL string for resolution routines."""
+    if isinstance(reference, Path):
+        return str(reference)
+    if isinstance(reference, str):
+        return reference
+
+    match reference:
+        case LocalReference(data=data):
+            return data.path
+        case HttpReference(data=data):
+            return data.url
+        case GitReference(data=data):
+            suffix = f"@{data.ref}" if data.ref else ""
+            return f"git+{data.repo}//{data.path}{suffix}"
+
+    raise ValueError(f"Unsupported file reference: {reference!r}")
+
+
+def is_file_reference_remote(reference: FileReference | str | Path) -> bool:
+    """Return True for git/http file references."""
+    if isinstance(reference, (Path, str)):
+        normalized = str(reference)
+        return normalized.startswith(
+            ("http://", "https://", "git+https://", "git+ssh://")
+        )
+    return reference.source in {"git", "http"}
+
+
+class RegistrySourceData(BaseModel):
+    """Registry-backed module/provider source payload."""
+
+    address: str
+    version: str
+
+    @model_validator(mode="after")
+    def _validate_registry_fields(self) -> "RegistrySourceData":
+        if not self.address.strip():
+            raise ValueError("Registry source address must be a non-empty string")
+        if any(char.isspace() for char in self.address):
+            raise ValueError("Registry source address must not contain whitespace")
+        if "/" not in self.address:
+            raise ValueError(
+                "Registry source address must use '<namespace>/<name>' format"
+            )
+        if not self.version.strip():
+            raise ValueError("Registry source version must be a non-empty string")
+        return self
+
+
+class ModuleGitSourceData(BaseModel):
+    """Git-backed module source payload."""
+
+    repo: str
+    ref: str
+    path: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_module_git_fields(self) -> "ModuleGitSourceData":
+        if not self.repo.strip():
+            raise ValueError("Git module source repo must be a non-empty string")
+        if not self.repo.startswith(_GIT_REPO_PREFIXES):
+            raise ValueError(
+                "Git module source repo must start with one of https://, http://, ssh://, git://, or git@"
+            )
+        if not self.ref.strip():
+            raise ValueError("Git module source ref must be a non-empty string")
+        if self.path is not None and not self.path.strip():
+            raise ValueError("Git module source path must be non-empty when provided")
+        return self
+
+
+class RegistrySourceReference(BaseModel):
+    """Structured registry source reference."""
+
+    source: Literal["registry"]
+    data: RegistrySourceData
+
+
+class ModuleGitSourceReference(BaseModel):
+    """Structured git module source reference."""
+
+    source: Literal["git"]
+    data: ModuleGitSourceData
+
+
+ModuleSourceReference: TypeAlias = Annotated[
+    RegistrySourceReference | ModuleGitSourceReference,
+    Field(discriminator="source"),
+]
+
+
+def render_module_source_identity(source: ModuleSourceReference) -> tuple[str, str]:
+    """Return canonical (source, version/ref) tuple for cache and vendoring keys."""
+    match source:
+        case RegistrySourceReference(data=data):
+            return data.address, data.version
+        case ModuleGitSourceReference(data=data):
+            in_repo_path = f"//{data.path}" if data.path else ""
+            return f"{data.repo}{in_repo_path}", data.ref
+
+    raise ValueError(f"Unsupported module source: {source!r}")
+
+
+def render_module_source_fields(source: ModuleSourceReference) -> dict[str, str]:
+    """Render Terraform module source fields from structured source data."""
+    match source:
+        case RegistrySourceReference(data=data):
+            return {"source": data.address, "version": data.version}
+        case ModuleGitSourceReference(data=data):
+            module_path = f"//{data.path}" if data.path else ""
+            git_source = f"git::{data.repo}{module_path}"
+            query_suffix = f"ref={data.ref}"
+            return {
+                "source": (
+                    f"{git_source}&{query_suffix}"
+                    if "?" in git_source
+                    else f"{git_source}?{query_suffix}"
+                )
+            }
+
+    raise ValueError(f"Unsupported module source: {source!r}")
+
+
+class ProviderSourceReference(BaseModel):
+    """Structured provider source reference."""
+
+    source: Literal["registry"]
+    data: RegistrySourceData
+
+
+def render_provider_source_fields(source: ProviderSourceReference) -> dict[str, str]:
+    """Render provider source/version fields for required_providers blocks."""
+    return {
+        "source": source.data.address,
+        "version": source.data.version,
+    }
 
 
 class ValidationSpec(BaseModel):
     """Reusable validation rule defined as inline code or a local script."""
 
     inline: str | None = None
-    script: str | None = None
+    script: FileReference | None = None
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> "ValidationSpec":
@@ -26,7 +238,7 @@ class TransformSpec(BaseModel):
     """Reusable property transform rule defined as Python or Jinja."""
 
     inline: str | None = None
-    script: str | None = None
+    script: FileReference | None = None
     jinja: str | None = None
 
     @model_validator(mode="after")
@@ -80,9 +292,9 @@ class RunFile(BaseModel):
     """Stacksmith invocation manifest describing input layers."""
 
     merge_mode: MergeMode | None = None
-    stacks: list[str] = Field(default_factory=list)
-    configs: list[str] = Field(default_factory=list)
-    vars: list[str] = Field(default_factory=list)
+    stacks: list[FileReference] = Field(default_factory=list)
+    configs: list[FileReference] = Field(default_factory=list)
+    vars: list[FileReference] = Field(default_factory=list)
     var: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -131,7 +343,7 @@ class ProviderConfigSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     inline: str | None = None
-    script: str | None = None
+    script: FileReference | None = None
     data: dict[str, Any] | None = None
 
     @model_validator(mode="after")
@@ -170,8 +382,7 @@ class ProviderInstance(BaseModel):
 class ProviderFamily(BaseModel):
     """Provider source/version with one or more named instances."""
 
-    source: str
-    version: str
+    source: ProviderSourceReference
     instances: dict[str, ProviderInstance]
 
     @model_validator(mode="after")
@@ -200,17 +411,11 @@ class ModuleMapping(BaseModel):
     """Mapping from an abstract resource type to a concrete OpenTofu module."""
 
     description: str | None = None
-    source: str
-    version: str
+    source: ModuleSourceReference
     auto_inject: bool = False
     tags: set[str] = Field(default_factory=set)
     properties: dict[str, "ModulePropertySpec"] = Field(default_factory=dict)
     providers: dict[str, str] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def _reject_local_source(self) -> "ModuleMapping":
-        _validate_module_source(self.source)
-        return self
 
 
 class PlanValidation(BaseModel):
@@ -251,28 +456,6 @@ class RemoteAuthEntry(BaseModel):
                         )
                     }
         return {}
-
-
-_LOCAL_SOURCE_PATTERNS = (
-    "file://",
-    "./",
-    "../",
-)
-
-
-def _validate_module_source(source: str) -> None:
-    """Reject module sources that reference local filesystem paths."""
-    normalized = source.strip()
-    if any(normalized.startswith(pat) for pat in _LOCAL_SOURCE_PATTERNS):
-        raise ValueError(
-            f"Module source must be a remote URL or registry address, "
-            f"not a local path: {source!r}"
-        )
-    if normalized.startswith("/") and not normalized.startswith("//"):
-        raise ValueError(
-            f"Module source must be a remote URL or registry address, "
-            f"not an absolute local path: {source!r}"
-        )
 
 
 RemoteAuthConfig = dict[str, RemoteAuthEntry]

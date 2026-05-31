@@ -1,7 +1,9 @@
+from io import StringIO
 from pathlib import Path
 
 import pytest
 from jsonschema import ValidationError
+from loguru import logger as LOGGER
 from stacksmith.loader import load_config, load_runfile, load_stack, load_stacks
 
 
@@ -33,13 +35,19 @@ def _s3_config_yaml(
         "  version: '1.8.0'\n"
         "provider_mappings:\n"
         "  aws:\n"
-        "    source: hashicorp/aws\n"
-        f"    version: '{provider_version}'\n"
+        "    source:\n"
+        "      source: registry\n"
+        "      data:\n"
+        "        address: hashicorp/aws\n"
+        f"        version: '{provider_version}'\n"
         f"{provider_instances}"
         "module_mappings:\n"
         "  aws_s3_bucket:\n"
-        "    source: https://github.com/org/terraform-aws-s3.git\n"
-        "    version: '1.0.0'\n"
+        "    source:\n"
+        "      source: git\n"
+        "      data:\n"
+        "        repo: https://github.com/org/terraform-aws-s3.git\n"
+        "        ref: '1.0.0'\n"
         f"{module_body}"
         f"{extra_body}"
     )
@@ -58,8 +66,11 @@ def _local_config_yaml(
         "  version: '1.8.0'\n"
         "provider_mappings:\n"
         "  aws:\n"
-        "    source: hashicorp/aws\n"
-        "    version: '~> 5.0'\n"
+        "    source:\n"
+        "      source: registry\n"
+        "      data:\n"
+        "        address: hashicorp/aws\n"
+        "        version: '~> 5.0'\n"
         "    instances:\n"
         "      default:\n"
         "        config:\n"
@@ -68,8 +79,11 @@ def _local_config_yaml(
         "                return {'region': 'us-east-1'}\n"
         "module_mappings:\n"
         "  aws_s3_bucket:\n"
-        "    source: https://github.com/org/terraform-aws-s3.git\n"
-        "    version: '1.0.0'\n"
+        "    source:\n"
+        "      source: git\n"
+        "      data:\n"
+        "        repo: https://github.com/org/terraform-aws-s3.git\n"
+        "        ref: '1.0.0'\n"
         f"{module_body}"
         f"{extra_body}"
     )
@@ -84,8 +98,11 @@ def _provider_override_yaml(
     return (
         "provider_mappings:\n"
         "  aws:\n"
-        "    source: hashicorp/aws\n"
-        f"    version: '{version}'\n"
+        "    source:\n"
+        "      source: registry\n"
+        "      data:\n"
+        "        address: hashicorp/aws\n"
+        f"        version: '{version}'\n"
         f"{module_body}"
         f"{extra_body}"
     )
@@ -204,6 +221,52 @@ class TestLoadStack:
         assert stack.components["queue"].type == "aws_sqs_queue"
         assert stack.source_path == override_file.resolve()
 
+    def test_load_stacks_deduplicates_tags_and_depends_on(self, tmp_path: Path):
+        base_file = tmp_path / "base-stack.yaml"
+        override_file = tmp_path / "override-stack.yaml"
+        base_file.write_text(
+            "name: merged-stack\n"
+            "tags:\n"
+            "  - compute\n"
+            "  - shared\n"
+            "depends_on:\n"
+            "  - network\n"
+            "components:\n"
+            "  bucket:\n"
+            "    type: aws_s3_bucket\n"
+            "    tags:\n"
+            "      - base\n"
+            "      - base\n"
+            "    properties:\n"
+            "      versioning_enabled: false\n",
+            encoding="utf-8",
+        )
+        override_file.write_text(
+            "name: merged-stack\n"
+            "tags:\n"
+            "  - shared\n"
+            "  - app\n"
+            "  - compute\n"
+            "depends_on:\n"
+            "  - data\n"
+            "  - network\n"
+            "components:\n"
+            "  bucket:\n"
+            "    tags:\n"
+            "      - base\n"
+            "      - base\n"
+            "  queue:\n"
+            "    type: aws_sqs_queue\n",
+            encoding="utf-8",
+        )
+
+        stack = load_stacks([base_file, override_file])
+
+        assert stack.tags == {"compute", "shared", "app"}
+        assert stack.depends_on == ["network", "data"]
+        assert stack.components["bucket"].tags == {"base"}
+        assert stack.components["queue"].type == "aws_sqs_queue"
+
     def test_load_stacks_requires_at_least_one_path(self):
         with pytest.raises(ValueError, match="At least one stack file path"):
             load_stacks([])
@@ -250,12 +313,20 @@ class TestLoadRunFile:
         run_file.write_text(
             "merge_mode: override\n"
             "stacks:\n"
-            "  - https://example.com/base-stack.yaml\n"
-            "  - ./stack.yaml\n"
+            "  - source: http\n"
+            "    data:\n"
+            "      url: https://example.com/base-stack.yaml\n"
+            "  - source: local\n"
+            "    data:\n"
+            "      path: ./stack.yaml\n"
             "configs:\n"
-            "  - ./stacksmith-config.yaml\n"
+            "  - source: local\n"
+            "    data:\n"
+            "      path: ./stacksmith-config.yaml\n"
             "vars:\n"
-            "  - ./vars.dev.yaml\n"
+            "  - source: local\n"
+            "    data:\n"
+            "      path: ./vars.dev.yaml\n"
             "var:\n"
             "  replicas: 2\n"
             "  features:\n"
@@ -266,23 +337,94 @@ class TestLoadRunFile:
         loaded = load_runfile(run_file)
 
         assert loaded.merge_mode == "override"
-        assert loaded.stacks == [
-            "https://example.com/base-stack.yaml",
-            "./stack.yaml",
-        ]
-        assert loaded.configs == ["./stacksmith-config.yaml"]
-        assert loaded.vars == ["./vars.dev.yaml"]
+        assert loaded.stacks[0].source == "http"
+        assert loaded.stacks[0].data.url == "https://example.com/base-stack.yaml"
+        assert loaded.stacks[1].source == "local"
+        assert loaded.stacks[1].data.path == "./stack.yaml"
+        assert loaded.configs[0].source == "local"
+        assert loaded.configs[0].data.path == "./stacksmith-config.yaml"
+        assert loaded.vars[0].source == "local"
+        assert loaded.vars[0].data.path == "./vars.dev.yaml"
         assert loaded.var == {"replicas": 2, "features": {"enabled": True}}
 
     def test_load_runfile_rejects_unknown_keys(self, tmp_path: Path):
         run_file = tmp_path / "stacksmith.yaml"
         run_file.write_text(
-            "stacks:\n" "  - ./stack.yaml\n" "unexpected: true\n",
+            "stacks:\n"
+            "  - source: local\n"
+            "    data:\n"
+            "      path: ./stack.yaml\n"
+            "unexpected: true\n",
             encoding="utf-8",
         )
 
         with pytest.raises(ValidationError):
             load_runfile(run_file)
+
+    def test_load_runfile_normalizes_legacy_string_references(self, tmp_path: Path):
+        run_file = tmp_path / "stacksmith.yaml"
+        run_file.write_text(
+            "stacks:\n"
+            "  - ./stack.yaml\n"
+            "  - https://example.com/base-stack.yaml\n"
+            "configs:\n"
+            "  - git+https://github.com/org/platform.git//stacksmith-config.yaml@v1.2.3\n"
+            "vars:\n"
+            "  - ./vars.dev.yaml\n",
+            encoding="utf-8",
+        )
+
+        loaded = load_runfile(run_file)
+
+        assert loaded.stacks[0].source == "local"
+        assert loaded.stacks[0].data.path == "./stack.yaml"
+        assert loaded.stacks[1].source == "http"
+        assert loaded.stacks[1].data.url == "https://example.com/base-stack.yaml"
+        assert loaded.configs[0].source == "git"
+        assert loaded.configs[0].data.repo == "https://github.com/org/platform.git"
+        assert loaded.configs[0].data.path == "stacksmith-config.yaml"
+        assert loaded.configs[0].data.ref == "v1.2.3"
+        assert loaded.vars[0].source == "local"
+        assert loaded.vars[0].data.path == "./vars.dev.yaml"
+
+    def test_load_runfile_logs_warning_for_legacy_string_references(
+        self, tmp_path: Path
+    ):
+        buffer = StringIO()
+        sink_id = LOGGER.add(buffer, level="WARNING")
+
+        try:
+            run_file = tmp_path / "stacksmith.yaml"
+            run_file.write_text(
+                "stacks:\n"
+                "  - ./stack.yaml\n"
+                "  - https://example.com/base-stack.yaml\n"
+                "configs:\n"
+                "  - git+https://github.com/org/platform.git//stacksmith-config.yaml@v1.2.3\n"
+                "vars:\n"
+                "  - ./vars.dev.yaml\n",
+                encoding="utf-8",
+            )
+
+            loaded = load_runfile(run_file)
+
+            assert loaded.stacks[0].source == "local"
+            assert loaded.stacks[1].source == "http"
+            assert loaded.configs[0].source == "git"
+            assert loaded.vars[0].source == "local"
+
+            log_text = buffer.getvalue()
+            assert "uses legacy local path string './stack.yaml'" in log_text
+            assert (
+                "uses legacy HTTP URL string 'https://example.com/base-stack.yaml'"
+                in log_text
+            )
+            assert (
+                "uses legacy git+ URL string 'git+https://github.com/org/platform.git//stacksmith-config.yaml@v1.2.3'"
+                in log_text
+            )
+        finally:
+            LOGGER.remove(sink_id)
 
 
 class TestLoadConfig:
@@ -313,6 +455,103 @@ class TestLoadConfig:
             config.provider_mappings["aws"].instances["default"].config.inline
             is not None
         )
+
+    def test_load_config_normalizes_legacy_reference_shapes(self, tmp_path: Path):
+        config_file = tmp_path / "stacksmith-config.yaml"
+        config_file.write_text(
+            "backend:\n"
+            "  type: local\n"
+            "  path: .state\n"
+            "tofu:\n"
+            "  version: '1.8.0'\n"
+            "provider_mappings:\n"
+            "  aws:\n"
+            "    source: hashicorp/aws\n"
+            "    version: '~> 6.0'\n"
+            "    instances:\n"
+            "      default:\n"
+            "        config:\n"
+            "          script: scripts/providers/aws.py\n"
+            "module_mappings:\n"
+            "  aws_s3_bucket:\n"
+            "    source: https://github.com/org/terraform-aws-s3.git//modules/bucket\n"
+            "    version: '1.2.3'\n"
+            "    properties:\n"
+            "      acl:\n"
+            "        transform:\n"
+            "          script: scripts/transforms/acl.py\n"
+            "var_validations:\n"
+            "  bucket_name:\n"
+            "    script: scripts/validations/bucket_name.py\n"
+            "plan_validations:\n"
+            "  no_destroy:\n"
+            "    rule:\n"
+            "      script: scripts/validations/no_destroy.py\n",
+            encoding="utf-8",
+        )
+
+        buffer = StringIO()
+        sink_id = LOGGER.add(buffer, level="WARNING")
+
+        try:
+            config = load_config(config_file)
+
+            assert config.provider_mappings["aws"].source.source == "registry"
+            assert (
+                config.provider_mappings["aws"].source.data.address == "hashicorp/aws"
+            )
+            assert config.provider_mappings["aws"].source.data.version == "~> 6.0"
+
+            module_source = config.module_mappings["aws_s3_bucket"].source
+            assert module_source.source == "git"
+            assert (
+                module_source.data.repo == "https://github.com/org/terraform-aws-s3.git"
+            )
+            assert module_source.data.path == "modules/bucket"
+            assert module_source.data.ref == "1.2.3"
+
+            provider_script = (
+                config.provider_mappings["aws"].instances["default"].config.script
+            )
+            assert provider_script is not None
+            assert provider_script.source == "local"
+            assert Path(provider_script.data.path).is_absolute()
+
+            transform_script = (
+                config.module_mappings["aws_s3_bucket"]
+                .properties["acl"]
+                .transform.script
+            )
+            assert transform_script is not None
+            assert transform_script.source == "local"
+            assert Path(transform_script.data.path).is_absolute()
+
+            var_script = config.var_validations["bucket_name"].script
+            assert var_script is not None
+            assert var_script.source == "local"
+            assert Path(var_script.data.path).is_absolute()
+
+            plan_script = config.plan_validations["no_destroy"].rule.script
+            assert plan_script is not None
+            assert plan_script.source == "local"
+            assert Path(plan_script.data.path).is_absolute()
+
+            log_text = buffer.getvalue()
+            assert "provider_mappings.aws uses legacy source/version shape" in log_text
+            assert (
+                "module_mappings.aws_s3_bucket uses legacy source/version git shape"
+                in log_text
+            )
+            assert (
+                "var_validations.bucket_name.script uses legacy local path string 'scripts/validations/bucket_name.py'"
+                in log_text
+            )
+            assert (
+                "plan_validations.no_destroy.rule.script uses legacy local path string 'scripts/validations/no_destroy.py'"
+                in log_text
+            )
+        finally:
+            LOGGER.remove(sink_id)
 
     def test_load_local_backend_config(self, sample_config_local_yaml: Path):
         config = load_config(sample_config_local_yaml)
@@ -397,7 +636,10 @@ class TestLoadConfig:
                     "      acl:\n"
                     "        transform:\n"
                     "          inline: 'def transform(value, **context): return value.upper()'\n"
-                    "          script: transforms/acl.py\n"
+                    "          script:\n"
+                    "            source: local\n"
+                    "            data:\n"
+                    "              path: transforms/acl.py\n"
                 ),
             ),
             encoding="utf-8",
@@ -457,8 +699,8 @@ class TestLoadConfig:
 
         config = load_config([base, override])
 
-        assert config.provider_mappings["aws"].version == "= 5.91.0"
-        assert config.module_mappings["aws_s3_bucket"].version == "1.0.0"
+        assert config.provider_mappings["aws"].source.data.version == "= 5.91.0"
+        assert config.module_mappings["aws_s3_bucket"].source.data.ref == "1.0.0"
         assert (
             config.module_mappings["aws_s3_bucket"].properties["acl"].mapped_to
             == "bucket_acl"
@@ -500,8 +742,8 @@ class TestLoadConfig:
 
         config = load_config([base, override])
 
-        assert config.provider_mappings["aws"].version == "= 5.91.0"
-        assert config.module_mappings["aws_s3_bucket"].version == "1.0.0"
+        assert config.provider_mappings["aws"].source.data.version == "= 5.91.0"
+        assert config.module_mappings["aws_s3_bucket"].source.data.ref == "1.0.0"
         assert set(config.module_mappings["aws_s3_bucket"].tags) == {
             "base",
             "shared",

@@ -1,0 +1,34 @@
+# NOTE: For GitOps workflows these entries are often maintained in separate
+# repositories (e.g. a repo for shared configs, a repo per environment, or a
+# dedicated manifests repo). The example uses local relative paths so the demo
+# works when the whole example is checked out. When deploying from a GitOps
+# controller, point these at the remote repositories instead. Example structured
+# git reference:
+#
+#   source: git
+#   data:
+#     repo: https://github.com/ci-sourcerer/stacksmith.git
+#     path: examples/gitops-repo/manifests/environments/prod/service.stack.yaml
+#     ref: main
+#
+# Leave the local paths here for local testing and examples.
+stacks:
+  - source: local
+    data:
+      path: examples/gitops-repo/manifests/common/platform-base.stack.yaml
+  - source: local
+    data:
+      path: examples/gitops-repo/manifests/common/platform-tags.stack.yaml
+  - source: local
+    data:
+      path: examples/gitops-repo/manifests/environments/prod/service.stack.yaml
+configs:
+  - source: local
+    data:
+      path: examples/shared-config-repo/stacksmith-config.yaml
+vars:
+  - source: local
+    data:
+      path: examples/stack-repo/bucket-and-ec2/vars.dev.yaml
+var:
+  environment: prod

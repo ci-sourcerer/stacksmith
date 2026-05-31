@@ -1,4 +1,5 @@
 import json
+import textwrap
 from unittest.mock import patch
 
 import pytest
@@ -26,8 +27,13 @@ from stacksmith.models import (
 def _simple_mapping() -> ModuleMapping:
     return ModuleMapping(
         description="AWS S3 bucket",
-        source="https://github.com/org/terraform-aws-s3.git",
-        version="1.0.0",
+        source={
+            "source": "git",
+            "data": {
+                "repo": "https://github.com/org/terraform-aws-s3.git",
+                "ref": "1.0.0",
+            },
+        },
         auto_inject=False,
         properties={
             "acl": ModulePropertySpec(mapped_to="bucket_acl"),
@@ -39,13 +45,23 @@ def _simple_mapping() -> ModuleMapping:
 def _auto_inject_mapping() -> ModuleMapping:
     return ModuleMapping(
         description="AWS EC2 instance",
-        source="https://github.com/org/terraform-aws-ec2.git",
-        version="2.0.0",
+        source={
+            "source": "git",
+            "data": {
+                "repo": "https://github.com/org/terraform-aws-ec2.git",
+                "ref": "2.0.0",
+            },
+        },
         auto_inject=True,
         properties={
             "tags": ModulePropertySpec(
                 validation=ValidationSpec(inline="def validate(value): return True"),
-                transform=TransformSpec(script="scripts/transform_tags.py"),
+                transform=TransformSpec(
+                    script={
+                        "source": "local",
+                        "data": {"path": "scripts/transform_tags.py"},
+                    }
+                ),
             ),
         },
     )
@@ -60,7 +76,7 @@ def test_inspect_resource_type_basic(_simple_mapping):
 
     assert result.resource_type == "aws_s3_bucket"
     assert result.display_name == "AWS S3 bucket"
-    assert result.module_source == _simple_mapping.source
+    assert result.module_source == "https://github.com/org/terraform-aws-s3.git"
     assert result.module_version == "1.0.0"
     assert result.auto_inject is False
 
@@ -139,32 +155,45 @@ def test_inspect_resource_type_validation_transform_metadata(_auto_inject_mappin
 
 def test_inspect_resource_type_transform_script_path_is_relative(tmp_path):
     config_path = tmp_path / "stacksmith-config.yaml"
-    config_path.write_text("""backend:
-    type: local
-    path: /tmp/state
+    config_path.write_text(
+        textwrap.dedent("""
+            backend:
+                type: local
+                path: /tmp/state
 
-tofu:
-  version: \"1.8.0\"
+            tofu:
+                version: "1.8.0"
 
-provider_mappings:
-  aws:
-    source: \"hashicorp/aws\"
-    version: \"~> 5.0\"
-    instances:
-      default:
-        config:
-                    data:
-                        region: \"us-east-1\"
+            provider_mappings:
+                aws:
+                    source:
+                        source: registry
+                        data:
+                            address: "hashicorp/aws"
+                            version: "~> 5.0"
+                    instances:
+                        default:
+                            config:
+                                data:
+                                    region: "us-east-1"
 
-module_mappings:
-  aws_s3_bucket:
-    source: https://github.com/org/terraform-aws-s3-bucket.git
-    version: \"1.0.0\"
-    properties:
-      bucket_name:
-        transform:
-          script: scripts/transform_bucket_name.py
-""")
+            module_mappings:
+                aws_s3_bucket:
+                    source:
+                        source: git
+                        data:
+                            repo: https://github.com/org/terraform-aws-s3-bucket.git
+                            ref: "1.0.0"
+                    properties:
+                        bucket_name:
+                            transform:
+                                script:
+                                    source: local
+                                    data:
+                                        path: scripts/transform_bucket_name.py
+            """).strip() + "\n",
+        encoding="utf-8",
+    )
     config, locations = load_config_with_locations([config_path])
     with patch(
         "stacksmith.inspector.discover_module_variables",
@@ -185,32 +214,45 @@ module_mappings:
 
 def test_inspect_resource_type_policy_metadata_renders(tmp_path):
     config_path = tmp_path / "stacksmith-config.yaml"
-    config_path.write_text("""backend:
-    type: local
-    path: /tmp/state
+    config_path.write_text(
+        textwrap.dedent("""
+            backend:
+                type: local
+                path: /tmp/state
 
-tofu:
-  version: \"1.8.0\"
+            tofu:
+                version: "1.8.0"
 
-provider_mappings:
-  aws:
-    source: \"hashicorp/aws\"
-    version: \"~> 5.0\"
-    instances:
-      default:
-        config:
-                    data:
-                        region: \"us-east-1\"
+            provider_mappings:
+                aws:
+                    source:
+                        source: registry
+                        data:
+                            address: "hashicorp/aws"
+                            version: "~> 5.0"
+                    instances:
+                        default:
+                            config:
+                                data:
+                                    region: "us-east-1"
 
-module_mappings:
-  aws_s3_bucket:
-    source: https://github.com/org/terraform-aws-s3-bucket.git
-    version: \"1.0.0\"
-    properties:
-      acl:
-        validation:
-          script: scripts/policy.py
-""")
+            module_mappings:
+                aws_s3_bucket:
+                    source:
+                        source: git
+                        data:
+                            repo: https://github.com/org/terraform-aws-s3-bucket.git
+                            ref: "1.0.0"
+                    properties:
+                        acl:
+                            validation:
+                                script:
+                                    source: local
+                                    data:
+                                        path: scripts/policy.py
+            """).strip() + "\n",
+        encoding="utf-8",
+    )
     config, locations = load_config_with_locations([config_path])
     with patch(
         "stacksmith.inspector.discover_module_variables",
@@ -231,34 +273,44 @@ module_mappings:
 
 def test_load_config_with_locations_reports_validation_block(tmp_path):
     config_path = tmp_path / "stacksmith-config.yaml"
-    config_path.write_text("""backend:
-    type: local
-    path: /tmp/state
+    config_path.write_text(
+        textwrap.dedent("""
+            backend:
+                type: local
+                path: /tmp/state
 
-tofu:
-  version: "1.8.0"
+            tofu:
+                version: "1.8.0"
 
-provider_mappings:
-  aws:
-    source: "hashicorp/aws"
-    version: "~> 5.0"
-    instances:
-      default:
-        config:
-                    data:
-                        region: "us-east-1"
+            provider_mappings:
+                aws:
+                    source:
+                        source: registry
+                        data:
+                            address: "hashicorp/aws"
+                            version: "~> 5.0"
+                    instances:
+                        default:
+                            config:
+                                data:
+                                    region: "us-east-1"
 
-module_mappings:
-  aws_s3_bucket:
-    source: "https://github.com/example/s3.git"
-    version: "1.0.0"
-    properties:
-      tags:
-        validation:
-          inline: |
-            def validate(value):
-              return True
-""")
+            module_mappings:
+                aws_s3_bucket:
+                    source:
+                        source: git
+                        data:
+                            repo: "https://github.com/example/s3.git"
+                            ref: "1.0.0"
+                    properties:
+                        tags:
+                            validation:
+                                inline: |
+                                    def validate(value):
+                                        return True
+            """).strip() + "\n",
+        encoding="utf-8",
+    )
     _, locations = load_config_with_locations([config_path])
 
     assert (
@@ -275,38 +327,48 @@ module_mappings:
 
 def test_load_config_with_locations_reports_var_validation_block(tmp_path):
     config_path = tmp_path / "stacksmith-config.yaml"
-    config_path.write_text("""backend:
-    type: local
-    path: /tmp/state
+    config_path.write_text(
+        textwrap.dedent("""
+            backend:
+                type: local
+                path: /tmp/state
 
-tofu:
-  version: "1.8.0"
+            tofu:
+                version: "1.8.0"
 
-provider_mappings:
-  aws:
-    source: "hashicorp/aws"
-    version: "~> 5.0"
-    instances:
-      default:
-        config:
-                    data:
-                        region: "us-east-1"
+            provider_mappings:
+                aws:
+                    source:
+                        source: registry
+                        data:
+                            address: "hashicorp/aws"
+                            version: "~> 5.0"
+                    instances:
+                        default:
+                            config:
+                                data:
+                                    region: "us-east-1"
 
-module_mappings:
-  aws_s3_bucket:
-    source: https://github.com/org/terraform-aws-s3.git
-    version: "1.0.0"
-    auto_inject: true
-    properties:
-      bucket_name:
-        mapped_to: bucket
+            module_mappings:
+                aws_s3_bucket:
+                    source:
+                        source: git
+                        data:
+                            repo: https://github.com/org/terraform-aws-s3.git
+                            ref: "1.0.0"
+                    auto_inject: true
+                    properties:
+                        bucket_name:
+                            mapped_to: bucket
 
-var_validations:
-  aws_region:
-    inline: |
-      def validate(value, **context):
-        return value == "us-east-1"
-""")
+            var_validations:
+                aws_region:
+                    inline: |
+                        def validate(value, **context):
+                            return value == "us-east-1"
+            """).strip() + "\n",
+        encoding="utf-8",
+    )
     _, locations = load_config_with_locations([config_path])
 
     assert ("var_validations", "aws_region") in locations
@@ -317,36 +379,49 @@ var_validations:
 
 def test_inspect_resource_type_uses_var_validation_script_location(tmp_path):
     config_path = tmp_path / "stacksmith-config.yaml"
-    config_path.write_text("""backend:
-    type: local
-    path: /tmp/state
+    config_path.write_text(
+        textwrap.dedent("""
+            backend:
+                type: local
+                path: /tmp/state
 
-tofu:
-  version: "1.8.0"
+            tofu:
+                version: "1.8.0"
 
-provider_mappings:
-  aws:
-    source: "hashicorp/aws"
-    version: "~> 5.0"
-    instances:
-      default:
-        config:
-                    data:
-                        region: "us-east-1"
+            provider_mappings:
+                aws:
+                    source:
+                        source: registry
+                        data:
+                            address: "hashicorp/aws"
+                            version: "~> 5.0"
+                    instances:
+                        default:
+                            config:
+                                data:
+                                    region: "us-east-1"
 
-module_mappings:
-  aws_s3_bucket:
-    source: https://github.com/org/terraform-aws-s3.git
-    version: "1.0.0"
-    auto_inject: true
-    properties:
-      bucket_name:
-        mapped_to: bucket
+            module_mappings:
+                aws_s3_bucket:
+                    source:
+                        source: git
+                        data:
+                            repo: https://github.com/org/terraform-aws-s3.git
+                            ref: "1.0.0"
+                    auto_inject: true
+                    properties:
+                        bucket_name:
+                            mapped_to: bucket
 
-var_validations:
-  aws_region:
-    script: scripts/validate_aws_region.py
-""")
+            var_validations:
+                aws_region:
+                    script:
+                        source: local
+                        data:
+                            path: scripts/validate_aws_region.py
+            """).strip() + "\n",
+        encoding="utf-8",
+    )
     config, locations = load_config_with_locations([config_path])
     with patch(
         "stacksmith.inspector.discover_module_variables",

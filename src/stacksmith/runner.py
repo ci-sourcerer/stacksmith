@@ -280,6 +280,7 @@ def run_terragrunt(
             save_plan_json=save_plan_json,
             strict_validation_warnings=strict_validation_warnings,
             fail_on_changes=fail_on_changes,
+            plan_validation_results=plan_validation_results,
         )
 
     return _run_terragrunt_streaming(cmd, working_dir)

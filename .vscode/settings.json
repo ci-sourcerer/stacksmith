@@ -3,7 +3,13 @@
     "python-envs.defaultPackageManager": "ms-python.python:poetry",
     "yaml.schemas": {
         "src/stacksmith/schemas/config.schema.json": "**/stacksmith-config.yaml",
-        "src/stacksmith/schemas/stack.schema.json": "**/stack.yaml"
+        "src/stacksmith/schemas/stack.schema.json": [
+            "**/stack.yaml",
+            "**/*.stack.yaml"
+        ],
+        "src/stacksmith/schemas/runfile.schema.json": [
+            "**/stacksmith.yaml"
+        ]
     },
     "json.schemas": [
         {

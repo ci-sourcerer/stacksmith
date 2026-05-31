@@ -34,7 +34,13 @@ from .inspector import (
     inspect_plan_policies,
 )
 from .loader import load_config, load_config_with_locations, load_stack, load_stacks
-from .models import RemoteAuthConfig, StackDefinition, ToolConfig
+from .models import (
+    FileReference,
+    RemoteAuthConfig,
+    StackDefinition,
+    ToolConfig,
+    render_file_reference,
+)
 from .remote import is_remote_url, resolve_remote
 from .runner import run_terragrunt, run_terragrunt_all_ordered
 from .terragrunt import write_terragrunt_json
@@ -52,7 +58,7 @@ def _default_config_paths() -> list[str]:
 
 
 def _resolve_config_paths(
-    config_args: list[str] | None,
+    config_args: list[str | FileReference] | None,
     cache_dir: Path | None = None,
 ) -> list[Path]:
     raw_paths = config_args if config_args else _default_config_paths()
@@ -61,19 +67,19 @@ def _resolve_config_paths(
         if is_remote_url(ref):
             if cache_dir is None:
                 raise StacksmithConfigError(
-                    f"Cannot fetch remote config without a cache directory: {ref}"
+                    f"Cannot fetch remote config without a cache directory: {render_file_reference(ref)}"
                 )
             resolved.append(resolve_remote(ref, cache_dir))
         else:
-            resolved.append(Path(ref).expanduser())
+            resolved.append(Path(render_file_reference(ref)).expanduser())
     LOGGER.debug("Resolved config paths: {paths}", paths=resolved)
     return resolved
 
 
 def _normalize_stack_refs(
-    stack_file: Path | str | Sequence[Path | str],
-) -> list[Path | str]:
-    if isinstance(stack_file, (Path, str)):
+    stack_file: Path | str | FileReference | Sequence[Path | str | FileReference],
+) -> list[Path | str | FileReference]:
+    if isinstance(stack_file, (Path, str)) or hasattr(stack_file, "source"):
         return [stack_file]
 
     stack_refs = list(stack_file)
@@ -83,7 +89,7 @@ def _normalize_stack_refs(
 
 
 def _resolve_stack_paths(
-    stack_file: Path | str | Sequence[Path | str],
+    stack_file: Path | str | FileReference | Sequence[Path | str | FileReference],
     cache_dir: Path | None = None,
 ) -> list[Path]:
     stack_refs = _normalize_stack_refs(stack_file)
@@ -98,13 +104,22 @@ def _resolve_stack_paths(
             resolved.append(resolve_remote(ref, cache_dir))
             continue
 
+        if hasattr(ref, "source") and is_remote_url(ref):
+            if cache_dir is None:
+                raise StacksmithConfigError(
+                    "Cannot fetch remote stack without a cache directory: "
+                    f"{render_file_reference(ref)}"
+                )
+            resolved.append(resolve_remote(ref, cache_dir))
+            continue
+
         resolved.append(
-            ref.expanduser() if isinstance(ref, Path) else Path(ref).expanduser()
+            ref.expanduser()
+            if isinstance(ref, Path)
+            else Path(render_file_reference(ref)).expanduser()
         )
 
-    if len(resolved) == 1 and not (
-        isinstance(stack_refs[0], str) and is_remote_url(stack_refs[0])
-    ):
+    if len(resolved) == 1 and not (is_remote_url(stack_refs[0])):
         resolved[0] = _find_stack_file(resolved[0])
 
     LOGGER.debug("Resolved stack paths: {paths}", paths=resolved)
@@ -112,7 +127,7 @@ def _resolve_stack_paths(
 
 
 def _load_stack_definition(
-    stack_file: Path | str | Sequence[Path | str],
+    stack_file: Path | str | FileReference | Sequence[Path | str | FileReference],
     cache_dir: Path | None = None,
     merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> StackDefinition:
@@ -226,12 +241,12 @@ def _validation_report_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
             result_name = raw_result.get("name", "")
             result_status = raw_result.get("status", "")
             result_message = raw_result.get("message", "")
-            result_message, result_detail = _split_validation_message(result_message)
+            result_detail = raw_result.get("detail")
         else:
             result_stack_name = report.get("stack_name", "")
             result_name = ""
             result_status = ""
-            result_message = json.dumps(raw_result, sort_keys=True)
+            result_message = str(raw_result)
             result_detail = None
 
         rows.append(

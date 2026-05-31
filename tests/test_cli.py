@@ -10,7 +10,7 @@ from stacksmith.cli import args as cli_args
 from stacksmith.cli import main as cli_main
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.inspector import InputInfo, ResourceTypeInfo
-from stacksmith.models import RunFile
+from stacksmith.models import RunFile, render_file_reference
 
 
 @pytest.fixture
@@ -660,9 +660,9 @@ def test_cmd_validate_prepends_runfile_layers(monkeypatch, tmp_path):
         "load_runfile",
         lambda path: RunFile(
             merge_mode="override",
-            stacks=["./base-stack.yaml"],
-            configs=["./base-config.yaml"],
-            vars=["./base-vars.yaml"],
+            stacks=[{"source": "local", "data": {"path": "./base-stack.yaml"}}],
+            configs=[{"source": "local", "data": {"path": "./base-config.yaml"}}],
+            vars=[{"source": "local", "data": {"path": "./base-vars.yaml"}}],
             var={"replicas": 2},
         ),
     )
@@ -687,14 +687,26 @@ def test_cmd_validate_prepends_runfile_layers(monkeypatch, tmp_path):
     exit_code = cli_main._cmd_validate(args)
 
     assert exit_code == 0
-    assert calls["run"][0] == ["./base-stack.yaml", "./override-stack.yaml"]
-    assert calls["run"][1]["config"] == [
-        "./base-config.yaml",
-        "./override-config.yaml",
+    stack_refs = [
+        render_file_reference(ref) if hasattr(ref, "source") else str(ref)
+        for ref in calls["run"][0]
     ]
+    assert stack_refs[:2] == ["./base-stack.yaml", "./override-stack.yaml"]
+
+    config_refs = [
+        render_file_reference(ref) if hasattr(ref, "source") else str(ref)
+        for ref in calls["run"][1]["config"]
+    ]
+    assert config_refs == ["./base-config.yaml", "./override-config.yaml"]
     assert calls["run"][1]["merge_mode"] == "override"
     assert calls["run"][1]["vars_file"] == []
-    assert calls["run"][1]["input_layers"] == [
+    rendered_layers = []
+    for kind, value in calls["run"][1]["input_layers"]:
+        if kind == "vars" and hasattr(value, "source"):
+            rendered_layers.append((kind, render_file_reference(value)))
+        else:
+            rendered_layers.append((kind, value))
+    assert rendered_layers == [
         ("vars", "./base-vars.yaml"),
         ("var", "replicas=2"),
         ("vars", "./override-vars.yaml"),
@@ -721,7 +733,12 @@ def test_cmd_run_all_passes_explicit_stacks_from_run_file(monkeypatch, tmp_path)
     monkeypatch.setattr(
         cli_main,
         "load_runfile",
-        lambda path: RunFile(stacks=["./network/stack.yaml", "./app/stack.yaml"]),
+        lambda path: RunFile(
+            stacks=[
+                {"source": "local", "data": {"path": "./network/stack.yaml"}},
+                {"source": "local", "data": {"path": "./app/stack.yaml"}},
+            ]
+        ),
     )
 
     parser = stacksmith.cli.main._build_parser()
@@ -732,7 +749,10 @@ def test_cmd_run_all_passes_explicit_stacks_from_run_file(monkeypatch, tmp_path)
     exit_code = cli_main._cmd_run_all(args)
 
     assert exit_code == 0
-    assert calls["run"][2]["stacks"] == ["./network/stack.yaml", "./app/stack.yaml"]
+    assert [
+        render_file_reference(ref) if hasattr(ref, "source") else str(ref)
+        for ref in calls["run"][2]["stacks"]
+    ] == ["./network/stack.yaml", "./app/stack.yaml"]
 
 
 def test_cli_merge_mode_overrides_runfile(monkeypatch, tmp_path):
@@ -746,7 +766,10 @@ def test_cli_merge_mode_overrides_runfile(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cli_main,
         "load_runfile",
-        lambda path: RunFile(merge_mode="deep", stacks=["./stack.yaml"]),
+        lambda path: RunFile(
+            merge_mode="deep",
+            stacks=[{"source": "local", "data": {"path": "./stack.yaml"}}],
+        ),
     )
 
     parser = stacksmith.cli.main._build_parser()

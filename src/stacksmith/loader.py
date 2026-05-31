@@ -1,4 +1,5 @@
 import json
+import re
 from copy import deepcopy
 from importlib.resources import files
 from pathlib import Path
@@ -7,11 +8,11 @@ from typing import Any
 import yaml
 from deepmerge import Merger
 from jsonschema import validate
+from loguru import logger as LOGGER
 
 from .enums import MergeMode
 from .exceptions import StacksmithConfigError, StacksmithNotFoundError
 from .models import RunFile, StackDefinition, ToolConfig
-from .remote import is_remote_url
 
 _STACK_SCHEMA: dict[str, Any] | None = None
 _CONFIG_SCHEMA: dict[str, Any] | None = None
@@ -26,6 +27,280 @@ _CONFIG_MERGER = Merger(
     ["override"],
     ["override"],
 )
+
+_LEGACY_GIT_URL_RE = re.compile(
+    r"^git\+(?P<repo_url>https?://[^/]+/[^@]+?|ssh://[^/]+/[^@]+?)"
+    r"//(?P<path>[^@]+)"
+    r"(?:@(?P<ref>.+))?$"
+)
+
+_URL_PREFIXES = ("http://", "https://", "ssh://", "git://", "git@")
+_MODULE_REGISTRY_RE = re.compile(r"^[^\s/]+/[^\s/]+(?:/[^\s/]+)?$")
+
+
+def _warn_legacy(path: Path, message: str) -> None:
+    LOGGER.warning(
+        "Deprecated config syntax in {path}: {message}",
+        path=path,
+        message=message,
+    )
+
+
+def _parse_legacy_git_url(value: str) -> tuple[str, str, str | None]:
+    match = _LEGACY_GIT_URL_RE.match(value)
+    if match is None:
+        raise StacksmithConfigError(
+            "Invalid git+ reference format: "
+            f"{value}. Expected git+<proto>://<host>/<repo>//path[@ref]"
+        )
+    return match.group("repo_url"), match.group("path"), match.group("ref")
+
+
+def _coerce_legacy_file_reference(
+    value: Any,
+    *,
+    path: Path,
+    location: str,
+) -> Any:
+    if not isinstance(value, str):
+        return value
+
+    if value.startswith("git+"):
+        repo, file_path, ref = _parse_legacy_git_url(value)
+        payload: dict[str, Any] = {
+            "source": "git",
+            "data": {"repo": repo, "path": file_path},
+        }
+        if ref:
+            payload["data"]["ref"] = ref
+        _warn_legacy(path, f"{location} uses legacy git+ URL string '{value}'")
+        return payload
+
+    if value.startswith(("http://", "https://")):
+        _warn_legacy(path, f"{location} uses legacy HTTP URL string '{value}'")
+        return {"source": "http", "data": {"url": value}}
+
+    _warn_legacy(path, f"{location} uses legacy local path string '{value}'")
+    return {"source": "local", "data": {"path": value}}
+
+
+def _parse_legacy_module_git_source(source: str) -> tuple[str, str | None]:
+    normalized = source.removeprefix("git::")
+    if ".git//" in normalized:
+        repo_prefix, module_path = normalized.split(".git//", 1)
+        return f"{repo_prefix}.git", module_path
+    return normalized, None
+
+
+def _coerce_legacy_module_source(
+    module: dict[str, Any],
+    *,
+    path: Path,
+    module_name: str,
+) -> None:
+    source = module.get("source")
+    if not isinstance(source, str):
+        return
+
+    version = module.pop("version", None)
+    if source.startswith("git+"):
+        repo, module_path, ref = _parse_legacy_git_url(source)
+        selected_ref = ref or version
+        if not isinstance(selected_ref, str) or not selected_ref.strip():
+            raise StacksmithConfigError(
+                f"Module '{module_name}' git source requires a non-empty version/ref"
+            )
+        module["source"] = {
+            "source": "git",
+            "data": {
+                "repo": repo,
+                "path": module_path,
+                "ref": selected_ref,
+            },
+        }
+        _warn_legacy(
+            path,
+            f"module_mappings.{module_name}.source uses legacy git+ URL syntax",
+        )
+        return
+
+    if _MODULE_REGISTRY_RE.fullmatch(source):
+        if not isinstance(version, str) or not version.strip():
+            raise StacksmithConfigError(
+                f"Module '{module_name}' registry source requires a non-empty version"
+            )
+        module["source"] = {
+            "source": "registry",
+            "data": {"address": source, "version": version},
+        }
+        _warn_legacy(
+            path,
+            f"module_mappings.{module_name} uses legacy source/version registry shape",
+        )
+        return
+
+    if source.startswith(_URL_PREFIXES) or source.startswith("git::"):
+        if not isinstance(version, str) or not version.strip():
+            raise StacksmithConfigError(
+                f"Module '{module_name}' git source requires a non-empty version/ref"
+            )
+        repo, module_path = _parse_legacy_module_git_source(source)
+        payload: dict[str, Any] = {"repo": repo, "ref": version}
+        if module_path:
+            payload["path"] = module_path
+        module["source"] = {
+            "source": "git",
+            "data": payload,
+        }
+        _warn_legacy(
+            path,
+            f"module_mappings.{module_name} uses legacy source/version git shape",
+        )
+        return
+
+    raise StacksmithConfigError(
+        f"Unsupported legacy module source for '{module_name}': {source}"
+    )
+
+
+def _coerce_legacy_provider_source(
+    provider: dict[str, Any],
+    *,
+    path: Path,
+    provider_name: str,
+) -> None:
+    source = provider.get("source")
+    if not isinstance(source, str):
+        return
+
+    version = provider.pop("version", None)
+    if not isinstance(version, str) or not version.strip():
+        raise StacksmithConfigError(
+            f"Provider '{provider_name}' legacy source requires a non-empty version"
+        )
+
+    provider["source"] = {
+        "source": "registry",
+        "data": {"address": source, "version": version},
+    }
+    _warn_legacy(
+        path,
+        f"provider_mappings.{provider_name} uses legacy source/version shape",
+    )
+
+
+def _normalize_legacy_runfile_references(
+    data: dict[str, Any], path: Path
+) -> dict[str, Any]:
+    result = deepcopy(data)
+    for key in ("stacks", "configs", "vars"):
+        items = result.get(key)
+        if not isinstance(items, list):
+            continue
+        result[key] = [
+            _coerce_legacy_file_reference(
+                item,
+                path=path,
+                location=f"{key}[{index}]",
+            )
+            for index, item in enumerate(items)
+        ]
+    return result
+
+
+def _normalize_legacy_config_references(
+    data: dict[str, Any], path: Path
+) -> dict[str, Any]:
+    result = deepcopy(data)
+
+    var_validations = result.get("var_validations")
+    if isinstance(var_validations, dict):
+        for name, spec in var_validations.items():
+            if isinstance(spec, dict) and isinstance(spec.get("script"), str):
+                spec["script"] = _coerce_legacy_file_reference(
+                    spec["script"],
+                    path=path,
+                    location=f"var_validations.{name}.script",
+                )
+
+    module_mappings = result.get("module_mappings")
+    if isinstance(module_mappings, dict):
+        for module_name, module in module_mappings.items():
+            if not isinstance(module, dict):
+                continue
+            _coerce_legacy_module_source(module, path=path, module_name=module_name)
+            properties = module.get("properties")
+            if not isinstance(properties, dict):
+                continue
+            for prop_name, prop_spec in properties.items():
+                if not isinstance(prop_spec, dict):
+                    continue
+                transform = prop_spec.get("transform")
+                if isinstance(transform, dict) and isinstance(
+                    transform.get("script"), str
+                ):
+                    transform["script"] = _coerce_legacy_file_reference(
+                        transform["script"],
+                        path=path,
+                        location=(
+                            f"module_mappings.{module_name}.properties."
+                            f"{prop_name}.transform.script"
+                        ),
+                    )
+                validation = prop_spec.get("validation")
+                if isinstance(validation, dict) and isinstance(
+                    validation.get("script"), str
+                ):
+                    validation["script"] = _coerce_legacy_file_reference(
+                        validation["script"],
+                        path=path,
+                        location=(
+                            f"module_mappings.{module_name}.properties."
+                            f"{prop_name}.validation.script"
+                        ),
+                    )
+
+    provider_mappings = result.get("provider_mappings")
+    if isinstance(provider_mappings, dict):
+        for provider_name, provider in provider_mappings.items():
+            if not isinstance(provider, dict):
+                continue
+            _coerce_legacy_provider_source(
+                provider,
+                path=path,
+                provider_name=provider_name,
+            )
+            instances = provider.get("instances")
+            if not isinstance(instances, dict):
+                continue
+            for instance_name, instance in instances.items():
+                if not isinstance(instance, dict):
+                    continue
+                config = instance.get("config")
+                if isinstance(config, dict) and isinstance(config.get("script"), str):
+                    config["script"] = _coerce_legacy_file_reference(
+                        config["script"],
+                        path=path,
+                        location=(
+                            f"provider_mappings.{provider_name}.instances."
+                            f"{instance_name}.config.script"
+                        ),
+                    )
+
+    plan_validations = result.get("plan_validations")
+    if isinstance(plan_validations, dict):
+        for name, plan_spec in plan_validations.items():
+            if not isinstance(plan_spec, dict):
+                continue
+            rule = plan_spec.get("rule")
+            if isinstance(rule, dict) and isinstance(rule.get("script"), str):
+                rule["script"] = _coerce_legacy_file_reference(
+                    rule["script"],
+                    path=path,
+                    location=f"plan_validations.{name}.rule.script",
+                )
+
+    return result
 
 
 def _resolve_merge_mode(merge_mode: str | MergeMode) -> MergeMode:
@@ -168,7 +443,11 @@ def _merge_config_layers_with_locations(
     for config_path in config_paths:
         resolved_path = config_path.resolve()
         layer, locations = _load_file_with_locations(resolved_path)
-        normalized_layer = _resolve_config_script_paths(layer, resolved_path.parent)
+        normalized_legacy = _normalize_legacy_config_references(layer, resolved_path)
+        normalized_layer = _resolve_config_script_paths(
+            normalized_legacy,
+            resolved_path.parent,
+        )
         merged = _merge_layer(
             merged,
             normalized_layer,
@@ -191,13 +470,22 @@ def _resolve_config_script_paths(
 
     def _absolutize_script(spec: dict[str, Any]) -> None:
         script = spec.get("script")
-        if not isinstance(script, str) or not script:
+        if not isinstance(script, dict):
             return
-        if is_remote_url(script):
+        if script.get("source") != "local":
             return
-        script_path = Path(script)
+
+        payload = script.get("data")
+        if not isinstance(payload, dict):
+            return
+
+        script_path_raw = payload.get("path")
+        if not isinstance(script_path_raw, str) or not script_path_raw:
+            return
+
+        script_path = Path(script_path_raw)
         if not script_path.is_absolute():
-            spec["script"] = str((config_dir / script_path).resolve())
+            payload["path"] = str((config_dir / script_path).resolve())
 
     result = deepcopy(data)
 
@@ -260,8 +548,13 @@ def _merge_config_layers(
     merged: dict[str, Any] = {}
     for config_path in config_paths:
         resolved_path = config_path.resolve()
+        normalized_legacy = _normalize_legacy_config_references(
+            _load_file(resolved_path),
+            resolved_path,
+        )
         normalized_layer = _resolve_config_script_paths(
-            _load_file(resolved_path), resolved_path.parent
+            normalized_legacy,
+            resolved_path.parent,
         )
         merged = _merge_layer(
             merged,
@@ -284,6 +577,32 @@ def _normalize_stack_paths(path: Path | list[Path]) -> list[Path]:
     if not stack_paths:
         raise StacksmithConfigError("At least one stack file path must be provided")
     return stack_paths
+
+
+def _dedupe_unique_stack_fields(data: Any) -> Any:
+    if isinstance(data, dict):
+        return {
+            key: (
+                _dedupe_unique_ordered_list(value)
+                if key in {"tags", "depends_on"} and isinstance(value, list)
+                else _dedupe_unique_stack_fields(value)
+            )
+            for key, value in data.items()
+        }
+    if isinstance(data, list):
+        return [_dedupe_unique_stack_fields(item) for item in data]
+    return data
+
+
+def _dedupe_unique_ordered_list(items: list[Any]) -> list[Any]:
+    seen: set[Any] = set()
+    result: list[Any] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
 
 
 def _build_stack(data: dict[str, Any], stack_paths: list[Path]) -> StackDefinition:
@@ -359,6 +678,7 @@ def load_stacks(
     """
     stack_paths = _normalize_stack_paths(path)
     data = _merge_stack_layers(stack_paths, merge_mode=merge_mode)
+    data = _dedupe_unique_stack_fields(data)
     return _build_stack(data, stack_paths)
 
 
@@ -425,6 +745,9 @@ def load_runfile(path: Path) -> RunFile:
     Raises:
         jsonschema.ValidationError: If the file does not match the run-file schema.
     """
-    data = _load_file(path)
+    resolved_path = path.resolve()
+    data = _normalize_legacy_runfile_references(
+        _load_file(resolved_path), resolved_path
+    )
     validate(instance=data, schema=_get_runfile_schema())
     return RunFile.model_validate(data)

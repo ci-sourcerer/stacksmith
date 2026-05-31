@@ -166,46 +166,74 @@ Concept-level details for tags, input resolution, validations, plan validations,
 
 Stacksmith can pull scripts, config files, vars files, stack files, and run files from remote locations. Anywhere a local file path is accepted for validation scripts, transform scripts, vars files, stack files, config files, or `stacksmith.yaml`, a remote URL can be used instead.
 
-### Supported URL formats
+### Structured references
 
-HTTP(S) URLs fetch a single file directly.
+Run files and config script references use a structured `source` + `data` object.
 
-```text
-https://raw.githubusercontent.com/my-org/shared-config/main/validators/bucket.py
-```
+Supported sources are:
 
-Git URLs use the `git+` prefix with a double-slash to separate the repo from the path within it, and an optional `@ref` suffix.
+- `local` with `data.path`
+- `git` with `data.repo`, `data.path`, optional `data.ref`
+- `http` with `data.url`
+- `registry` with `data.address`, `data.version`
 
-```text
-git+https://github.com/my-org/shared-config.git//validators/bucket.py@v1.0.0
-git+ssh://git@github.com/my-org/shared-config.git//validators/bucket.py@main
+Stacksmith treats this as the canonical representation and renders tool-specific
+syntax server-side before invoking downstream tools.
+
+### Canonical vs rendered target syntax
+
+| Canonical reference | Terraform/OpenTofu rendered value | CLI flag rendered value |
+| - | - | - |
+| `source: local`, `data.path: ./vars.dev.yaml` | `./vars.dev.yaml` | `./vars.dev.yaml` |
+| `source: http`, `data.url: https://example.com/base.yaml` | `https://example.com/base.yaml` | `https://example.com/base.yaml` |
+| `source: git`, `data.repo: https://github.com/org/shared.git`, `data.path: vars/base.yaml`, `data.ref: v1.2.3` | `git::https://github.com/org/shared.git//vars/base.yaml?ref=v1.2.3` | `git+https://github.com/org/shared.git//vars/base.yaml@v1.2.3` |
+| `source: registry`, `data.address: hashicorp/aws`, `data.version: ~> 6.0` | `{ source = "hashicorp/aws", version = "~> 6.0" }` (provider/module fields) | Not used for file-style CLI flags |
+
+```yaml
+script:
+  source: git
+  data:
+    repo: https://github.com/my-org/shared-config.git
+    path: validators/bucket.py
+    ref: v1.0.0
 ```
 
 ### Usage examples
 
-In a stack's variable validation or a config's managed validation/transform, use a URL instead of a local path.
+In config validations/transforms, use a structured script reference.
 
 ```yaml
 # stacksmith-config.yaml – remote managed input validation script
 var_validations:
   bucket_name:
-    script: "https://raw.githubusercontent.com/my-org/shared/main/validators/bucket.py"
+    script:
+      source: http
+      data:
+        url: https://raw.githubusercontent.com/my-org/shared/main/validators/bucket.py
 ```
 
 ```yaml
 # stacksmith-config.yaml – remote transform script from a git repo
-modules:
+module_mappings:
   aws_s3_bucket:
-    source: "https://github.com/my-org/terraform-aws-s3.git"
-    version: "3.2.1"
+    source:
+      source: git
+      data:
+        repo: https://github.com/my-org/terraform-aws-s3.git
+        ref: 3.2.1
     properties:
       acl:
         mapped_to: bucket_acl
         transform:
-          script: "git+https://github.com/my-org/shared.git//transforms/acl.py@v2.0.0"
+          script:
+            source: git
+            data:
+              repo: https://github.com/my-org/shared.git
+              path: transforms/acl.py
+              ref: v2.0.0
 ```
 
-Config files, vars files, stack files, and run files also support remote URLs via `--config`, `--vars`, `--stack`, and `--run-file`.
+Config files, vars files, stack files, and run files also support remote URLs via CLI flags (`--config`, `--vars`, `--stack`, `--run-file`) where URL strings are passed directly.
 
 ```shell
 stacksmith plan \
@@ -287,16 +315,34 @@ This is useful when platform teams publish a shared repo of base stack layers an
 merge_mode: deep
 
 stacks:
-  - git+https://github.com/org/platform-stacks.git//base/payments/stack.yaml@v1.4.0
-  - ./stack.yaml
+  - source: git
+    data:
+      repo: https://github.com/org/platform-stacks.git
+      path: base/payments/stack.yaml
+      ref: v1.4.0
+  - source: local
+    data:
+      path: ./stack.yaml
 
 configs:
-  - git+https://github.com/org/platform-config.git//stacksmith-config.yaml@v3.2.1
-  - ./stacksmith-config.override.yaml
+  - source: git
+    data:
+      repo: https://github.com/org/platform-config.git
+      path: stacksmith-config.yaml
+      ref: v3.2.1
+  - source: local
+    data:
+      path: ./stacksmith-config.override.yaml
 
 vars:
-  - git+https://github.com/org/platform-config.git//vars/common.yaml@v3.2.1
-  - ./vars.dev.yaml
+  - source: git
+    data:
+      repo: https://github.com/org/platform-config.git
+      path: vars/common.yaml
+      ref: v3.2.1
+  - source: local
+    data:
+      path: ./vars.dev.yaml
 
 var:
   replicas: 2
@@ -324,6 +370,62 @@ For `run-all`, `stacks` can also be used as an explicit target list instead of d
 If `--run-file` is omitted, Stacksmith checks `STACKSMITH_RUN_FILE` and then auto-detects `./stacksmith.yaml` when present.
 
 `--merge-mode` on the CLI always takes precedence over the run-file `merge_mode` value.
+
+## GitHub Actions GitOps workflow
+
+This repository includes a reusable GitHub Actions workflow plus caller workflows for PR plan and merge apply.
+
+- `.github/workflows/stacksmith-gitops-reusable.yml` runs one environment in `plan` or `apply` mode.
+- `.github/workflows/stacksmith-plan.yml` runs `plan` on pull requests and manual dispatch.
+- `.github/workflows/stacksmith-apply.yml` runs `apply` on merges to `main` and manual dispatch.
+
+The caller workflows select environments by changed files.
+
+- `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.
+
+By default, the workflows look for manifests under `examples/gitops-repo`.
+
+- Set repository variable `STACKSMITH_GITOPS_ROOT` to use a different root path.
+- On manual runs (`workflow_dispatch`), pass `gitops_root` to override for that invocation.
+- Changes under `<gitops_root>/common` and `<gitops_root>/manifests/common` fan out to all environments; changes under `<gitops_root>/environments/<env>` target only that environment.
+
+Example layout for common and environment-specific manifests.
+
+```text
+examples/gitops-repo/
+  common/
+    stacksmith.yaml
+  manifests/
+    common/
+      platform-base.stack.yaml
+      platform-tags.stack.yaml
+    environments/
+      dev/service.stack.yaml
+      prod/service.stack.yaml
+  environments/
+    dev/stacksmith.yaml
+    prod/stacksmith.yaml
+```
+
+In this pattern, each environment run file references shared stack layers first and environment overlays last.
+
+```yaml
+merge_mode: deep
+stacks:
+  - examples/gitops-repo/manifests/common/platform-base.stack.yaml
+  - examples/gitops-repo/manifests/common/platform-tags.stack.yaml
+  - examples/gitops-repo/manifests/environments/dev/service.stack.yaml
+configs:
+  - examples/shared-config-repo/stacksmith-config.yaml
+vars:
+  - examples/stack-repo/bucket-and-ec2/vars.dev.yaml
+var:
+  environment: dev
+```
+
+For production use, add GitHub Environment protections and secrets per environment. The reusable workflow maps `apply` jobs to the matching GitHub Environment name so approvals and scoped credentials can gate deployment.
+
+The reusable workflow passes `--env-file /dev/null` by default so CI runs are deterministic and do not implicitly load repository `.env` values. Override `env_file` in the workflow call if you intentionally want env-file layering.
 
 ## CLI reference
 

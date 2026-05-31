@@ -123,7 +123,7 @@ class TestResolveModuleDir:
             "--depth",
             "1",
             "--branch",
-            "v6.6.0",
+            "6.6.0",
             repo_url,
             str(clone_dir),
         ]

@@ -17,6 +17,7 @@ from stacksmith.cli.args import (
 )
 from stacksmith.enums import MergeMode
 from stacksmith.loader import load_runfile
+from stacksmith.models import FileReference
 from stacksmith.remote import is_remote_url, resolve_if_remote
 from stacksmith.utils import stacksmith_env
 
@@ -132,7 +133,7 @@ def _configure_logging(
 
 def _ordered_input_layers(
     args: argparse.Namespace,
-) -> list[tuple[str, str]] | None:
+) -> list[tuple[str, object]] | None:
     return parse_input_layers(getattr(args, "input_layers", None))
 
 
@@ -187,9 +188,13 @@ def _apply_runfile(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
-def _stack_arg(args: argparse.Namespace) -> Path | str | list[Path | str]:
+def _stack_arg(
+    args: argparse.Namespace,
+) -> Path | str | FileReference | list[Path | str | FileReference]:
     _apply_runfile(args)
-    stack_refs: list[Path | str] = list(getattr(args, "stack", None) or [])
+    stack_refs: list[Path | str | FileReference] = list(
+        getattr(args, "stack", None) or []
+    )
     if getattr(args, "stack_file", None) is not None:
         stack_refs.append(args.stack_file)
     if not stack_refs:
@@ -197,7 +202,9 @@ def _stack_arg(args: argparse.Namespace) -> Path | str | list[Path | str]:
     return stack_refs[0] if len(stack_refs) == 1 else stack_refs
 
 
-def _run_all_stack_args(args: argparse.Namespace) -> list[Path | str] | None:
+def _run_all_stack_args(
+    args: argparse.Namespace,
+) -> list[Path | str | FileReference] | None:
     _apply_runfile(args)
     stack_refs = list(getattr(args, "stack", None) or [])
     return stack_refs or None

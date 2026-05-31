@@ -4,10 +4,7 @@
   "title": "Stacksmith Stack Definition",
   "description": "Defines a single infrastructure stack for stacksmith.",
   "type": "object",
-  "required": [
-    "name",
-    "components"
-  ],
+  "minProperties": 1,
   "additionalProperties": false,
   "properties": {
     "name": {
@@ -44,9 +41,7 @@
       "minProperties": 1,
       "additionalProperties": {
         "type": "object",
-        "required": [
-          "type"
-        ],
+        "minProperties": 1,
         "additionalProperties": false,
         "properties": {
           "type": {

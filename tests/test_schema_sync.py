@@ -96,7 +96,7 @@ def test_tool_config_fields_match_config_schema():
 
     assert _field_names(TofuConfig) == {"version"}
 
-    assert _field_names(ProviderFamily) == {"source", "version", "instances"}
+    assert _field_names(ProviderFamily) == {"source", "instances"}
     assert _field_names(ProviderConfigSpec) == {"inline", "script", "data"}
     assert _field_names(ProviderInstance) == {"alias", "config"}
     provider_family_ref = schema["properties"]["provider_mappings"][
@@ -107,7 +107,6 @@ def test_tool_config_fields_match_config_schema():
     assert len(provider_config_spec["oneOf"]) == 3
     assert set(schema["$defs"]["providerFamily"]["properties"]) == {
         "source",
-        "version",
         "instances",
     }
     assert set(schema["$defs"]["providerInstance"]["properties"]) == {
@@ -118,7 +117,6 @@ def test_tool_config_fields_match_config_schema():
     assert _field_names(ModuleMapping) == {
         "description",
         "source",
-        "version",
         "auto_inject",
         "tags",
         "providers",
@@ -129,7 +127,6 @@ def test_tool_config_fields_match_config_schema():
     ) == {
         "description",
         "source",
-        "version",
         "auto_inject",
         "tags",
         "providers",

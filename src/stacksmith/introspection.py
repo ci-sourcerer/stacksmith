@@ -110,8 +110,7 @@ def _clone_module(
     host = urlparse(source).hostname or ""
     env = _resolve_git_env(host, auth_config)
 
-    ref = f"v{version}"
-    result = _clone_git_repo(source, dest, ref=ref, env=env)
+    result = _clone_git_repo(source, dest, ref=version, env=env)
     if result.returncode != 0:
         raise RuntimeError(
             f"Git clone failed for introspection of {source}@{version} "
