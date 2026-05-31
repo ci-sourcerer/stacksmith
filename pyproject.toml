@@ -33,7 +33,7 @@ dynamic = ["version"]
 include_script = "common_python_tasks:tasks(exclude_tags=['fastapi'])"
 
 [tool.poe.env]
-CONTAINER_ENV = "TF_PLUGIN_CACHE_DIR=/workspace/.stacksmith/providers"
+CONTAINER_ENV = "TF_PLUGIN_CACHE_DIR=/workspace/.stacksmith/providers STACKSMITH_SKIP_TOOL_VERSION_CHECK=1"
 CONTAINER_BUILD_ARGS="APT_PACKAGES=git"
 CONTAINER_DEPS_FILE = "Dockerfile.deps"
 CONTAINER_DEPS_MOVE_SCRIPT_PATH = "scripts/move_deps.sh"
