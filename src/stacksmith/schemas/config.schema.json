@@ -428,11 +428,71 @@
           "description": "Named provider instances. A default instance is optional; non-default instances must be explicitly aliased."
         }
       }
+    },
+    "toolDownloadSpec": {
+      "type": "object",
+      "required": [
+        "url_template"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "url_template": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Parameterized download URL template. Supports placeholders like {version}, {os}, and {arch}."
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional SHA-256 checksum for the downloaded artifact."
+        },
+        "sha256_url_template": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional parameterized URL template pointing to a checksum file for the artifact."
+        }
+      }
+    },
+    "toolBinaryConfig": {
+      "type": "object",
+      "required": [
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required tool version constraint or exact version."
+        },
+        "download": {
+          "$ref": "#/$defs/toolDownloadSpec",
+          "description": "Optional download metadata for resolving missing binaries."
+        }
+      }
+    },
+    "toolsConfig": {
+      "type": "object",
+      "required": [
+        "tofu",
+        "terragrunt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tofu": {
+          "$ref": "#/$defs/toolBinaryConfig",
+          "description": "OpenTofu binary settings."
+        },
+        "terragrunt": {
+          "$ref": "#/$defs/toolBinaryConfig",
+          "description": "Terragrunt binary settings."
+        }
+      }
     }
   },
   "required": [
     "backend",
-    "tofu",
+    "tools",
     "provider_mappings",
     "module_mappings"
   ],
@@ -505,18 +565,9 @@
       },
       "additionalProperties": true
     },
-    "tofu": {
-      "type": "object",
-      "required": [
-        "version"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "version": {
-          "type": "string",
-          "description": "Required OpenTofu version constraint."
-        }
-      }
+    "tools": {
+      "$ref": "#/$defs/toolsConfig",
+      "description": "OpenTofu and Terragrunt version and download settings."
     },
     "provider_mappings": {
       "type": "object",

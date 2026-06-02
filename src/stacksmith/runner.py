@@ -1,19 +1,16 @@
-import concurrent.futures
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 from loguru import logger as LOGGER
 
 from .enums import TerragruntAction
-from .exceptions import StacksmithError
 from .models import RemoteAuthConfig, ToolConfig
+from .tooling import ResolvedToolchain, resolve_toolchain
 from .utils import env_truthy
 from .validation import (
     PlanValidationExitCode,
@@ -29,7 +26,7 @@ def _has_enabled_plan_validations(config: ToolConfig) -> bool:
 
 def _build_env() -> dict[str, str]:
     env = os.environ.copy()
-    env["TG_TF_PATH"] = env.get("TG_TF_PATH", "tofu")
+    env["TG_TF_PATH"] = _RESOLVED_TOOLCHAIN.tofu
     LOGGER.debug(
         "Terragrunt environment TG_TF_PATH={tg_tf_path}", tg_tf_path=env["TG_TF_PATH"]
     )
@@ -37,89 +34,43 @@ def _build_env() -> dict[str, str]:
 
 
 _TOOL_VERSION_CHECKED = False
+_RESOLVED_TOOLCHAIN = ResolvedToolchain(
+    tofu=os.environ.get("TG_TF_PATH", "tofu"),
+    terragrunt=os.environ.get("STACKSMITH_TERRAGRUNT_PATH", "terragrunt"),
+)
 
 
 def _should_skip_tool_version_check() -> bool:
     return env_truthy("SKIP_TOOL_VERSION_CHECK", prefix="STACKSMITH_")
 
 
-def _parse_tool_version(output: str) -> tuple[int, int, int]:
-    match = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", output)
-    if not match:
-        raise StacksmithError(f"Could not parse tool version from output: {output!r}")
-
-    major = int(match.group(1))
-    minor = int(match.group(2))
-    patch = int(match.group(3) or "0")
-    return major, minor, patch
-
-
-def _check_tool_version(tool_name: str, cmd: list[str]) -> None:
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            env=os.environ.copy(),
-        )
-    except FileNotFoundError as exc:
-        raise StacksmithError(
-            f"Required tool '{tool_name}' was not found: {cmd[0]}"
-        ) from exc
-
-    output = (result.stdout or "") + "\n" + (result.stderr or "")
-    output = output.strip()
-    if result.returncode != 0:
-        raise StacksmithError(
-            f"Failed to query {tool_name} version using {cmd}: {output}"
-        )
-
-    version = _parse_tool_version(output)
-    if not ((1, 0, 0) <= version < (2, 0, 0)):
-        raise StacksmithError(
-            f"Unsupported {tool_name} version {version[0]}.{version[1]}.{version[2]}; "
-            "expected >=1.0.0 and <2.0.0"
-        )
-
-    LOGGER.debug(
-        "Verified {tool_name} version {version}",
-        tool_name=tool_name,
-        version=".".join(str(part) for part in version),
-    )
-
-
-def _check_required_tool_versions() -> None:
+def _check_required_tool_versions(
+    config: ToolConfig | None = None,
+    cache_dir: Path | None = None,
+    auth_config: RemoteAuthConfig | None = None,
+) -> None:
     global _TOOL_VERSION_CHECKED
+    global _RESOLVED_TOOLCHAIN
+
     if _TOOL_VERSION_CHECKED:
         return
     if _should_skip_tool_version_check():
         LOGGER.debug(
             "Skipping external tool version checks because stacksmith env var is set"
         )
+        _RESOLVED_TOOLCHAIN = ResolvedToolchain(
+            tofu=os.environ.get("TG_TF_PATH", "tofu"),
+            terragrunt=os.environ.get("STACKSMITH_TERRAGRUNT_PATH", "terragrunt"),
+        )
         _TOOL_VERSION_CHECKED = True
         return
 
-    tool_path = os.environ.get("TG_TF_PATH", "tofu")
-    checks = {
-        "terragrunt": ["terragrunt", "--version"],
-        "tofu": [tool_path, "-version"],
-    }
-
-    errors: list[str] = []
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {
-            executor.submit(_check_tool_version, name, cmd): name
-            for name, cmd in checks.items()
-        }
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                future.result()
-            except StacksmithError as exc:
-                errors.append(str(exc))
-
-    if errors:
-        raise StacksmithError("; ".join(errors))
-
+    _RESOLVED_TOOLCHAIN = resolve_toolchain(
+        config.tools if config is not None and hasattr(config, "tools") else None,
+        cache_dir,
+        auth_config,
+        subprocess_module=subprocess,
+    )
     _TOOL_VERSION_CHECKED = True
 
 
@@ -234,8 +185,12 @@ def run_terragrunt(
     Returns:
         Process exit code.
     """
-    _check_required_tool_versions()
-    cmd = ["terragrunt", *args]
+    _check_required_tool_versions(
+        config=config,
+        cache_dir=cache_dir,
+        auth_config=auth_config,
+    )
+    cmd = [_RESOLVED_TOOLCHAIN.terragrunt, *args]
     first_action = None
     if args:
         try:

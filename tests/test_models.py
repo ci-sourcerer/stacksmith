@@ -8,8 +8,13 @@ def _base_tool_config_payload() -> dict:
             "type": "local",
             "path": ".state",
         },
-        "tofu": {
-            "version": "1.11.6",
+        "tools": {
+            "tofu": {
+                "version": "1.11.6",
+            },
+            "terragrunt": {
+                "version": "1.0.6",
+            },
         },
         "provider_mappings": {
             "aws": {

@@ -3,15 +3,13 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from stacksmith.models import RemoteAuthEntry
+from stacksmith.models import GitReference, RemoteAuthEntry
 from stacksmith.remote import (
-    GitRef,
     _cache_key,
     _fetch_http,
     _resolve_auth_headers,
     _resolve_git_env,
     is_remote_url,
-    parse_git_url,
     read_reference_content,
     resolve_if_remote,
     resolve_remote,
@@ -23,12 +21,26 @@ from stacksmith.remote import (
     [
         "http://example.com/file.yaml",
         "https://example.com/file.yaml",
-        "git+https://github.com/org/repo.git//path/file.py@main",
-        "git+ssh://git@github.com/org/repo.git//path/file.py",
     ],
 )
 def test_is_remote_url_true(url: str):
     assert is_remote_url(url) is True
+
+
+def test_is_remote_url_true_for_structured_git_reference():
+    assert (
+        is_remote_url(
+            GitReference(
+                source="git",
+                data={
+                    "repo": "https://github.com/org/repo.git",
+                    "path": "path/file.py",
+                    "ref": "main",
+                },
+            )
+        )
+        is True
+    )
 
 
 @pytest.mark.parametrize(
@@ -45,38 +57,10 @@ def test_is_remote_url_false(ref: str):
     assert is_remote_url(ref) is False
 
 
-def test_parse_git_url_https_with_ref():
-    result = parse_git_url(
-        "git+https://github.com/org/repo.git//scripts/validate.py@v1.2.3"
-    )
-    assert result == GitRef(
-        repo_url="https://github.com/org/repo.git",
-        path="scripts/validate.py",
-        ref="v1.2.3",
-    )
-
-
-def test_parse_git_url_ssh_with_ref():
-    result = parse_git_url("git+ssh://git@github.com/org/repo.git//lib/check.py@main")
-    assert result == GitRef(
-        repo_url="ssh://git@github.com/org/repo.git",
-        path="lib/check.py",
-        ref="main",
-    )
-
-
-def test_parse_git_url_no_ref():
-    result = parse_git_url("git+https://github.com/org/repo.git//some/path.yaml")
-    assert result == GitRef(
-        repo_url="https://github.com/org/repo.git",
-        path="some/path.yaml",
-        ref=None,
-    )
-
-
-def test_parse_git_url_invalid():
-    with pytest.raises(ValueError, match="Invalid git URL format"):
-        parse_git_url("https://github.com/org/repo.git")
+def test_is_remote_url_true_for_git_plus_string():
+    assert is_remote_url(
+        "git+https://github.com/org/repo.git//path/file.py@main"
+    ) is True
 
 
 def test_cache_key_deterministic():
@@ -212,6 +196,15 @@ def test_resolve_remote_git(tmp_path, monkeypatch):
     monkeypatch.delenv("STACKSMITH_GIT_TOKEN", raising=False)
     monkeypatch.delenv("STACKSMITH_GIT_SSH_KEY", raising=False)
 
+    git_reference = GitReference(
+        source="git",
+        data={
+            "repo": "https://github.com/org/repo.git",
+            "path": "scripts/validate.py",
+            "ref": "main",
+        },
+    )
+
     with (
         patch("stacksmith.utils.shutil.which", return_value="/usr/bin/git"),
         patch("stacksmith.utils.subprocess.run") as mock_run,
@@ -219,20 +212,37 @@ def test_resolve_remote_git(tmp_path, monkeypatch):
         mock_run.return_value = SimpleNamespace(returncode=0, stderr="")
 
         # Pre-create the expected target file so _fetch_git doesn't raise
-        ref = parse_git_url(
-            "git+https://github.com/org/repo.git//scripts/validate.py@main"
-        )
         clone_dir = (
-            tmp_path / "git" / f"{_cache_key(ref.repo_url)}-{_cache_key('main')}"
+            tmp_path
+            / "git"
+            / f"{_cache_key(git_reference.data.repo)}-{_cache_key('main')}"
         )
         clone_dir.mkdir(parents=True)
         (clone_dir / "scripts").mkdir()
         (clone_dir / "scripts" / "validate.py").write_text("print('ok')")
 
-        result = resolve_remote(
-            "git+https://github.com/org/repo.git//scripts/validate.py@main",
-            tmp_path,
-        )
+        result = resolve_remote(git_reference, tmp_path)
+        assert result.name == "validate.py"
+
+
+def test_resolve_remote_git_plus_string(tmp_path, monkeypatch):
+    monkeypatch.delenv("STACKSMITH_GIT_TOKEN", raising=False)
+    monkeypatch.delenv("STACKSMITH_GIT_SSH_KEY", raising=False)
+
+    git_url = "git+https://github.com/org/repo.git//scripts/validate.py@main"
+
+    with (
+        patch("stacksmith.remote.shutil.which", return_value="/usr/bin/git"),
+        patch("stacksmith.utils.subprocess.run") as mock_run,
+    ):
+        mock_run.return_value = SimpleNamespace(returncode=0, stderr="")
+
+        clone_dir = tmp_path / "git" / f"{_cache_key('https://github.com/org/repo.git')}-{_cache_key('main')}"
+        clone_dir.mkdir(parents=True)
+        (clone_dir / "scripts").mkdir()
+        (clone_dir / "scripts" / "validate.py").write_text("print('ok')")
+
+        result = resolve_remote(git_url, tmp_path)
         assert result.name == "validate.py"
 
 

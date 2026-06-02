@@ -161,8 +161,11 @@ def test_inspect_resource_type_transform_script_path_is_relative(tmp_path):
                 type: local
                 path: /tmp/state
 
-            tofu:
-                version: "1.8.0"
+            tools:
+                tofu:
+                    version: "1.8.0"
+                terragrunt:
+                    version: "1.0.6"
 
             provider_mappings:
                 aws:
@@ -220,8 +223,11 @@ def test_inspect_resource_type_policy_metadata_renders(tmp_path):
                 type: local
                 path: /tmp/state
 
-            tofu:
-                version: "1.8.0"
+            tools:
+                tofu:
+                    version: "1.8.0"
+                terragrunt:
+                    version: "1.0.6"
 
             provider_mappings:
                 aws:
@@ -279,8 +285,11 @@ def test_load_config_with_locations_reports_validation_block(tmp_path):
                 type: local
                 path: /tmp/state
 
-            tofu:
-                version: "1.8.0"
+            tools:
+                tofu:
+                    version: "1.8.0"
+                terragrunt:
+                    version: "1.0.6"
 
             provider_mappings:
                 aws:
@@ -333,8 +342,11 @@ def test_load_config_with_locations_reports_var_validation_block(tmp_path):
                 type: local
                 path: /tmp/state
 
-            tofu:
-                version: "1.8.0"
+            tools:
+                tofu:
+                    version: "1.8.0"
+                terragrunt:
+                    version: "1.0.6"
 
             provider_mappings:
                 aws:
@@ -385,8 +397,11 @@ def test_inspect_resource_type_uses_var_validation_script_location(tmp_path):
                 type: local
                 path: /tmp/state
 
-            tofu:
-                version: "1.8.0"
+            tools:
+                tofu:
+                    version: "1.8.0"
+                terragrunt:
+                    version: "1.0.6"
 
             provider_mappings:
                 aws:

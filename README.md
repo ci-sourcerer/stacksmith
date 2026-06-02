@@ -71,13 +71,19 @@ backend:
   bucket: my-org-state
   region: us-east-1
 
-tofu:
-  version: "1.11.6"
+tools:
+  tofu:
+    version: "1.11.6"
+  terragrunt:
+    version: "1.0.6"
 
-providers:
+provider_mappings:
   aws:
-    source: hashicorp/aws
-    version: "= 5.91.0"
+    source:
+      source: registry
+      data:
+        address: hashicorp/aws
+        version: "= 5.91.0"
     instances:
       default:
         config:
@@ -91,18 +97,24 @@ providers:
             assume_role:
               role_arn: arn:aws:iam::123456789012:role/stacksmith-secondary
 
-modules:
+module_mappings:
   aws_s3_bucket:
-    source: github.com/my-org/terraform-aws-s3
-    version: "3.2.1"
+    source:
+      source: git
+      data:
+        repo: https://github.com/my-org/terraform-aws-s3.git
+        ref: "3.2.1"
     providers:
       aws: aws.secondary
     properties:
       acl:
         mapped_to: bucket_acl
   aws_ec2_instance:
-    source: https://github.com/my-org/terraform-aws-ec2.git
-    version: "5.0.0"
+    source:
+      source: git
+      data:
+        repo: https://github.com/my-org/terraform-aws-ec2.git
+        ref: "5.0.0"
 ```
 
 Provider definitions are grouped by provider family and can expose multiple named instances through `instances`. A `default` instance is optional; if omitted, Stacksmith emits an empty provider block for the unaliased provider. Non-default instances must define an explicit `alias`. Module mappings can optionally define a `providers` map that routes module provider names to an instance reference in `<provider>.<instance>` format. If a module mapping omits `providers`, Stacksmith uses the unaliased provider.
@@ -708,6 +720,8 @@ Use `--clean` on `run-all` to remove the existing build directory before regener
 A Docker image is provided that bundles OpenTofu and Terragrunt so no local installation is required. It is also especially useful for CI environments.
 
 As this project is reliant on [Common Python Tasks](https://github.com/ci-sourcerer/common-python-tasks), you can build the image with a simple command: `poe build-image`. You can pass `--build-args TOFU_PROVIDER_SPEC="hashicorp/aws=6.41.0:hashicorp/random=3.8.1"`, for example, to pre-install some OpenTofu providers into the image. This can drastically speed up Stacksmith runs for your users. By default, the image includes no providers, so OpenTofu will download them on demand during execution.
+
+> ⚠️ **WARNING:** `TOFU_PROVIDER_SPEC` is a shared provider cache keyed by provider version, not by OpenTofu version. If you build or run images with multiple OpenTofu versions, pre-cached providers may not be compatible with an older runtime unless you explicitly pin and pre-cache every provider version needed by those tool versions.
 
 ### Pre-installing modules
 
