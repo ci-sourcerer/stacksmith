@@ -159,8 +159,11 @@ class TestGenerateTfJson:
                     container_name: testcontainer
                     resource_group_name: testrg
 
-                tofu:
-                    version: "1.8.0"
+                tools:
+                    tofu:
+                        version: "1.8.0"
+                    terragrunt:
+                        version: "1.0.6"
 
                 provider_mappings:
                     aws:
@@ -217,8 +220,11 @@ class TestGenerateTfJson:
                                     type: local
                                     path: .state
 
-                                tofu:
-                                    version: "1.8.0"
+                                tools:
+                                    tofu:
+                                        version: "1.8.0"
+                                    terragrunt:
+                                        version: "1.0.6"
 
                                 provider_mappings:
                                     aws:
@@ -278,8 +284,11 @@ class TestGenerateTfJson:
                                     type: local
                                     path: .state
 
-                                tofu:
-                                    version: "1.8.0"
+                                tools:
+                                    tofu:
+                                        version: "1.8.0"
+                                    terragrunt:
+                                        version: "1.0.6"
 
                                 provider_mappings:
                                     aws:
@@ -334,8 +343,11 @@ class TestGenerateTfJson:
                                     type: local
                                     path: .state
 
-                                tofu:
-                                    version: "1.8.0"
+                                tools:
+                                    tofu:
+                                        version: "1.8.0"
+                                    terragrunt:
+                                        version: "1.0.6"
 
                                 provider_mappings:
                                     aws:
@@ -732,8 +744,11 @@ class TestPropertyValidation:
             "  type: s3\n"
             "  bucket: test-state-bucket\n"
             "  region: us-east-1\n"
-            "tofu:\n"
-            "  version: '1.8.0'\n"
+            "tools:\n"
+            "  tofu:\n"
+            "    version: '1.8.0'\n"
+            "  terragrunt:\n"
+            "    version: '1.0.6'\n"
             "provider_mappings:\n"
             "  aws:\n"
             "    source:\n"
@@ -913,8 +928,11 @@ def transform(value, **context):
             "  type: s3\n"
             "  bucket: test-state-bucket\n"
             "  region: us-east-1\n"
-            "tofu:\n"
-            "  version: '1.8.0'\n"
+            "tools:\n"
+            "  tofu:\n"
+            "    version: '1.8.0'\n"
+            "  terragrunt:\n"
+            "    version: '1.0.6'\n"
             "provider_mappings:\n"
             "  aws:\n"
             "    source:\n"

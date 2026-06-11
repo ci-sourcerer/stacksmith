@@ -90,13 +90,13 @@ def write_terragrunt_json(
         stack: Parsed stack definition.
         config: Tool configuration.
         resolved_vars: Resolved variable values.
-        output_dir: Directory to write terragrunt.hcl.json into.
+        output_dir: Directory to write `terragrunt.hcl.json` into.
         dependency_stacks: Map of dependency name to `StackDefinition`.
         dependency_build_dirs: Map of dependency name to build output directory.
         root: Monorepo root directory used for state key derivation.
 
     Returns:
-        Path to the written terragrunt.hcl.json file.
+        Path to the written `terragrunt.hcl.json` file.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     doc = generate_terragrunt_json(

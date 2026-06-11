@@ -15,8 +15,9 @@ from stacksmith.models import (
     RunFile,
     StackDefinition,
     StackMeta,
-    TofuConfig,
+    ToolBinaryConfig,
     ToolConfig,
+    ToolsConfig,
     TransformSpec,
     ValidationSpec,
 )
@@ -70,7 +71,7 @@ def test_tool_config_fields_match_config_schema():
 
     assert _field_names(ToolConfig) - {"source_path"} == {
         "backend",
-        "tofu",
+        "tools",
         "provider_mappings",
         "module_mappings",
         "var_validations",
@@ -79,7 +80,7 @@ def test_tool_config_fields_match_config_schema():
     }
     assert schema_props == {
         "backend",
-        "tofu",
+        "tools",
         "provider_mappings",
         "module_mappings",
         "var_validations",
@@ -94,7 +95,8 @@ def test_tool_config_fields_match_config_schema():
     assert backend_schema["properties"]["type"]["type"] == "string"
     assert backend_schema["additionalProperties"] is True
 
-    assert _field_names(TofuConfig) == {"version"}
+    assert _field_names(ToolsConfig) == {"tofu", "terragrunt"}
+    assert _field_names(ToolBinaryConfig) == {"version", "download"}
 
     assert _field_names(ProviderFamily) == {"source", "instances"}
     assert _field_names(ProviderConfigSpec) == {"inline", "script", "data"}
@@ -192,7 +194,7 @@ def test_runfile_fields_match_runfile_schema():
             ToolConfig,
             {
                 "backend",
-                "tofu",
+                "tools",
                 "provider_mappings",
                 "module_mappings",
                 "var_validations",

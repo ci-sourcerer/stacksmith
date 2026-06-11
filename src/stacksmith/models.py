@@ -364,10 +364,38 @@ class BackendConfig(BaseModel):
         return config
 
 
-class TofuConfig(BaseModel):
-    """OpenTofu version configuration."""
+class ToolDownloadSpec(BaseModel):
+    """Tool download metadata for missing binaries."""
+
+    url_template: str
+    sha256: str | None = None
+    sha256_url_template: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_url_template(self) -> "ToolDownloadSpec":
+        if not self.url_template.strip():
+            raise ValueError("Tool download url_template must be a non-empty string")
+        return self
+
+
+class ToolBinaryConfig(BaseModel):
+    """Tool binary resolution settings."""
 
     version: str
+    download: ToolDownloadSpec | None = None
+
+    @model_validator(mode="after")
+    def _validate_version(self) -> "ToolBinaryConfig":
+        if not self.version.strip():
+            raise ValueError("Tool version must be a non-empty string")
+        return self
+
+
+class ToolsConfig(BaseModel):
+    """Configured tool binary settings for OpenTofu and Terragrunt."""
+
+    tofu: ToolBinaryConfig
+    terragrunt: ToolBinaryConfig
 
 
 class ProviderConfigSpec(BaseModel):
@@ -498,7 +526,7 @@ class ToolConfig(BaseModel):
     """Complete tool configuration loaded from .config.yaml."""
 
     backend: BackendConfig
-    tofu: TofuConfig
+    tools: ToolsConfig
     provider_mappings: dict[str, ProviderFamily]
     module_mappings: dict[str, ModuleMapping]
     var_validations: dict[str, ValidationSpec] = Field(default_factory=dict)

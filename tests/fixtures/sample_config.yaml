@@ -4,8 +4,11 @@ backend:
   region: us-east-1
 
 
-tofu:
-  version: "1.8.0"
+tools:
+  tofu:
+    version: "1.8.0"
+  terragrunt:
+    version: "1.8.0"
 
 provider_mappings:
   aws:

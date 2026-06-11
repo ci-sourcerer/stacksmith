@@ -3,25 +3,52 @@ FROM alpine:3 AS deps
 ARG TARGETARCH
 ARG TARGETOS
 
-ARG TOFU_VERSION=1.11.6
-ARG TERRAGRUNT_VERSION=1.0.4
+ARG TOFU_VERSIONS="1.11.6"
+ARG TERRAGRUNT_VERSIONS="1.0.4"
+ARG TOOL_CACHE_ROOT=/tmp/deps/tools
 ARG TOFU_PROVIDER_SPEC=""
 ARG TOFU_PROVIDER_CACHE=/tmp/deps/tofu-providers
 ARG TOFU_MODULE_SPEC=""
 ARG TOFU_MODULE_VENDOR_DIR=/tmp/deps/tofu-modules
 
-RUN mkdir -p /tmp/deps "$TOFU_PROVIDER_CACHE" "$TOFU_MODULE_VENDOR_DIR"
+RUN mkdir -p /tmp/deps "$TOFU_PROVIDER_CACHE" "$TOFU_MODULE_VENDOR_DIR" "$TOOL_CACHE_ROOT"
 
-RUN --mount=type=cache,target=/var/cache/apk apk add unzip jq git openssh
-ADD --link "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_${TARGETOS}_${TARGETARCH}.zip" /tmp/tofu.zip
-RUN unzip /tmp/tofu.zip tofu -d /tmp/deps/ && rm /tmp/tofu.zip
-ADD --link --chmod=0755 "https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/terragrunt_${TARGETOS}_${TARGETARCH}" /tmp/deps/terragrunt
+RUN --mount=type=cache,target=/var/cache/apk apk add unzip jq curl git openssh
+RUN --mount=type=cache,target=/tmp/deps/downloads,id=tool-downloads \
+    --mount=type=cache,target="$TOOL_CACHE_ROOT",id=tool-cache \
+    for version in $TOFU_VERSIONS; do \
+        mkdir -p "$TOOL_CACHE_ROOT/tofu/$version/bin" && \
+        archive="/tmp/deps/downloads/tofu-${version}.zip" && \
+        if [ ! -f "$archive" ]; then \
+            curl -L -o "$archive" "https://github.com/opentofu/opentofu/releases/download/v${version}/tofu_${version}_${TARGETOS}_${TARGETARCH}.zip"; \
+        fi && \
+        if [ ! -f "$TOOL_CACHE_ROOT/tofu/$version/bin/tofu" ]; then \
+            unzip "$archive" tofu -d "$TOOL_CACHE_ROOT/tofu/$version/bin"; \
+        fi; \
+    done && \
+    selected_tofu_version="$(printf '%s' "$TOFU_VERSIONS" | awk '{print $1}')" && \
+    cp "$TOOL_CACHE_ROOT/tofu/$selected_tofu_version/bin/tofu" /tmp/deps/tofu
+RUN --mount=type=cache,target=/tmp/deps/downloads,id=tool-downloads \
+    --mount=type=cache,target="$TOOL_CACHE_ROOT",id=tool-cache \
+    for version in $TERRAGRUNT_VERSIONS; do \
+        mkdir -p "$TOOL_CACHE_ROOT/terragrunt/$version/bin" && \
+        archive="/tmp/deps/downloads/terragrunt-${version}" && \
+        if [ ! -f "$archive" ]; then \
+            curl -L -o "$archive" "https://github.com/gruntwork-io/terragrunt/releases/download/v${version}/terragrunt_${TARGETOS}_${TARGETARCH}"; \
+        fi && \
+        if [ ! -f "$TOOL_CACHE_ROOT/terragrunt/$version/bin/terragrunt" ]; then \
+            install -m 0755 "$archive" "$TOOL_CACHE_ROOT/terragrunt/$version/bin/terragrunt"; \
+        fi; \
+    done && \
+    selected_terragrunt_version="$(printf '%s' "$TERRAGRUNT_VERSIONS" | awk '{print $1}')" && \
+    cp "$TOOL_CACHE_ROOT/terragrunt/$selected_terragrunt_version/bin/terragrunt" /tmp/deps/terragrunt
 
 # Provider pre-caching
 # TOFU_PROVIDER_SPEC is a colon-separated list of source=version pairs.
 # Legacy pipe-separated values are also accepted.
 # Unpinned entries (without =version) download the latest version.
 RUN mkdir -p /tmp/tofu-init && \
+    selected_tofu_version="$(printf '%s' "$TOFU_VERSIONS" | awk '{print $1}')" && \
     TOFU_PROVIDER_SPEC="${TOFU_PROVIDER_SPEC// /}" && \
     warn=0 && \
     if [ -n "$TOFU_PROVIDER_SPEC" ]; then \
@@ -34,7 +61,7 @@ RUN mkdir -p /tmp/tofu-init && \
     else \
         providers_json='{}'; \
     fi && \
-    jq -n --arg version "$TOFU_VERSION" --argjson providers "$providers_json" '{"terraform":{"required_version":"= \($version)","backend":{"local":{}},"required_providers":$providers}}' >/tmp/tofu-init/main.tf.json && \
+    jq -n --arg version "$selected_tofu_version" --argjson providers "$providers_json" '{"terraform":{"required_version":"= \($version)","backend":{"local":{}},"required_providers":$providers}}' >/tmp/tofu-init/main.tf.json && \
     TF_PLUGIN_CACHE_DIR="$TOFU_PROVIDER_CACHE" /tmp/deps/tofu -chdir=/tmp/tofu-init init -backend=false -get=false && \
     rm -rf /tmp/tofu-init
 

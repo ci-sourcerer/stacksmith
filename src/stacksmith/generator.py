@@ -102,7 +102,7 @@ def _generate_terraform_block(
 ) -> dict[str, Any]:
     state_key = derive_stack_state_key(stack.name, stack.source_path, root)
     return {
-        "required_version": f"= {config.tofu.version}",
+        "required_version": f"= {config.tools.tofu.version}",
         "backend": {
             config.backend.type: config.backend.config_with_state_key(state_key)
         },
