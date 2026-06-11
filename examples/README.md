@@ -7,13 +7,39 @@ IAM and bucket policy so the EC2 role can write objects securely.
 
 ## Folder layout
 
-The example is intentionally split into two repository-style directories.
+The example is intentionally split into repository-style directories.
 
 ```text
 examples/
   github-actions/
     stacksmith-plan.yml
     stacksmith-apply.yml
+  modules/
+    README.md
+    command_runner/
+    helm_app/
+    kubernetes_app/
+  gitops-repo/
+    README.md
+    common/
+      stacksmith.yaml
+    environments/
+      dev.yaml
+      prod.yaml
+    manifests/
+      common/
+        platform.stack.yaml
+        service.stack.yaml
+      environments/
+        dev/
+          app-config.yaml
+          frontend-values.yaml
+        prod/
+          app-config.yaml
+          frontend-values.yaml
+    vars/
+      dev.yaml
+      prod.yaml
   stack-repo/
     bucket-and-ec2/
       stack.yaml
@@ -26,6 +52,38 @@ examples/
       validations/
 ```
 
+The `gitops-repo` example is the canonical GitOps sample. It uses the hybrid `env-files` discovery mode with `environments/<env>.yaml` files and a shared `common/stacksmith.yaml` runfile.
+
+The same workflow also supports the other two discovery styles:
+
+- `folders` for `environments/<env>/` directories
+- `flat-files` for root-level `stacksmith.<env>.yaml` files
+
+All GitOps examples use the shared module implementations under
+`examples/modules` via module mappings in `examples/shared-config-repo/stacksmith-config.yaml`.
+
+## GitOps discovery styles
+
+```text
+folders:
+  environments/
+    dev/
+      stacksmith.yaml
+    prod/
+      stacksmith.yaml
+
+flat-files:
+  stacksmith.dev.yaml
+  stacksmith.prod.yaml
+
+env-files:
+  common/
+    stacksmith.yaml
+  environments/
+    dev.yaml
+    prod.yaml
+```
+
 ## Example GitHub Actions wrappers
 
 This example also includes GitHub Actions wrapper workflow templates under `examples/github-actions`.
@@ -33,7 +91,7 @@ These wrappers are references that call reusable workflows from this repository 
 
 - `examples/github-actions/stacksmith-plan.yml` triggers on pull requests to `main`, pushes to `main`, and manual dispatch.
 - `examples/github-actions/stacksmith-apply.yml` triggers on pushes to `main` and manual dispatch.
-- Both templates call `cisourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main`.
+- Both templates call `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main`.
 
 You can call that reusable workflow directly from your own workflow and keep your trigger policy in your repository.
 
@@ -58,9 +116,7 @@ The stack has the following tags.
 - `example`
 - `prod`
 
-The `app` component is tagged with `web`, so you can combine stack-level and
-component-level targeting with expressions like
-`contains(stack_tags, 'prod') && tag.web`.
+The `app` component is tagged with `web`, so you can combine stack-level and component-level targeting with expressions like `contains(stack_tags, 'prod') && tag.web`.
 
 ## Shared config repo
 
@@ -138,9 +194,7 @@ stacksmith plan "$STACK_FILE" \
     --vars "$VARS_FILE"
 ```
 
-This example includes a warning policy for `t3.micro` EC2 plans, so plan
-output can contain a warning outcome while still exiting successfully by
-default.
+This example includes a warning policy for `t3.micro` EC2 plans, so plan output can contain a warning outcome while still exiting successfully by default.
 
 ```bash
 stacksmith plan "$STACK_FILE" \
@@ -285,7 +339,7 @@ Generated files are written under
 
 You can override this location with `--build-dir`.
 
-Notable files are `main.tf.json` and `terragrunt.hcl.json`.
+Notable files are `stacksmith.tf.json` and `terragrunt.hcl.json`.
 
 ## Security posture demonstrated
 

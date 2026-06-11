@@ -1,13 +1,5 @@
 name: stacksmith-plan
 
-env:
-  STACKSMITH_GITOPS_ROOT: ${{ vars.STACKSMITH_GITOPS_ROOT || '.' }}
-  STACKSMITH_WORKDIR: ${{ vars.STACKSMITH_WORKDIR || '.' }}
-  STACKSMITH_ENV_FILE: ${{ vars.STACKSMITH_ENV_FILE || '/dev/null' }}
-  STACKSMITH_IMAGE_VERSION: ${{ vars.STACKSMITH_IMAGE_VERSION || 'latest' }}
-  STACKSMITH_PLAN_ARGS: ${{ vars.STACKSMITH_PLAN_ARGS || '' }}
-  STACKSMITH_VALIDATION_REPORT_FORMAT: ${{ vars.STACKSMITH_VALIDATION_REPORT_FORMAT || 'json' }}
-
 on:
   pull_request:
     branches:
@@ -35,26 +27,31 @@ on:
         description: Relative path to the GitOps root folder.
         required: false
         type: string
+      discovery_mode:
+        description: "Discovery mode. Supported values: folders (default) or flat-files."
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   plan:
-  uses: cisourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main
-  with:
-    operation: plan
-    environments: ${{ github.event.inputs.environments || '' }}
-    gitops_root: ${{ github.event.inputs.gitops_root || env.STACKSMITH_GITOPS_ROOT }}
-    workdir: ${{ env.STACKSMITH_WORKDIR }}
-    env_file: ${{ env.STACKSMITH_ENV_FILE }}
-    image_version: ${{ env.STACKSMITH_IMAGE_VERSION }}
-    plan_args: ${{ env.STACKSMITH_PLAN_ARGS }}
-    validation_report_format: ${{ env.STACKSMITH_VALIDATION_REPORT_FORMAT }}
-    dockerhub_username: ${{ vars.DOCKERHUB_USERNAME || '' }}
-    upload_artifacts: true
-    caller_event_name: ${{ github.event_name }}
-    caller_base_ref: ${{ github.base_ref || '' }}
-    caller_event_before: ${{ github.event.before || '' }}
-    caller_sha: ${{ github.sha }}
-  secrets: inherit
+    uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main
+    with:
+      operation: plan
+      environments: ${{ github.event.inputs.environments || '' }}
+      gitops_root: ${{ github.event.inputs.gitops_root || vars.STACKSMITH_GITOPS_ROOT || '.' }}
+      discovery_mode: ${{ github.event.inputs.discovery_mode || vars.STACKSMITH_DISCOVERY_MODE || 'folders' }}
+      workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
+      env_file: ${{ vars.STACKSMITH_ENV_FILE || '/dev/null' }}
+      image_version: ${{ vars.STACKSMITH_IMAGE_VERSION || 'latest' }}
+      plan_args: ${{ vars.STACKSMITH_PLAN_ARGS || '' }}
+      validation_report_format: ${{ vars.STACKSMITH_VALIDATION_REPORT_FORMAT || 'json' }}
+      dockerhub_username: ${{ vars.DOCKERHUB_USERNAME || '' }}
+      upload_artifacts: true
+      caller_event_name: ${{ github.event_name }}
+      caller_base_ref: ${{ github.base_ref || '' }}
+      caller_event_before: ${{ github.event.before || '' }}
+      caller_sha: ${{ github.sha }}
+    secrets: inherit

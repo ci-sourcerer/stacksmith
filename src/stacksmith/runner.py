@@ -27,6 +27,39 @@ def _has_enabled_plan_validations(config: ToolConfig) -> bool:
     return any(rule.enabled for rule in config.plan_validations.values())
 
 
+def _parse_terragrunt_action(
+    value: str | TerragruntAction | None,
+) -> TerragruntAction | None:
+    if value is None:
+        return None
+    if isinstance(value, TerragruntAction):
+        return value
+
+    try:
+        return TerragruntAction(value)
+    except ValueError:
+        return None
+
+
+def _should_run_plan_validation_flow(
+    args: list[str],
+    config: ToolConfig | None,
+    *,
+    save_plan_json: Path | None = None,
+    fail_on_changes: bool = False,
+) -> bool:
+    return bool(
+        args
+        and _parse_terragrunt_action(args[0]) == TerragruntAction.PLAN
+        and "-destroy" not in args
+        and (
+            save_plan_json is not None
+            or (config is not None and _has_enabled_plan_validations(config))
+            or fail_on_changes
+        )
+    )
+
+
 def _build_env() -> dict[str, str]:
     env = os.environ.copy()
     env["TG_TF_PATH"] = env.get("TG_TF_PATH", "tofu")
@@ -149,27 +182,35 @@ def _has_plan_changes(plan_data: dict[str, Any]) -> bool:
     return False
 
 
-def _run_terragrunt_streaming(cmd: list[str], working_dir: Path) -> int:
+def _run_terragrunt(
+    cmd: list[str], working_dir: Path, *, capture_output: bool = False
+) -> subprocess.CompletedProcess[str] | int:
+    kwargs = {
+        "cwd": working_dir,
+        "env": _build_env(),
+    }
+
+    if capture_output:
+        kwargs.update({"capture_output": True, "text": True})
+        return subprocess.run(cmd, **kwargs)
+
     return subprocess.run(
         cmd,
-        cwd=working_dir,
-        env=_build_env(),
         stdout=sys.stderr,
         stderr=sys.stderr,
-    ).returncode
+        **kwargs,
+    )
+
+
+def _run_terragrunt_streaming(cmd: list[str], working_dir: Path) -> int:
+    return int(_run_terragrunt(cmd, working_dir).returncode)
 
 
 def _run_terragrunt_capture_text(
     cmd: list[str],
     working_dir: Path,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        cmd,
-        cwd=working_dir,
-        env=_build_env(),
-        capture_output=True,
-        text=True,
-    )
+    return _run_terragrunt(cmd, working_dir, capture_output=True)
 
 
 def check_plan_validations(
@@ -236,12 +277,7 @@ def run_terragrunt(
     """
     _check_required_tool_versions()
     cmd = ["terragrunt", *args]
-    first_action = None
-    if args:
-        try:
-            first_action = TerragruntAction(args[0])
-        except ValueError:
-            first_action = None
+    first_action = _parse_terragrunt_action(args[0] if args else None)
 
     if (
         args
@@ -253,15 +289,11 @@ def run_terragrunt(
     LOGGER.info("Running: {command}", command=" ".join(cmd))
     LOGGER.debug("Working dir: {working_dir}", working_dir=working_dir)
 
-    if (
-        args
-        and first_action == TerragruntAction.PLAN
-        and "-destroy" not in args
-        and (
-            save_plan_json is not None
-            or (config is not None and _has_enabled_plan_validations(config))
-            or fail_on_changes
-        )
+    if _should_run_plan_validation_flow(
+        args,
+        config,
+        save_plan_json=save_plan_json,
+        fail_on_changes=fail_on_changes,
     ):
         enabled_rules = (
             [name for name, rule in config.plan_validations.items() if rule.enabled]
@@ -401,7 +433,7 @@ def run_terragrunt_all_ordered(
     """Run Terragrunt across generated stack directories in dependency order.
 
     Args:
-        action: Terragrunt action or Terragrunt arg list (e.g. ["plan", "-destroy"]).
+        action: Terragrunt action or Terragrunt arg list.
         stack_build_dirs: Ordered mapping of stack name to generated build directory.
             The expected order is dependency-first.
         auto_approve: If `True`, append `--auto-approve` for apply/destroy.
@@ -421,14 +453,7 @@ def run_terragrunt_all_ordered(
         Process exit code (first non-zero code short-circuits the run).
     """
     action_name = action[0] if isinstance(action, list) else action
-    action_enum = None
-    if isinstance(action_name, str):
-        try:
-            action_enum = TerragruntAction(action_name)
-        except ValueError:
-            action_enum = None
-    elif isinstance(action_name, TerragruntAction):
-        action_enum = action_name
+    action_enum = _parse_terragrunt_action(action_name)
 
     stack_items = list(stack_build_dirs.items())
     if action_enum == TerragruntAction.DESTROY:

@@ -1,9 +1,7 @@
 import csv
 import io
 import json
-import re
 import shutil
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -12,6 +10,7 @@ import jmespath
 from jmespath import exceptions as jmespath_exceptions
 from jsonschema import exceptions as jsonschema_exceptions
 from loguru import logger as LOGGER
+from stacksmith.utils import print_to_stderr
 
 from .discovery import (
     build_dependency_graph,
@@ -28,8 +27,8 @@ from .enums import (
 from .exceptions import StacksmithConfigError, StacksmithError
 from .generator import write_tf_json
 from .inspector import (
+    ComponentTypeInfo,
     PlanPolicyInfo,
-    ResourceTypeInfo,
     inspect_all,
     inspect_plan_policies,
 )
@@ -52,14 +51,14 @@ from .vendor import get_vendor_dir, load_vendor_manifest
 
 
 def _default_config_paths() -> list[str]:
-    if config_env := stacksmith_env_list("CONFIG"):
+    config_env = stacksmith_env_list("CONFIG")
+    if config_env:
         return config_env
     return [str(Path.cwd() / "stacksmith-config.yaml")]
 
 
 def _resolve_config_paths(
-    config_args: list[str | FileReference] | None,
-    cache_dir: Path | None = None,
+    config_args: list[str | FileReference] | None, cache_dir: Path | None = None
 ) -> list[Path]:
     raw_paths = config_args if config_args else _default_config_paths()
     resolved: list[Path] = []
@@ -201,13 +200,6 @@ _VALIDATION_REPORT_CSV_COLUMNS = (
 )
 
 
-def _split_validation_message(message: str) -> tuple[str, str | None]:
-    summary, separator, detail = message.partition(" — ")
-    if separator:
-        return summary, detail
-    return message, None
-
-
 def _validation_report_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
     summary = report.get("summary") if isinstance(report.get("summary"), dict) else {}
     report_row = {
@@ -290,10 +282,6 @@ def _emit_validation_report(
         return
 
     print(json.dumps(report, sort_keys=True))
-
-
-def _emit_human_output(message: str) -> None:
-    print(message, file=sys.stderr)
 
 
 def _summarize_plan_validation_results(
@@ -384,61 +372,74 @@ def _load_runtime_config(
 
 
 def _compile_tag_expression(tag_expr: str):
-    normalized = re.sub(
-        r"tag\[\s*'([^']+)'\s*\]",
-        r'tag."\1"',
-        tag_expr,
-    )
-    normalized = re.sub(
-        r'tag\[\s*"([^\"]+)"\s*\]',
-        r'tag."\1"',
-        normalized,
-    )
     try:
-        return jmespath.compile(normalized)
+        return jmespath.compile(tag_expr)
     except jmespath_exceptions.JMESPathError as exc:
         raise StacksmithConfigError(f"Invalid --tag-expr: {exc}") from exc
 
 
 def _extract_tag_references(tag_expr: str) -> set[str]:
-    dot_style = re.findall(r"\btag\.([A-Za-z_][A-Za-z0-9_]*)\b", tag_expr)
-    quoted_style = re.findall(r'tag\."([^"]+)"', tag_expr)
-    bracket_matches = re.findall(
-        r"tag\[\s*'([^']+)'\s*\]|tag\[\s*\"([^\"]+)\"\s*\]",
-        tag_expr,
-    )
-    bracket_style = {item for match in bracket_matches for item in match if item}
-    return set(dot_style).union(quoted_style, bracket_style)
+    try:
+        parsed = jmespath.parser.Parser().parse(tag_expr).parsed
+    except jmespath_exceptions.JMESPathError:
+        return set()
+
+    refs = set()
+
+    def _collect(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+
+        if node.get("type") == "subexpression":
+            children = node.get("children", []) or []
+            if (
+                len(children) == 2
+                and children[0].get("type") == "field"
+                and children[0].get("value") == "tag"
+            ):
+                value = children[1].get("value")
+                if isinstance(value, str):
+                    refs.add(value)
+
+        for child in node.get("children", []) or []:
+            _collect(child)
+        for value in node.values():
+            if isinstance(value, dict):
+                _collect(value)
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        _collect(item)
+
+    _collect(parsed)
+    return refs
 
 
-def _build_resource_tag_context(
+def _build_component_tag_context(
     stack: StackDefinition,
-    resource_name: str,
-    resource_effective_tags: set[str],
+    component_name: str,
+    component_effective_tags: set[str],
     all_stack_tags: set[str],
 ) -> dict[str, Any]:
     return {
-        "tags": sorted(resource_effective_tags),
-        "tag": {tag: tag in resource_effective_tags for tag in all_stack_tags},
-        "resource_name": resource_name,
-        "resource_type": stack.components[resource_name].type,
+        "tags": sorted(component_effective_tags),
+        "tag": {tag: tag in component_effective_tags for tag in all_stack_tags},
+        "component_name": component_name,
+        "component_type": stack.components[component_name].type,
         "stack_name": stack.name,
         "stack_tags": sorted(stack.tags),
     }
 
 
 def _evaluate_tag_expression(
-    expression,
-    context: dict[str, Any],
-    *,
-    resource_name: str,
+    expression, context: dict[str, Any], *, component_name: str
 ) -> bool:
     result = expression.search(context)
     if not isinstance(result, bool):
         result_type = type(result).__name__
         raise StacksmithConfigError(
-            "Tag expression must evaluate to a boolean value for every resource. "
-            f"Resource '{resource_name}' produced type '{result_type}' with value {result!r}."
+            "Tag expression must evaluate to a boolean value for every component. "
+            f"Component '{component_name}' produced type '{result_type}' with value {result!r}."
         )
     return result
 
@@ -450,46 +451,120 @@ def _compute_stack_target_modules(
     referenced_tags: set[str] | None = None,
     required_tags: set[str] | None = None,
 ) -> list[str]:
-    effective_tags_by_resource: dict[str, set[str]] = {}
-    all_stack_tags: set[str] = set()
+    effective_tags_by_component = {}
+    all_stack_tags = set()
 
-    for resource_name, resource in stack.components.items():
-        mapping = config.module_mappings.get(resource.type)
+    for component_name, component in stack.components.items():
+        mapping = config.module_mappings.get(component.type)
         if mapping is None:
             raise StacksmithConfigError(
-                f"Component '{resource_name}' has type '{resource.type}' "
+                f"Component '{component_name}' has type '{component.type}' "
                 f"which is not defined in the tool configuration module mappings. "
                 f"Available types: {', '.join(config.module_mappings.keys())}"
             )
 
-        effective_tags = set(resource.tags)
+        effective_tags = set(component.tags)
         effective_tags.update(mapping.tags)
-        effective_tags_by_resource[resource_name] = effective_tags
+        effective_tags_by_component[component_name] = effective_tags
         all_stack_tags.update(effective_tags)
 
     all_stack_tags.update(referenced_tags or set())
     required_tags = required_tags or set()
 
-    targets: list[str] = []
-    for resource_name in stack.components:
-        effective_tags = effective_tags_by_resource[resource_name]
+    targets = []
+    for component_name in stack.components:
+        effective_tags = effective_tags_by_component[component_name]
         if required_tags and not required_tags.issubset(effective_tags):
             continue
 
         if expression is None:
-            targets.append(f"module.{resource_name}")
+            targets.append(f"module.{component_name}")
             continue
 
-        context = _build_resource_tag_context(
+        context = _build_component_tag_context(
             stack,
-            resource_name,
+            component_name,
             effective_tags,
             all_stack_tags,
         )
-        if _evaluate_tag_expression(expression, context, resource_name=resource_name):
-            targets.append(f"module.{resource_name}")
+        if _evaluate_tag_expression(expression, context, component_name=component_name):
+            targets.append(f"module.{component_name}")
 
     return targets
+
+
+def _resolve_stacks_for_generation(
+    root: Path,
+    stack_refs: Sequence[Path | str] | None,
+    cache_dir: Path | None = None,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
+) -> dict[str, StackDefinition]:
+    """Resolve the stack set for generation, including explicit ref deduplication."""
+    if stack_refs:
+        stacks: dict[str, StackDefinition] = {}
+        duplicates: list[str] = []
+        for stack_path in _resolve_stack_paths(stack_refs, cache_dir):
+            stack = load_stack(stack_path, merge_mode=merge_mode)
+            if stack.name in stacks:
+                duplicates.append(
+                    f"  '{stack.name}' defined in both {stacks[stack.name].source_path} and {stack_path}"
+                )
+                continue
+            stacks[stack.name] = stack
+
+        if duplicates:
+            raise StacksmithConfigError(
+                f"Duplicate stack names found:\n {'\n'.join(duplicates)}"
+            )
+        return stacks
+
+    return discover_stacks(root)
+
+
+def _validate_action_options(
+    action: str | TerragruntAction,
+    *,
+    tags: list[str] | None,
+    tag_expr: str | None,
+    save_plan_json: Path | None,
+    tag_support_label: str,
+    save_plan_label: str,
+) -> TerragruntAction:
+    """Validate shared action options for tag- and plan-specific flows."""
+    action_enum = TerragruntAction(action)
+    if (tags or tag_expr) and action_enum not in {
+        TerragruntAction.PLAN,
+        TerragruntAction.APPLY,
+        TerragruntAction.DESTROY,
+    }:
+        raise StacksmithConfigError(
+            f"--tag and --tag-expr are only supported for {tag_support_label}"
+        )
+    if save_plan_json is not None and action_enum != TerragruntAction.PLAN:
+        raise StacksmithConfigError(
+            f"--save-plan-json is only supported for {save_plan_label}"
+        )
+    return action_enum
+
+
+def _resolve_tag_targets(
+    stack: StackDefinition,
+    config: ToolConfig,
+    *,
+    tags: list[str] | None,
+    tag_expr: str | None,
+) -> tuple[None | object, set[str], list[str]]:
+    """Compile a tag selector and compute matching module targets for a stack."""
+    expression = _compile_tag_expression(tag_expr) if tag_expr else None
+    referenced_tags = _extract_tag_references(tag_expr) if tag_expr else None
+    targets = _compute_stack_target_modules(
+        stack,
+        config,
+        expression,
+        referenced_tags=referenced_tags,
+        required_tags=set(tags or []),
+    )
+    return expression, referenced_tags, targets
 
 
 def _build_terragrunt_args(
@@ -517,7 +592,7 @@ def _generate_single_stack(
     auth_config: RemoteAuthConfig | None = None,
     use_local_modules: bool = False,
     merge_mode: str | MergeMode = MergeMode.DEEP,
-) -> tuple[Path, int]:
+) -> Path:
     LOGGER.debug("Loading config from paths: {config_paths}", config_paths=config_paths)
     config = load_config(config_paths, merge_mode=merge_mode)
     stack = _load_stack_definition(stack_path, cache_dir, merge_mode=merge_mode)
@@ -534,6 +609,12 @@ def _generate_single_stack(
         cache_dir=cache_dir,
         auth_config=auth_config,
         merge_mode=merge_mode,
+        context={
+            "stack": {
+                "name": stack.name,
+                "tags": sorted(stack.tags),
+            }
+        },
     )
     LOGGER.debug("Resolved variable keys: {keys}", keys=sorted(resolved.keys()))
     if stack.source_path is None:
@@ -552,9 +633,8 @@ def _generate_single_stack(
     write_terragrunt_json(stack, config, resolved, output_dir)
 
     if not silent:
-
         LOGGER.info("Generated files in {output_dir}", output_dir=output_dir)
-    return output_dir, 0
+    return output_dir
 
 
 def _generate_all_stacks(
@@ -574,21 +654,12 @@ def _generate_all_stacks(
 ) -> tuple[Path, dict[str, Path], dict[str, StackDefinition]]:
     LOGGER.debug("Loading config from paths: {config_paths}", config_paths=config_paths)
     config = load_config(config_paths, merge_mode=merge_mode)
-    if stack_refs:
-        stacks = {}
-        duplicates: list[str] = []
-        for stack_path in _resolve_stack_paths(stack_refs, cache_dir):
-            stack = load_stack(stack_path, merge_mode=merge_mode)
-            if stack.name in stacks:
-                duplicates.append(
-                    f"  '{stack.name}' defined in both {stacks[stack.name].source_path} and {stack_path}"
-                )
-                continue
-            stacks[stack.name] = stack
-        if duplicates:
-            raise ValueError(f"Duplicate stack names found:\n {'\n'.join(duplicates)}")
-    else:
-        stacks = discover_stacks(root)
+    stacks = _resolve_stacks_for_generation(
+        root,
+        stack_refs,
+        cache_dir=cache_dir,
+        merge_mode=merge_mode,
+    )
     LOGGER.debug(
         "Discovered stack names: {stack_names}", stack_names=sorted(stacks.keys())
     )
@@ -655,6 +726,12 @@ def _generate_all_stacks(
             cache_dir=cache_dir,
             auth_config=auth_config,
             merge_mode=merge_mode,
+            context={
+                "stack": {
+                    "name": stack.name,
+                    "tags": sorted(stack.tags),
+                }
+            },
         )
 
         dep_stacks = {dep: stacks[dep] for dep in stack.depends_on}
@@ -707,7 +784,6 @@ def validate_stack(
     input_layers: Sequence[InputLayer] | None = None,
     build_dir: Path | None = None,
     no_cache: bool = False,
-    strict_validation_warnings: bool = False,
     merge_mode: str | MergeMode = MergeMode.DEEP,
     validation_report_format: (
         str | ValidationReportFormat
@@ -722,14 +798,13 @@ def validate_stack(
             file paths or URLs.
         input_layers: Optional ordered CLI input layers merged in call order.
         build_dir: Optional build directory used to derive the cache directory.
-        no_cache: When `True`, clear the remote cache before resolving resources.
-        strict_validation_warnings: Present for report parity across commands.
+        no_cache: When `True`, clear the remote cache before resolving components.
         merge_mode: Merge strategy used for layered stacks, configs, and vars.
         validation_report_format: Format used for machine-readable validation
             report output.
 
     Returns:
-        Process-style exit code. Returns `0` when validation succeeds.
+        Validation report payload.
     """
     try:
         cache_dir, config_paths, loaded_config = _load_runtime_config(
@@ -757,6 +832,7 @@ def validate_stack(
             auth_config=loaded_config.remote_auth or None,
             merge_mode=merge_mode,
         )
+        report = _build_validate_report(exit_code=0, message="Validation passed")
     except (
         StacksmithError,
         FileNotFoundError,
@@ -770,18 +846,10 @@ def validate_stack(
             "Validation failed for stack {stack_file} (see validation report for details).",
             stack_file=stack_file,
         )
-        _emit_validation_report(
-            _build_validate_report(exit_code=1, message=message),
-            report_format=validation_report_format,
-        )
-        return 1
+        report = _build_validate_report(exit_code=1, message=message)
 
-    LOGGER.info("Validation passed.")
-    _emit_validation_report(
-        _build_validate_report(exit_code=0, message="Validation passed"),
-        report_format=validation_report_format,
-    )
-    return 0
+    _emit_validation_report(report, report_format=validation_report_format)
+    return report
 
 
 def diagnose_cache(
@@ -804,43 +872,41 @@ def diagnose_cache(
         raise RuntimeError("Loaded stack is missing a source path")
     build_dir_resolved = _resolve_build_dir(stack.source_path, build_dir)
 
-    _emit_human_output("Stacksmith diagnostics")
-    _emit_human_output("======================")
-    _emit_human_output(f"Stack file: {stack.source_path or stack_file}")
-    _emit_human_output(f"Config paths: {', '.join(str(path) for path in config_paths)}")
-    _emit_human_output(f"Build directory: {build_dir_resolved}")
-    _emit_human_output(f"Remote cache directory: {cache_dir}")
+    print_to_stderr("Stacksmith diagnostics")
+    print_to_stderr("======================")
+    print_to_stderr(f"Stack file: {stack.source_path or stack_file}")
+    print_to_stderr(f"Config paths: {', '.join(str(path) for path in config_paths)}")
+    print_to_stderr(f"Build directory: {build_dir_resolved}")
+    print_to_stderr(f"Remote cache directory: {cache_dir}")
 
     if cache_dir.exists():
-        _emit_human_output("Remote cache contents:")
+        print_to_stderr("Remote cache contents:")
         for entry in sorted(cache_dir.iterdir()):
-            _emit_human_output(
-                f"  {entry.name} ({'dir' if entry.is_dir() else 'file'})"
-            )
+            print_to_stderr(f"  {entry.name} ({'dir' if entry.is_dir() else 'file'})")
     else:
-        _emit_human_output("Remote cache not found.")
+        print_to_stderr("Remote cache not found.")
 
     vendor_dir = get_vendor_dir()
-    _emit_human_output(f"Vendor directory: {vendor_dir}")
+    print_to_stderr(f"Vendor directory: {vendor_dir}")
     if vendor_dir.exists():
         manifest_path = vendor_dir / "vendor-manifest.json"
         if manifest_path.exists():
             manifest = load_vendor_manifest(vendor_dir)
-            _emit_human_output(f"Vendor manifest: {manifest_path}")
-            _emit_human_output(f"Vendored modules: {len(manifest)}")
+            print_to_stderr(f"Vendor manifest: {manifest_path}")
+            print_to_stderr(f"Vendored modules: {len(manifest)}")
             for key, item in manifest.items():
-                _emit_human_output(f"  {key}: {item['source']} @ {item['version']}")
+                print_to_stderr(f"  {key}: {item['source']} @ {item['version']}")
         else:
-            _emit_human_output("Vendor manifest not found.")
+            print_to_stderr("Vendor manifest not found.")
         vendor_dirs = [p for p in vendor_dir.iterdir() if p.is_dir()]
         if vendor_dirs:
-            _emit_human_output("Vendored module directories:")
+            print_to_stderr("Vendored module directories:")
             for entry in sorted(vendor_dirs):
-                _emit_human_output(f"  {entry.name}")
+                print_to_stderr(f"  {entry.name}")
         else:
-            _emit_human_output("No vendored module directories found.")
+            print_to_stderr("No vendored module directories found.")
     else:
-        _emit_human_output("Vendor directory not found.")
+        print_to_stderr("Vendor directory not found.")
 
     return 0
 
@@ -865,12 +931,12 @@ def generate_stack(
             file paths or URLs.
         input_layers: Optional ordered CLI input layers merged in call order.
         build_dir: Optional output directory for generated files.
-        no_cache: When `True`, clear the remote cache before resolving resources.
+        no_cache: When `True`, clear the remote cache before resolving components.
         use_local_modules: When `True`, rewrite module sources to local vendored paths.
         merge_mode: Merge strategy used for layered stacks, configs, and vars.
 
     Returns:
-        Process-style exit code from generation.
+        Output directory path containing generated files.
     """
     cache_dir, config_paths, loaded_config = _load_runtime_config(
         config,
@@ -883,7 +949,7 @@ def generate_stack(
         stack_file=stack_file,
         config_paths=config_paths,
     )
-    _, exit_code = _generate_single_stack(
+    return _generate_single_stack(
         stack_file,
         config_paths,
         vars_file,
@@ -894,7 +960,6 @@ def generate_stack(
         use_local_modules=use_local_modules,
         merge_mode=merge_mode,
     )
-    return exit_code
 
 
 def run_stack_action(
@@ -929,19 +994,19 @@ def run_stack_action(
             file paths or URLs.
         input_layers: Optional ordered CLI input layers merged in call order.
         build_dir: Optional output directory for generated files.
-        no_cache: When `True`, clear the remote cache before resolving resources.
+        no_cache: When `True`, clear the remote cache before resolving components.
         auto_approve: When `True`, pass `--auto-approve` to apply and destroy.
         destroy: When `True` and `action` is `plan`, generate a destroy plan.
         use_local_modules: When `True`, rewrite module sources to local vendored paths.
-        tags: Optional list of tags used to select resource targets. All listed
-            tags must be present on a resource for it to match.
-        tag_expr: Optional JMESPath expression used to select module targets.
+        tags: Optional list of tags used to select component targets. All listed
+            tags must be present on a component for it to match.
+        tag_expr: Optional JMESPath expression used to select component targets.
         save_plan_json: Optional file or directory path used to persist rendered
             plan JSON output for plan actions.
         strict_validation_warnings: When `True`, warning outcomes from plan
             validations are treated as failures.
         fail_on_changes: When `True`, return a non-zero exit code if the plan
-            contains any resource changes.
+            contains any component changes.
         merge_mode: Merge strategy used for layered stacks, configs, and vars.
         validation_report_format: Format used for machine-readable validation
             report output.
@@ -955,17 +1020,14 @@ def run_stack_action(
         no_cache=no_cache,
         merge_mode=merge_mode,
     )
-    action_enum = TerragruntAction(action)
-    if (tags or tag_expr) and action_enum not in {
-        TerragruntAction.PLAN,
-        TerragruntAction.APPLY,
-        TerragruntAction.DESTROY,
-    }:
-        raise StacksmithConfigError(
-            "--tag and --tag-expr are only supported for plan, apply, and destroy"
-        )
-    if save_plan_json is not None and action_enum != TerragruntAction.PLAN:
-        raise StacksmithConfigError("--save-plan-json is only supported for plan")
+    action_enum = _validate_action_options(
+        action,
+        tags=tags,
+        tag_expr=tag_expr,
+        save_plan_json=save_plan_json,
+        tag_support_label="plan, apply, and destroy",
+        save_plan_label="plan",
+    )
 
     LOGGER.debug(
         "Running terragrunt action {action} for stack {stack_file} with config paths: {config_paths}",
@@ -975,20 +1037,17 @@ def run_stack_action(
     )
     stack = _load_stack_definition(stack_file, cache_dir, merge_mode=merge_mode)
     plan_validation_results: list[PlanValidationResult] = []
-    targets: list[str] | None = None
+    targets = None
     if tags or tag_expr:
-        expression = _compile_tag_expression(tag_expr) if tag_expr else None
-        referenced_tags = _extract_tag_references(tag_expr) if tag_expr else None
-        targets = _compute_stack_target_modules(
+        _, _, targets = _resolve_tag_targets(
             stack,
             loaded_config,
-            expression,
-            referenced_tags=referenced_tags,
-            required_tags=set(tags or []),
+            tags=tags,
+            tag_expr=tag_expr,
         )
         if not targets:
             LOGGER.error(
-                "No resources in stack '{stack_name}' matched tag selectors",
+                "No components in stack '{stack_name}' matched tag selectors",
                 stack_name=stack.name,
             )
             if action_enum == TerragruntAction.PLAN:
@@ -1005,7 +1064,7 @@ def run_stack_action(
                 )
             return 1
 
-    output_dir, exit_code = _generate_single_stack(
+    output_dir = _generate_single_stack(
         stack_file,
         config_paths,
         vars_file,
@@ -1017,20 +1076,6 @@ def run_stack_action(
         use_local_modules=use_local_modules,
         merge_mode=merge_mode,
     )
-    if exit_code != 0:
-        if action_enum == TerragruntAction.PLAN:
-            _emit_validation_report(
-                _build_plan_validation_report(
-                    command=TerragruntAction.PLAN.value,
-                    exit_code=exit_code,
-                    strict_validation_warnings=strict_validation_warnings,
-                    results=plan_validation_results,
-                    stack_name=stack.name,
-                    stack_count=1,
-                ),
-                report_format=validation_report_format,
-            )
-        return exit_code
     terragrunt_exit_code = run_terragrunt(
         _build_terragrunt_args(action_enum, destroy, targets=targets),
         output_dir,
@@ -1097,22 +1142,22 @@ def run_all_stacks(
             file paths or URLs.
         input_layers: Optional ordered CLI input layers merged in call order.
         build_dir: Optional output directory for generated files.
-        no_cache: When `True`, clear the remote cache before resolving resources.
+        no_cache: When `True`, clear the remote cache before resolving components.
         include_tags: Optional tags used to include matching stacks.
         exclude_tags: Optional tags used to exclude matching stacks.
         clean: When `True`, remove the build directory before generation.
         auto_approve: When `True`, pass `--auto-approve` to apply and destroy.
         destroy: When `True` and `action` is `plan`, generate a destroy plan.
         use_local_modules: When `True`, rewrite module sources to local vendored paths.
-        tags: Optional list of tags used to select resource targets. All listed
-            tags must be present on a resource for it to match.
-        tag_expr: Optional JMESPath expression used to select module targets.
+        tags: Optional list of tags used to select component targets. All listed
+            tags must be present on a component for it to match.
+        tag_expr: Optional JMESPath expression used to select component targets.
         save_plan_json: Optional directory used to persist rendered plan JSON
             output for each stack during plan actions.
         strict_validation_warnings: When `True`, warning outcomes from plan
             validations are treated as failures.
         fail_on_changes: When `True`, return a non-zero exit code if the plan
-            contains any resource changes.
+            contains any component changes.
         stacks: Optional explicit stack paths or URLs. When provided, directory
             discovery is skipped and only these stack targets are used.
         merge_mode: Merge strategy used for layered configs and vars, and for
@@ -1130,19 +1175,14 @@ def run_all_stacks(
         no_cache=no_cache,
         merge_mode=merge_mode,
     )
-    action_enum = TerragruntAction(action)
-    if (tags or tag_expr) and action_enum not in {
-        TerragruntAction.PLAN,
-        TerragruntAction.APPLY,
-        TerragruntAction.DESTROY,
-    }:
-        raise StacksmithConfigError(
-            "--tag and --tag-expr are only supported for run-all plan, apply, and destroy"
-        )
-    if save_plan_json is not None and action_enum != TerragruntAction.PLAN:
-        raise StacksmithConfigError(
-            "--save-plan-json is only supported for run-all plan"
-        )
+    action_enum = _validate_action_options(
+        action,
+        tags=tags,
+        tag_expr=tag_expr,
+        save_plan_json=save_plan_json,
+        tag_support_label="run-all plan, apply, and destroy",
+        save_plan_label="run-all plan",
+    )
 
     LOGGER.debug(
         "Running run-all action {action} from root {root} with config paths: {config_paths}",
@@ -1169,21 +1209,18 @@ def run_all_stacks(
     stack_args_by_name: dict[str, list[str]] | None = None
     plan_validation_results: list[PlanValidationResult] = []
     if tags or tag_expr:
-        expression = _compile_tag_expression(tag_expr) if tag_expr else None
-        referenced_tags = _extract_tag_references(tag_expr) if tag_expr else None
         filtered_stack_dirs: dict[str, Path] = {}
         stack_args_by_name = {}
         for stack_name, stack_dir in stack_build_dirs.items():
-            targets = _compute_stack_target_modules(
+            _, _, targets = _resolve_tag_targets(
                 stacks[stack_name],
                 loaded_config,
-                expression,
-                referenced_tags=referenced_tags,
-                required_tags=set(tags or []),
+                tags=tags,
+                tag_expr=tag_expr,
             )
             if not targets:
                 LOGGER.info(
-                    "Skipping stack '{stack_name}': no resources matched tag selectors",
+                    "Skipping stack '{stack_name}': no components matched tag selectors",
                     stack_name=stack_name,
                 )
                 continue
@@ -1244,22 +1281,22 @@ def run_all_stacks(
 def inspect_modules(
     *,
     config: list[str] | None = None,
-    resource_types: list[str] | None = None,
+    component_types: list[str] | None = None,
     build_dir: Path | None = None,
     no_cache: bool = False,
     merge_mode: str | MergeMode = MergeMode.DEEP,
-) -> tuple[list[ResourceTypeInfo], list[PlanPolicyInfo]]:
+) -> tuple[list[ComponentTypeInfo], list[PlanPolicyInfo]]:
     """Inspect configured modules and return variable/mapping metadata.
 
     Args:
         config: Optional config file paths or URLs.
-        resource_types: Specific resource types to inspect; inspects all when `None`.
+        component_types: Specific component types to inspect; inspects all when `None`.
         build_dir: Optional build directory used to derive the cache directory.
-        no_cache: When `True`, clear the remote cache before resolving resources.
+        no_cache: When `True`, clear the remote cache before resolving components.
         merge_mode: Merge strategy used for layered configs.
 
     Returns:
-        Tuple of resource inspection results and plan policy inspection results.
+        Tuple of component inspection results and plan policy inspection results.
     """
     cache_dir, config_paths, loaded_config = _load_runtime_config(
         config,
@@ -1271,41 +1308,12 @@ def inspect_modules(
         config_paths,
         merge_mode=merge_mode,
     )
-    resource_results = inspect_all(
+    component_results = inspect_all(
         loaded_config,
-        resource_types=resource_types,
+        component_types=component_types,
         cache_dir=cache_dir,
         auth_config=loaded_config.remote_auth or None,
         config_locations=config_locations,
     )
     plan_policy_results = inspect_plan_policies(loaded_config, config_locations)
-    return resource_results, plan_policy_results
-
-
-def inspect_modules_context(
-    *,
-    config: list[str] | None = None,
-    resource_types: list[str] | None = None,
-    build_dir: Path | None = None,
-    no_cache: bool = False,
-    merge_mode: str | MergeMode = MergeMode.DEEP,
-) -> tuple[Path, ToolConfig, list[ResourceTypeInfo], list[PlanPolicyInfo]]:
-    cache_dir, config_paths, loaded_config = _load_runtime_config(
-        config,
-        build_dir,
-        no_cache=no_cache,
-        merge_mode=merge_mode,
-    )
-    _, config_locations = load_config_with_locations(
-        config_paths,
-        merge_mode=merge_mode,
-    )
-    resource_results = inspect_all(
-        loaded_config,
-        resource_types=resource_types,
-        cache_dir=cache_dir,
-        auth_config=loaded_config.remote_auth or None,
-        config_locations=config_locations,
-    )
-    plan_policy_results = inspect_plan_policies(loaded_config, config_locations)
-    return cache_dir, loaded_config, resource_results, plan_policy_results
+    return component_results, plan_policy_results

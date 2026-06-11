@@ -1,23 +1,75 @@
 # GitOps Example
 
-This example GitOps repository demonstrates how stack definitions, configs,
-and variables can be assembled to describe environment stacks. For the demo
-everything is kept in a single checkout using structured local references so
-you can run the examples locally.
+This example GitOps repository uses the hybrid `env-files` discovery style.
+It keeps the shared runfile under `common/stacksmith.yaml`, keeps each environment manifest in `environments/<env>.yaml`, and keeps the shared stack layers under `manifests/common/`.
 
-In real GitOps workflows these pieces are often stored in separate repositories,
-for example a shared-config repo, a manifests repo, or one repo per environment.
-When integrating with a GitOps controller, point the references in the
-`stacksmith.yaml` files at remote repositories instead of local paths.
+The reusable workflow also supports the other two discovery styles:
 
-Example remote target (replace with your controller/tooling-supported syntax)
+- `folders` for `environments/<env>/` directories
+- `flat-files` for root-level `stacksmith.<env>.yaml` files
 
-<https://github.com/ci-sourcerer/stacksmith.git//examples/shared-config-repo/stacksmith-config.yaml>
+Example layout for the canonical hybrid sample:
 
-Notes
+```text
+examples/gitops-repo/
+  common/
+    stacksmith.yaml
+  environments/
+    dev.yaml
+    prod.yaml
+  manifests/
+    common/
+      platform.stack.yaml
+      service.stack.yaml
+    environments/
+      dev/
+        app-config.yaml
+        frontend-values.yaml
+      prod/
+        app-config.yaml
+        frontend-values.yaml
+  vars/
+    vars.dev.yaml
+    vars.prod.yaml
+```
 
-- Local references in this example are for convenience and testing.
-- Remote URL syntax varies by tool; the double-slash above indicates a repo URL followed by an in-repo path.
+The other two discovery styles look like this:
 
-Change the `stacksmith.yaml` entries to `source: git` or `source: http`
-references to simulate pulling manifests and configs from separate repositories.
+```text
+folders:
+  environments/
+    dev/
+      stacksmith.yaml
+    prod/
+      stacksmith.yaml
+
+flat-files:
+  stacksmith.dev.yaml
+  stacksmith.prod.yaml
+```
+
+This example is intentionally local-path based for easy testing. In a real GitOps workflow, point the `source: local` references at remote Git or HTTP sources instead.
+
+## Local testing with Stacksmith
+
+The reusable workflow fans out one job per environment, using the shared runfile in `common/stacksmith.yaml` and the environment file in `environments/<env>.yaml`. You can reproduce that locally with the same inputs the CI job would pass.
+
+Plan the `dev` environment from this repository root:
+
+```bash
+ENVIRONMENT=dev
+stacksmith plan \
+  --runfile examples/gitops-repo/common/stacksmith.yaml \
+  --runfile examples/gitops-repo/environments/${ENVIRONMENT}.yaml \
+  --vars examples/gitops-repo/vars/vars.${ENVIRONMENT}.yaml
+```
+
+Apply the `dev` environment from this repository root:
+
+```bash
+ENVIRONMENT=dev
+stacksmith apply \
+  --runfile examples/gitops-repo/common/stacksmith.yaml \
+  --runfile examples/gitops-repo/environments/${ENVIRONMENT}.yaml \
+  --vars examples/gitops-repo/vars/vars.${ENVIRONMENT}.yaml
+```

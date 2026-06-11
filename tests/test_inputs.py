@@ -181,6 +181,25 @@ class TestResolveInputs:
         result = resolve_inputs(input_layers=[("var", "bucket_name=my-bucket-cli")])
         assert result["bucket_name"] == "my-bucket-cli"
 
+    def test_stack_context_renders_runfile_var(self):
+        result = resolve_inputs(
+            input_layers=[("var", "bucket_name=app-{{ stack.name }}")],
+            context={"stack": {"name": "payments", "tags": ["frontend"]}},
+        )
+
+        assert result["bucket_name"] == "app-payments"
+
+    def test_inputs_can_reference_other_inputs(self):
+        result = resolve_inputs(
+            input_layers=[
+                ("var", "prefix=prod"),
+                ("var", "bucket_name={{ inputs.prefix }}-app"),
+            ],
+            context={"stack": {"name": "payments", "tags": ["frontend"]}},
+        )
+
+        assert result["bucket_name"] == "prod-app"
+
 
 class TestConfigLevelValidation:
     def test_config_validation_passes(self):

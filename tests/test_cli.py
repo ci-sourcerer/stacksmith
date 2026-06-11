@@ -9,7 +9,7 @@ from stacksmith import api
 from stacksmith.cli import args as cli_args
 from stacksmith.cli import main as cli_main
 from stacksmith.exceptions import StacksmithConfigError
-from stacksmith.inspector import InputInfo, ResourceTypeInfo
+from stacksmith.inspector import ComponentTypeInfo, InputInfo
 from stacksmith.models import RunFile, render_file_reference
 
 
@@ -86,7 +86,7 @@ def test_info_inspect_has_basic_flag(parser):
 
     assert args.command == "info"
     assert args.info_command == "inspect"
-    assert args.resource_type == ["aws_s3_bucket"]
+    assert args.component_type == ["aws_s3_bucket"]
     assert args.basic is True
 
 
@@ -133,10 +133,10 @@ def test_default_dotenv_file_is_detected(tmp_path, monkeypatch):
 
 def test_default_run_file_is_detected(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    run_file = tmp_path / "stacksmith.yaml"
-    run_file.write_text("stacks:\n  - ./stack.yaml\n", encoding="utf-8")
+    runfile = tmp_path / "stacksmith.yaml"
+    runfile.write_text("stacks:\n  - ./stack.yaml\n", encoding="utf-8")
 
-    assert cli_args.get_default_run_file() == str(run_file)
+    assert cli_args.get_default_run_file() == str(runfile)
 
 
 def test_stack_file_default_from_env_var(monkeypatch):
@@ -627,12 +627,48 @@ def test_cmd_terragrunt_action_passes_validation_report_format(monkeypatch, pars
     assert calls["run"][2]["validation_report_format"] == "csv"
 
 
+def test_cmd_validate_accepts_multiple_run_files(monkeypatch, tmp_path):
+    calls: dict[str, object] = {}
+
+    def _fake_validate_stack(stack_file, **kwargs):
+        calls["run"] = (stack_file, kwargs)
+        return {"exit_code": 0}
+
+    monkeypatch.delenv("STACKSMITH_STACK", raising=False)
+    monkeypatch.setattr(cli_main, "validate_stack", _fake_validate_stack)
+    monkeypatch.setattr(
+        cli_main,
+        "load_runfiles",
+        lambda paths: RunFile(
+            merge_mode="deep",
+            stacks=[{"source": "local", "data": {"path": "./stack.yaml"}}],
+        ),
+    )
+
+    parser = stacksmith.cli.main._build_parser()
+    args = parser.parse_args(
+        [
+            "validate",
+            "--runfile",
+            str(tmp_path / "base.yaml"),
+            "--runfile",
+            str(tmp_path / "override.yaml"),
+        ]
+    )
+
+    exit_code = cli_main._cmd_validate(args)
+
+    assert exit_code == 0
+    assert render_file_reference(calls["run"][0]) == "./stack.yaml"
+    assert calls["run"][1]["merge_mode"] == "deep"
+
+
 def test_cmd_validate_passes_validation_report_format(monkeypatch, parser):
     calls: dict[str, object] = {}
 
     def _fake_validate_stack(stack_file, **kwargs):
         calls["run"] = (stack_file, kwargs)
-        return 0
+        return {"exit_code": 0}
 
     monkeypatch.setattr(cli_main, "validate_stack", _fake_validate_stack)
 
@@ -652,13 +688,13 @@ def test_cmd_validate_prepends_runfile_layers(monkeypatch, tmp_path):
 
     def _fake_validate_stack(stack_file, **kwargs):
         calls["run"] = (stack_file, kwargs)
-        return 0
+        return {"exit_code": 0}
 
     monkeypatch.setattr(cli_main, "validate_stack", _fake_validate_stack)
     monkeypatch.setattr(
         cli_main,
-        "load_runfile",
-        lambda path: RunFile(
+        "load_runfiles",
+        lambda paths: RunFile(
             merge_mode="override",
             stacks=[{"source": "local", "data": {"path": "./base-stack.yaml"}}],
             configs=[{"source": "local", "data": {"path": "./base-config.yaml"}}],
@@ -671,7 +707,7 @@ def test_cmd_validate_prepends_runfile_layers(monkeypatch, tmp_path):
     args = parser.parse_args(
         [
             "validate",
-            "--run-file",
+            "--runfile",
             str(tmp_path / "stacksmith.yaml"),
             "--stack",
             "./override-stack.yaml",
@@ -732,8 +768,8 @@ def test_cmd_run_all_passes_explicit_stacks_from_run_file(monkeypatch, tmp_path)
     calls = _capture_run_all_stacks_call(monkeypatch)
     monkeypatch.setattr(
         cli_main,
-        "load_runfile",
-        lambda path: RunFile(
+        "load_runfiles",
+        lambda paths: RunFile(
             stacks=[
                 {"source": "local", "data": {"path": "./network/stack.yaml"}},
                 {"source": "local", "data": {"path": "./app/stack.yaml"}},
@@ -743,7 +779,7 @@ def test_cmd_run_all_passes_explicit_stacks_from_run_file(monkeypatch, tmp_path)
 
     parser = stacksmith.cli.main._build_parser()
     args = parser.parse_args(
-        ["run-all", "plan", "--run-file", str(tmp_path / "stacksmith.yaml")]
+        ["run-all", "plan", "--runfile", str(tmp_path / "stacksmith.yaml")]
     )
 
     exit_code = cli_main._cmd_run_all(args)
@@ -760,13 +796,13 @@ def test_cli_merge_mode_overrides_runfile(monkeypatch, tmp_path):
 
     def _fake_validate_stack(stack_file, **kwargs):
         calls["run"] = (stack_file, kwargs)
-        return 0
+        return {"exit_code": 0}
 
     monkeypatch.setattr(cli_main, "validate_stack", _fake_validate_stack)
     monkeypatch.setattr(
         cli_main,
-        "load_runfile",
-        lambda path: RunFile(
+        "load_runfiles",
+        lambda paths: RunFile(
             merge_mode="deep",
             stacks=[{"source": "local", "data": {"path": "./stack.yaml"}}],
         ),
@@ -776,7 +812,7 @@ def test_cli_merge_mode_overrides_runfile(monkeypatch, tmp_path):
     args = parser.parse_args(
         [
             "validate",
-            "--run-file",
+            "--runfile",
             str(tmp_path / "stacksmith.yaml"),
             "--merge-mode",
             "override",
@@ -835,7 +871,7 @@ def test_cmd_run_all_uses_ordered_runner(monkeypatch, tmp_path):
         tag_expr=None,
         save_plan_json=None,
         strict_validation_warnings=False,
-        run_file=None,
+        runfile=None,
         stack=None,
     )
 
@@ -953,7 +989,7 @@ def test_validate_stack_is_reusable_without_namespace(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(api, "resolve_inputs", _fake_resolve_inputs)
 
-    exit_code = api.validate_stack(
+    report = api.validate_stack(
         stack_path,
         config=[str(tmp_path / "base.yaml")],
         vars_file=[str(tmp_path / "base-values.yaml"), str(tmp_path / "values.yaml")],
@@ -961,7 +997,7 @@ def test_validate_stack_is_reusable_without_namespace(monkeypatch, tmp_path):
         build_dir=tmp_path / ".stacksmith",
     )
 
-    assert exit_code == 0
+    assert report["exit_code"] == 0
     assert calls["load_config"] == [tmp_path / "stacksmith-config.yaml"]
     assert calls["stack_file"] == stack_path
     assert calls["resolve_inputs"] == {
@@ -1067,8 +1103,8 @@ def test_cmd_diagnose_uses_api(monkeypatch):
 
 
 def test_cmd_inspect_json_emits_stdout(monkeypatch, parser, capsys):
-    result = ResourceTypeInfo(
-        resource_type="aws_s3_bucket",
+    result = ComponentTypeInfo(
+        component_type="aws_s3_bucket",
         display_name="AWS S3 bucket",
         module_source="https://github.com/org/s3.git",
         module_version="1.0.0",
@@ -1088,8 +1124,8 @@ def test_cmd_inspect_json_emits_stdout(monkeypatch, parser, capsys):
 
 
 def test_cmd_inspect_table_emits_stderr(monkeypatch, parser, capsys):
-    result = ResourceTypeInfo(
-        resource_type="aws_s3_bucket",
+    result = ComponentTypeInfo(
+        component_type="aws_s3_bucket",
         display_name="AWS S3 bucket",
         module_source="https://github.com/org/s3.git",
         module_version="1.0.0",

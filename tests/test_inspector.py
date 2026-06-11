@@ -3,15 +3,16 @@ import textwrap
 from unittest.mock import patch
 
 import pytest
+from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.inspector import (
+    ComponentTypeInfo,
     InputInfo,
     PlanPolicyInfo,
-    ResourceTypeInfo,
     format_json,
     format_table,
     format_yaml,
     inspect_all,
-    inspect_resource_type,
+    inspect_component_type,
 )
 from stacksmith.introspection import parse_module_variables
 from stacksmith.loader import load_config_with_locations
@@ -67,14 +68,14 @@ def _auto_inject_mapping() -> ModuleMapping:
     )
 
 
-def test_inspect_resource_type_basic(_simple_mapping):
+def test_inspect_component_type_basic(_simple_mapping):
     discovered = {"bucket_name", "bucket_acl", "tags"}
     with patch(
         "stacksmith.inspector.discover_module_variables", return_value=discovered
     ):
-        result = inspect_resource_type("aws_s3_bucket", _simple_mapping)
+        result = inspect_component_type("aws_s3_bucket", _simple_mapping)
 
-    assert result.resource_type == "aws_s3_bucket"
+    assert result.component_type == "aws_s3_bucket"
     assert result.display_name == "AWS S3 bucket"
     assert result.module_source == "https://github.com/org/terraform-aws-s3.git"
     assert result.module_version == "1.0.0"
@@ -88,8 +89,8 @@ def test_inspect_resource_type_basic(_simple_mapping):
 
 def test_inspect_table_uses_module_description(capsys):
     results = [
-        ResourceTypeInfo(
-            resource_type="aws_s3_bucket",
+        ComponentTypeInfo(
+            component_type="aws_s3_bucket",
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
@@ -105,24 +106,24 @@ def test_inspect_table_uses_module_description(capsys):
     assert "aws_s3_bucket" in output
 
 
-def test_inspect_resource_type_maps_property_spec(_simple_mapping):
+def test_inspect_component_type_maps_property_spec(_simple_mapping):
     with patch(
         "stacksmith.inspector.discover_module_variables",
         return_value={"bucket_acl", "other"},
     ):
-        result = inspect_resource_type("aws_s3_bucket", _simple_mapping)
+        result = inspect_component_type("aws_s3_bucket", _simple_mapping)
 
     acl_input = next(i for i in result.inputs if i.name == "acl")
     assert acl_input.mapped_to == "bucket_acl"
     assert acl_input.module_variable == "bucket_acl"
 
 
-def test_inspect_resource_type_auto_inject_flag(_auto_inject_mapping):
+def test_inspect_component_type_auto_inject_flag(_auto_inject_mapping):
     discovered = {"instance_type", "tags", "ami"}
     with patch(
         "stacksmith.inspector.discover_module_variables", return_value=discovered
     ):
-        result = inspect_resource_type("aws_ec2_instance", _auto_inject_mapping)
+        result = inspect_component_type("aws_ec2_instance", _auto_inject_mapping)
 
     assert result.auto_inject is True
     ami_input = next(i for i in result.inputs if i.name == "ami")
@@ -130,11 +131,11 @@ def test_inspect_resource_type_auto_inject_flag(_auto_inject_mapping):
     assert ami_input.note == "discovered via introspection"
 
 
-def test_inspect_resource_type_validation_transform_metadata(_auto_inject_mapping):
+def test_inspect_component_type_validation_transform_metadata(_auto_inject_mapping):
     with patch(
         "stacksmith.inspector.discover_module_variables", return_value={"tags", "ami"}
     ):
-        result = inspect_resource_type(
+        result = inspect_component_type(
             "aws_ec2_instance",
             _auto_inject_mapping,
             config_locations={
@@ -153,7 +154,7 @@ def test_inspect_resource_type_validation_transform_metadata(_auto_inject_mappin
     assert tags_input.transform == "scripts/transform_tags.py"
 
 
-def test_inspect_resource_type_transform_script_path_is_relative(tmp_path):
+def test_inspect_component_type_transform_script_path_is_relative(tmp_path):
     config_path = tmp_path / "stacksmith-config.yaml"
     config_path.write_text(
         textwrap.dedent("""
@@ -212,7 +213,7 @@ def test_inspect_resource_type_transform_script_path_is_relative(tmp_path):
     assert bucket_name_input.transform == "scripts/transform_bucket_name.py"
 
 
-def test_inspect_resource_type_policy_metadata_renders(tmp_path):
+def test_inspect_component_type_policy_metadata_renders(tmp_path):
     config_path = tmp_path / "stacksmith-config.yaml"
     config_path.write_text(
         textwrap.dedent("""
@@ -377,7 +378,7 @@ def test_load_config_with_locations_reports_var_validation_block(tmp_path):
     )
 
 
-def test_inspect_resource_type_uses_var_validation_script_location(tmp_path):
+def test_inspect_component_type_uses_var_validation_script_location(tmp_path):
     config_path = tmp_path / "stacksmith-config.yaml"
     config_path.write_text(
         textwrap.dedent("""
@@ -448,38 +449,38 @@ def test_inspect_resource_type_uses_var_validation_script_location(tmp_path):
     assert aws_region_input.validation.endswith("scripts/validate_aws_region.py")
 
 
-def test_inspect_resource_type_introspection_failure(_simple_mapping):
+def test_inspect_component_type_introspection_failure(_simple_mapping):
     with patch(
         "stacksmith.inspector.discover_module_variables",
         side_effect=RuntimeError("clone failed"),
     ):
-        result = inspect_resource_type("aws_s3_bucket", _simple_mapping)
+        result = inspect_component_type("aws_s3_bucket", _simple_mapping)
 
-    assert result.resource_type == "aws_s3_bucket"
+    assert result.component_type == "aws_s3_bucket"
     names = [i.name for i in result.inputs]
     assert "acl" in names
 
 
-def test_inspect_all_filters_by_resource_type(sample_config_yaml):
+def test_inspect_all_filters_by_component_type(sample_config_yaml):
     from stacksmith.loader import load_config
 
     config = load_config([sample_config_yaml])
     with patch("stacksmith.inspector.discover_module_variables", return_value=set()):
-        results = inspect_all(config, resource_types=["aws_s3_bucket"])
+        results = inspect_all(config, component_types=["aws_s3_bucket"])
 
     assert len(results) == 1
-    assert results[0].resource_type == "aws_s3_bucket"
+    assert results[0].component_type == "aws_s3_bucket"
 
 
 def test_inspect_all_unknown_type_raises(sample_config_yaml):
     from stacksmith.loader import load_config
 
     config = load_config([sample_config_yaml])
-    with pytest.raises(ValueError, match="not configured"):
+    with pytest.raises(StacksmithConfigError, match="not configured"):
         with patch(
             "stacksmith.inspector.discover_module_variables", return_value=set()
         ):
-            inspect_all(config, resource_types=["nonexistent_type"])
+            inspect_all(config, component_types=["nonexistent_type"])
 
 
 def test_inspect_all_no_filter(sample_config_yaml):
@@ -490,14 +491,14 @@ def test_inspect_all_no_filter(sample_config_yaml):
         results = inspect_all(config)
 
     assert len(results) == len(config.module_mappings)
-    types = {r.resource_type for r in results}
+    types = {r.component_type for r in results}
     assert types == set(config.module_mappings.keys())
 
 
 def test_format_json_basic():
     results = [
-        ResourceTypeInfo(
-            resource_type="aws_s3_bucket",
+        ComponentTypeInfo(
+            component_type="aws_s3_bucket",
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
@@ -518,8 +519,8 @@ def test_format_json_basic():
 
 def test_format_json_includes_tags():
     results = [
-        ResourceTypeInfo(
-            resource_type="aws_s3_bucket",
+        ComponentTypeInfo(
+            component_type="aws_s3_bucket",
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
@@ -534,8 +535,8 @@ def test_format_json_includes_tags():
 
 def test_format_json_details_includes_metadata():
     results = [
-        ResourceTypeInfo(
-            resource_type="aws_s3_bucket",
+        ComponentTypeInfo(
+            component_type="aws_s3_bucket",
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
@@ -560,8 +561,8 @@ def test_format_json_details_includes_metadata():
 
 def test_format_json_no_details_omits_metadata():
     results = [
-        ResourceTypeInfo(
-            resource_type="aws_s3_bucket",
+        ComponentTypeInfo(
+            component_type="aws_s3_bucket",
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
@@ -586,8 +587,8 @@ def test_format_yaml_produces_valid_yaml():
     import yaml
 
     results = [
-        ResourceTypeInfo(
-            resource_type="aws_s3_bucket",
+        ComponentTypeInfo(
+            component_type="aws_s3_bucket",
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
@@ -602,8 +603,8 @@ def test_format_yaml_produces_valid_yaml():
 
 def test_format_table_runs_without_error(capsys):
     results = [
-        ResourceTypeInfo(
-            resource_type="aws_s3_bucket",
+        ComponentTypeInfo(
+            component_type="aws_s3_bucket",
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
@@ -621,8 +622,8 @@ def test_format_table_runs_without_error(capsys):
 
 def test_format_table_includes_tags(capsys):
     results = [
-        ResourceTypeInfo(
-            resource_type="aws_s3_bucket",
+        ComponentTypeInfo(
+            component_type="aws_s3_bucket",
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
@@ -639,8 +640,8 @@ def test_format_table_includes_tags(capsys):
 
 def test_format_table_basic_mode_and_plan_policies(capsys):
     results = [
-        ResourceTypeInfo(
-            resource_type="aws_s3_bucket",
+        ComponentTypeInfo(
+            component_type="aws_s3_bucket",
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
@@ -676,8 +677,8 @@ def test_format_table_basic_mode_and_plan_policies(capsys):
 
 def test_format_table_shows_plan_policies(capsys):
     results = [
-        ResourceTypeInfo(
-            resource_type="aws_s3_bucket",
+        ComponentTypeInfo(
+            component_type="aws_s3_bucket",
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",

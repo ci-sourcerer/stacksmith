@@ -18,9 +18,8 @@ from .models import (
     RemoteAuthConfig,
     TransformSpec,
     ValidationSpec,
-    render_file_reference,
 )
-from .remote import is_remote_url, resolve_remote
+from .remote import resolve_reference_path
 from .utils import stacksmith_env
 from .validations.outcomes import (
     InputValidationOutcome,
@@ -71,7 +70,7 @@ def _format_validation_error(
             details.append(kind)
         if name:
             details.append(f"'{name}'")
-        for key in ("stack_name", "resource_name", "resource_type", "output_name"):
+        for key in ("stack_name", "component_name", "component_type", "output_name"):
             value = context.get(key)
             if value is not None:
                 details.append(f"{key}={value}")
@@ -91,27 +90,28 @@ def _resolve_script_path(
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
 ) -> Path:
-    script_reference = render_file_reference(script)
-    if is_remote_url(script):
-        if cache_dir is None:
-            raise StacksmithValidationError(
+    return resolve_reference_path(
+        script,
+        base_path=base_path,
+        cache_dir=cache_dir,
+        auth_config=auth_config,
+        missing_cache_error_factory=(
+            lambda script_reference: StacksmithValidationError(
                 "Cannot fetch remote script without a cache directory: "
                 f"{script_reference}"
             )
-        return resolve_remote(script, cache_dir, auth_config)
-
-    script_path = Path(script_reference)
-    if not script_path.is_absolute():
-        if base_path is None:
-            raise StacksmithValidationError(
+        ),
+        relative_path_error_factory=(
+            lambda script_reference: StacksmithValidationError(
                 f"Cannot resolve relative script path: {script_reference}"
             )
-        script_path = base_path / script_path
-
-    script_path = script_path.resolve()
-    if not script_path.exists():
-        raise StacksmithNotFoundError(f"Script not found: {script_path}")
-    return script_path
+        ),
+        not_found_error_factory=(
+            lambda script_path: StacksmithNotFoundError(
+                f"Script not found: {script_path}"
+            )
+        ),
+    )
 
 
 def _load_code(
@@ -154,7 +154,7 @@ def _evaluate_inline_validation(
     value: Any,
     context: dict[str, Any] | None,
 ) -> Any:
-    ns: dict[str, Any] = {
+    ns = {
         "value": value,
         "context": context or {},
     }
@@ -424,9 +424,7 @@ def validate_value_with_outcome(
     elif context:
         value_summary = f"value was {_summarize_value(value)!r}"
 
-    ns: dict[str, Any] = (
-        {"value": value, "context": context or {}} if spec.inline is not None else {}
-    )
+    ns = {"value": value, "context": context or {}} if spec.inline is not None else {}
     try:
         exec(compile(code, origin, "exec"), ns)  # noqa: S102
     except Exception as exc:
@@ -716,7 +714,7 @@ def apply_transform(
     except (StacksmithError, OSError) as exc:
         raise StacksmithTransformError(f"Failed to load transform code: {exc}") from exc
 
-    ns: dict[str, Any] = {}
+    ns = {}
     try:
         exec(compile(code, origin, "exec"), ns)  # noqa: S102
     except Exception as exc:

@@ -1,10 +1,13 @@
 import json
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 import hcl2
 from loguru import logger as LOGGER
 
+from .exceptions import StacksmithConfigError
 from .utils import cache_key as _cache_key
 from .utils import clone_git_repo as _clone_git_repo
 from .utils import resolve_git_env as _resolve_git_env
@@ -16,8 +19,7 @@ if TYPE_CHECKING:
 
 def _find_module_subdir_separator(source: str) -> int:
     scheme_index = source.find("://")
-    search_start = scheme_index + 3 if scheme_index != -1 else 0
-    return source.find("//", search_start)
+    return source.find("//", scheme_index + 3 if scheme_index != -1 else 0)
 
 
 def _split_module_source(source: str) -> tuple[str, Path]:
@@ -64,9 +66,22 @@ def resolve_module_dir(
         Local directory containing the module's OpenTofu files.
 
     Raises:
-        ValueError: If the source cannot be resolved for introspection.
+        StacksmithConfigError: If the source cannot be resolved for introspection.
+        FileNotFoundError: If the resolved source directory or expected module path is
+            not found.
     """
     repo_url, module_path = _split_module_source(source)
+
+    if version == "local":
+        local_dir = Path(source).expanduser()
+        if not local_dir.is_absolute():
+            local_dir = (Path.cwd() / local_dir).resolve()
+        if local_dir.is_dir():
+            LOGGER.debug(
+                "Using local module directory for introspection: {path}", path=local_dir
+            )
+            return local_dir
+        raise FileNotFoundError(f"Local module directory not found: {local_dir}")
 
     if vendor_dir is not None:
         vp = vendor_path(source, version, vendor_dir)
@@ -75,7 +90,7 @@ def resolve_module_dir(
             return vp
 
     if cache_dir is None:
-        raise ValueError(
+        raise StacksmithConfigError(
             f"Cannot introspect module {source}@{version} without a cache directory"
         )
 
@@ -88,6 +103,19 @@ def resolve_module_dir(
             raise FileNotFoundError(
                 f"Module subdirectory '{module_path}' not found in {clone_dir}"
             )
+
+        if not any(module_dir.glob("*.tf")) and not any(module_dir.glob("*.tf.json")):
+            LOGGER.debug(
+                "Cached clone appears incomplete, refreshing introspection cache: {path}",
+                path=clone_dir,
+            )
+            shutil.rmtree(clone_dir)
+            _clone_module(repo_url, version, clone_dir, auth_config)
+            if not module_dir.is_dir():
+                raise FileNotFoundError(
+                    f"Module subdirectory '{module_path}' not found in {clone_dir}"
+                )
+
         LOGGER.debug("Introspection cache hit: {path}", path=module_dir)
         return module_dir
 
@@ -100,14 +128,14 @@ def resolve_module_dir(
 
 
 def _clone_module(
-    source: str,
-    version: str,
-    dest: Path,
-    auth_config: "RemoteAuthConfig | None",
+    source: str, version: str, dest: Path, auth_config: "RemoteAuthConfig | None"
 ) -> None:
-    from urllib.parse import urlparse
-
     host = urlparse(source).hostname or ""
+    LOGGER.debug(
+        "Cloning module source for introspection: {source} (host: {host})",
+        source=source,
+        host=host,
+    )
     env = _resolve_git_env(host, auth_config)
 
     result = _clone_git_repo(source, dest, ref=version, env=env)
@@ -142,14 +170,15 @@ def discover_module_variables(
     Returns:
         Set of variable names the module declares.
     """
-    module_dir = resolve_module_dir(
-        source,
-        version,
-        cache_dir=cache_dir,
-        auth_config=auth_config,
-        vendor_dir=vendor_dir,
+    return parse_module_variables(
+        resolve_module_dir(
+            source,
+            version,
+            cache_dir=cache_dir,
+            auth_config=auth_config,
+            vendor_dir=vendor_dir,
+        )
     )
-    return parse_module_variables(module_dir)
 
 
 def parse_module_variables(module_dir: Path) -> set[str]:
@@ -161,27 +190,27 @@ def parse_module_variables(module_dir: Path) -> set[str]:
     Returns:
         Set of variable names found in `variable` blocks.
     """
-    variables: set[str] = set()
+    variables = set()
     variables |= _parse_hcl_variables(module_dir)
     variables |= _parse_json_variables(module_dir)
 
     if not variables:
-        LOGGER.warning(
+        LOGGER.debug(
             "No variables found in {path} for introspection",
             path=module_dir,
         )
-
-    LOGGER.debug(
-        "Discovered {count} variables in {path}: {vars}",
-        count=len(variables),
-        path=module_dir,
-        vars=sorted(variables),
-    )
+    else:
+        LOGGER.debug(
+            "Discovered {count} variables in {path}: {vars}",
+            count=len(variables),
+            path=module_dir,
+            vars=sorted(variables),
+        )
     return variables
 
 
 def _parse_hcl_variables(module_dir: Path) -> set[str]:
-    variables: set[str] = set()
+    variables = set()
     for tf_file in sorted(module_dir.glob("*.tf")):
         try:
             with open(tf_file, encoding="utf-8") as f:
@@ -202,7 +231,7 @@ def _parse_hcl_variables(module_dir: Path) -> set[str]:
 
 
 def _parse_json_variables(module_dir: Path) -> set[str]:
-    variables: set[str] = set()
+    variables = set()
     for tf_json_file in sorted(module_dir.glob("*.tf.json")):
         try:
             data = json.loads(tf_json_file.read_text(encoding="utf-8"))

@@ -209,6 +209,9 @@
     "moduleSourceReference": {
       "oneOf": [
         {
+          "$ref": "#/$defs/localReference"
+        },
+        {
           "$ref": "#/$defs/registryReference"
         },
         {

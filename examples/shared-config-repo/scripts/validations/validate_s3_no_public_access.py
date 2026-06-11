@@ -5,7 +5,7 @@ from typing import Any
 
 LOGGER = logging.getLogger("validations")
 
-_PUBLIC_ACLS: set[str] = {"public-read", "public-read-write", "website"}
+_PUBLIC_ACLS = {"public-read", "public-read-write", "website"}
 
 
 def validate(value: Any, **context: Any) -> str:

@@ -12,6 +12,11 @@ on:
         required: false
         type: string
         default: ""
+      discovery_mode:
+        description: "Discovery mode. Supported values: folders (default), flat-files, or env-files."
+        required: false
+        type: string
+        default: folders
       gitops_root:
         description: Relative path to the GitOps root folder.
         required: false
@@ -98,6 +103,7 @@ jobs:
         id: select
         env:
           INPUT_ENVIRONMENTS: ${{ inputs.environments }}
+          INPUT_DISCOVERY_MODE: ${{ inputs.discovery_mode }}
           INPUT_GITOPS_ROOT: ${{ inputs.gitops_root }}
           CALLER_EVENT_NAME: ${{ inputs.caller_event_name || github.event_name }}
           CALLER_BASE_REF: ${{ inputs.caller_base_ref || github.base_ref }}
@@ -110,104 +116,163 @@ jobs:
           import os
           import pathlib
           import subprocess
+          import sys
 
-          gitops_root = os.getenv("INPUT_GITOPS_ROOT", "").strip() or "."
-          if gitops_root.startswith("./"):
-              gitops_root = gitops_root[2:]
-          if gitops_root in {"", "."}:
-              gitops_root = ""
-          else:
-              gitops_root = gitops_root.strip("/")
+          COMMON_CANDIDATES = (
+              "common/stacksmith.yaml",
+              "common/stacksmith.common.yaml",
+              "common/stacksmith.shared.yaml",
+              "common/stacksmith.base.yaml",
+              "common/stacksmith.defaults.yaml",
+              "stacksmith.yaml",
+              "stacksmith.common.yaml",
+              "stacksmith.shared.yaml",
+              "stacksmith.base.yaml",
+              "stacksmith.defaults.yaml",
+          )
 
-          if gitops_root:
-              env_root = pathlib.Path(gitops_root) / "environments"
-              env_prefix = f"{gitops_root}/environments/"
-              common_prefixes = (
-                  f"{gitops_root}/common/",
-                  f"{gitops_root}/manifests/common/",
+          def normalize_gitops_root(value: str) -> str:
+              value = value.strip() or "."
+              if value.startswith("./"):
+                  value = value[2:]
+              return "" if value in {"", "."} else value.strip("/")
+
+          def project_root(prefix: str) -> pathlib.Path:
+              return pathlib.Path(prefix or ".")
+
+          def normalize_discovery_mode(value: str) -> str:
+              mode = value.strip().lower() or "folders"
+              return "env-files" if mode in {"env", "env-files"} else mode
+
+          def common_run_file_for(root: pathlib.Path) -> str:
+              return next(
+                  (str((root / candidate).as_posix()) for candidate in COMMON_CANDIDATES if (root / candidate).exists()),
+                  str((root / "common/stacksmith.yaml").as_posix()),
               )
-              run_file_prefix = f"{gitops_root}/environments"
-          else:
-              env_root = pathlib.Path("environments")
-              env_prefix = "environments/"
-              common_prefixes = (
-                  "common/",
-                  "manifests/common/",
-              )
-              run_file_prefix = "environments"
 
-          all_envs = []
-          if env_root.exists():
-              for env_dir in sorted(env_root.iterdir()):
-                  if (env_dir / "stacksmith.yaml").exists():
-                      all_envs.append(env_dir.name)
+          def discover_envs(mode: str, root: pathlib.Path) -> tuple[list[str], str]:
+              all_envs = []
+              env_root = root / "environments"
 
-          manual = os.getenv("INPUT_ENVIRONMENTS", "").strip()
-          selected = set()
+              if mode == "flat-files":
+                  common_file = common_run_file_for(root)
+                  for path in sorted(root.glob("stacksmith.*.yaml")) + sorted(root.glob("stacksmith.*.yml")) + sorted(root.glob("stacksmith.*.json")):
+                      name = path.stem.replace("stacksmith.", "", 1)
+                      if name in {"yaml", "yml", "json", "common", "shared", "base", "defaults"}:
+                          continue
+                      all_envs.append(name)
+                  return all_envs, common_file
 
-          if manual:
-              selected = {item.strip() for item in manual.split(",") if item.strip()}
-          else:
-              event_name = os.getenv("CALLER_EVENT_NAME", "")
-              if event_name == "workflow_dispatch":
-                  selected = set(all_envs)
-              elif event_name == "pull_request":
+              if mode == "env-files":
+                  common_file = common_run_file_for(root)
+                  if env_root.exists():
+                      for path in sorted(env_root.glob("*.yaml")) + sorted(env_root.glob("*.yml")) + sorted(env_root.glob("*.json")):
+                          if path.is_file() and path.stem not in {"stacksmith", "common", "shared", "base", "defaults"}:
+                              all_envs.append(path.stem)
+                  return all_envs, common_file
+
+              if env_root.exists():
+                  for env_dir in sorted(env_root.iterdir()):
+                      if env_dir.is_dir():
+                          all_envs.append(env_dir.name)
+
+              return all_envs, "common/stacksmith.yaml"
+
+          def changed_paths_for_event(event_name: str) -> list[str]:
+              if event_name == "pull_request":
                   base_ref = os.getenv("CALLER_BASE_REF", "")
                   if base_ref:
-                      subprocess.run(
-                          ["git", "fetch", "origin", base_ref, "--depth", "1"],
-                          check=True,
-                      )
-                      diff_text = subprocess.check_output(
-                          ["git", "diff", "--name-only", f"origin/{base_ref}...HEAD"],
-                          text=True,
-                      )
-                  else:
-                      diff_text = ""
-              elif event_name == "push":
+                      subprocess.run(["git", "fetch", "origin", base_ref, "--depth", "1"], check=True)
+                      return [line.strip() for line in subprocess.check_output(["git", "diff", "--name-only", f"origin/{base_ref}...HEAD"], text=True).splitlines() if line.strip()]
+                  return []
+
+              if event_name == "push":
                   before = os.getenv("CALLER_EVENT_BEFORE", "")
                   after = os.getenv("CALLER_SHA", "")
                   if before and before != "0000000000000000000000000000000000000000" and after:
-                      diff_text = subprocess.check_output(
-                          ["git", "diff", "--name-only", before, after],
-                          text=True,
-                      )
+                      return [line.strip() for line in subprocess.check_output(["git", "diff", "--name-only", before, after], text=True).splitlines() if line.strip()]
+
+              return []
+
+          def select_changed_envs(changed_paths: list[str], mode: str, prefix: str, common_prefixes: tuple[str, ...], all_envs: list[str]) -> set[str]:
+              selected = set()
+              run_all = any(path.startswith(common_prefixes) for path in changed_paths) or any(path.startswith(".github/workflows/") for path in changed_paths)
+              if run_all:
+                  return set(all_envs)
+
+              env_prefix = f"{prefix}environments/"
+              for path in changed_paths:
+                  candidate = path[len(prefix):] if path.startswith(prefix) else path
+                  if mode == "flat-files":
+                      if not candidate.startswith("stacksmith.") or not candidate.endswith((".yaml", ".yml", ".json")):
+                          continue
+                      env_name = candidate.removeprefix("stacksmith.").rsplit(".", 1)[0]
+                  elif mode == "env-files":
+                      if not candidate.startswith("environments/"):
+                          continue
+                      env_name = pathlib.Path(candidate).stem
                   else:
-                      diff_text = ""
+                      if not candidate.startswith("environments/"):
+                          continue
+                      rel_path = pathlib.Path(candidate[len("environments/"):])
+                      if rel_path.parts:
+                          selected.add(rel_path.parts[0])
+                      continue
+
+                  if env_name not in {"common", "shared", "base", "defaults"}:
+                      selected.add(env_name)
+
+              return selected
+
+          gitops_root = normalize_gitops_root(os.getenv("INPUT_GITOPS_ROOT", ""))
+          prefix = f"{gitops_root}/" if gitops_root else ""
+          root = project_root(prefix)
+          discovery_mode = normalize_discovery_mode(os.getenv("INPUT_DISCOVERY_MODE", "folders"))
+          common_prefixes = (f"{prefix}common/", f"{prefix}manifests/common/")
+
+          all_envs, common_run_file = discover_envs(discovery_mode, root)
+          manual = os.getenv("INPUT_ENVIRONMENTS", "").strip()
+          selected = {item.strip() for item in manual.split(",") if item.strip()} if manual else set()
+
+          if not manual and not all_envs:
+              print(
+                  "No environments were discovered under 'environments/'. "
+                  "Also, no environments were manually specified via the "
+                  "'environments' input or INPUT_ENVIRONMENTS environment variable.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          if not manual:
+              event_name = os.getenv("CALLER_EVENT_NAME", "")
+              if event_name == "workflow_dispatch":
+                  selected = set(all_envs)
+              elif event_name in {"pull_request", "push"}:
+                  changed_paths = changed_paths_for_event(event_name)
+                  selected = set(all_envs) if not changed_paths else select_changed_envs(changed_paths, discovery_mode, prefix, common_prefixes, all_envs)
               else:
-                  diff_text = ""
+                  selected = set(all_envs)
 
-              if not manual and event_name in {"pull_request", "push"}:
-                  changed_paths = [line.strip() for line in diff_text.splitlines() if line.strip()]
-                  if not changed_paths:
-                      selected = set(all_envs)
-                  else:
-                      run_all = any(path.startswith(common_prefixes) for path in changed_paths) or any(
-                          path.startswith(".github/workflows/") for path in changed_paths
-                      )
-                      if run_all:
-                          selected = set(all_envs)
-                      else:
-                          for path in changed_paths:
-                              if not path.startswith(env_prefix):
-                                  continue
-                              rel_path = pathlib.Path(path[len(env_prefix):])
-                              if rel_path.parts:
-                                  selected.add(rel_path.parts[0])
+          if not selected:
+              selected = set(all_envs)
 
-          selected = [env for env in all_envs if env in selected]
+          if manual:
+              matrix_envs = sorted(selected)
+          else:
+              matrix_envs = sorted(env for env in selected if env in all_envs)
+
           matrix = [
               {
                   "environment": env,
-                  "run_file": f"{run_file_prefix}/{env}/stacksmith.yaml",
+                  "runfile": common_run_file,
               }
-              for env in selected
+              for env in matrix_envs
           ]
 
           output_path = pathlib.Path(os.environ["GITHUB_OUTPUT"])
           with output_path.open("a", encoding="utf-8") as handle:
-              handle.write(f"matrix={json.dumps(matrix)}\\n")
-              handle.write(f"count={len(matrix)}\\n")
+              handle.write(f"matrix={json.dumps(matrix)}\n")
+              handle.write(f"count={len(matrix)}\n")
           PY
 
   plan:
@@ -222,10 +287,12 @@ jobs:
     with:
       operation: plan
       environment: ${{ matrix.environment }}
-      run_file: ${{ matrix.run_file }}
+      runfile: ${{ matrix.runfile }}
       workdir: ${{ inputs.workdir }}
       env_file: ${{ inputs.env_file }}
-      stacksmith_args: ${{ inputs.plan_args }}
+      stacksmith_args: >-
+        ${{ inputs.plan_args }}
+        --var environment=${{ matrix.environment }}
       image_version: ${{ inputs.image_version }}
       dockerhub_username: ${{ inputs.dockerhub_username }}
       validation_report_format: ${{ inputs.validation_report_format }}
@@ -244,10 +311,12 @@ jobs:
     with:
       operation: apply
       environment: ${{ matrix.environment }}
-      run_file: ${{ matrix.run_file }}
+      runfile: ${{ matrix.runfile }}
       workdir: ${{ inputs.workdir }}
       env_file: ${{ inputs.env_file }}
-      stacksmith_args: ${{ inputs.apply_args }}
+      stacksmith_args: >-
+        ${{ inputs.apply_args }}
+        --var environment=${{ matrix.environment }}
       image_version: ${{ inputs.image_version }}
       dockerhub_username: ${{ inputs.dockerhub_username }}
     secrets: inherit

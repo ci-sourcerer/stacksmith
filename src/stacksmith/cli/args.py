@@ -141,7 +141,7 @@ def get_env_file_paths(argv: list[str] | None = None) -> list[Path] | None:
         Ordered list of .env file paths if specified, otherwise `None`.
     """
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--env-file", type=_path_type, action="append", default=None)
+    _add_env_file_arg(parser)
     args, _ = parser.parse_known_args(argv)
     if args.env_file:
         return args.env_file
@@ -154,15 +154,17 @@ def get_env_file_paths(argv: list[str] | None = None) -> list[Path] | None:
 
 def get_env_file_path(argv: list[str] | None = None) -> Path | None:
     """Return the last `--env-file` path when callers only expect one."""
-    if not (paths := get_env_file_paths(argv)):
+    paths = get_env_file_paths(argv)
+    if not paths:
         return None
     return paths[-1]
 
 
 def get_default_run_file() -> str | None:
-    """Return the default run-file reference from env or local auto-detection."""
-    if run_file := stacksmith_env("RUN_FILE"):
-        return run_file
+    """Return the default runfile reference from env or local auto-detection."""
+    runfile = stacksmith_env("RUN_FILE")
+    if runfile:
+        return runfile
 
     default_path = Path.cwd() / "stacksmith.yaml"
     if default_path.exists():
@@ -172,7 +174,8 @@ def get_default_run_file() -> str | None:
 
 def get_default_stack_refs() -> list[str]:
     """Return default stack references from env or local auto-detection."""
-    if stack_refs := stacksmith_env_list("STACK"):
+    stack_refs = stacksmith_env_list("STACK")
+    if stack_refs:
         return stack_refs
     return [str(Path.cwd() / "stack.yaml")]
 
@@ -208,20 +211,69 @@ def _add_env_file_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_plan_output_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--destroy",
+        action="store_true",
+        default=False,
+        help="Plan destroy operations instead of a create/update when action is plan.",
+    )
+    parser.add_argument(
+        "--save-plan-json",
+        type=_path_type,
+        default=None,
+        help="Save rendered plan JSON to the given file or directory.",
+    )
+    parser.add_argument(
+        "--fail-on-changes",
+        action="store_true",
+        default=False,
+        help="Return a non-zero exit code if the plan contains any resource changes.",
+    )
+
+
+def _add_target_selection_args(
+    parser: argparse.ArgumentParser,
+    *,
+    include_auto_approve: bool = False,
+    tag_help: str | None = None,
+    tag_expr_help: str | None = None,
+) -> None:
+    parser.add_argument(
+        "--tag",
+        action="append",
+        default=None,
+        help=(tag_help or "Select components by tag. Repeat to require multiple tags."),
+    )
+    parser.add_argument(
+        "--tag-expr",
+        default=None,
+        help=(tag_expr_help or "JMESPath expression used to select resource targets."),
+    )
+    if include_auto_approve:
+        parser.add_argument(
+            "--auto-approve",
+            action="store_true",
+            default=False,
+            help="Skip interactive approval",
+        )
+
+
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--run-file",
-        type=str,
-        default=get_default_run_file(),
+        "--runfile",
+        action="append",
+        default=None,
         help=(
-            "Path or URL to stacksmith.yaml. When omitted, STACKSMITH_RUN_FILE is used "
-            "if set, otherwise ./stacksmith.yaml is auto-detected when present."
+            "Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; "
+            "later files override earlier scalar values, dicts merge recursively, "
+            "and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, "
+            "otherwise ./stacksmith.yaml is auto-detected when present."
         ),
     )
     parser.add_argument(
         "-c",
         "--config",
-        type=str,
         action="append",
         default=None,
         required=False,
@@ -237,7 +289,6 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--vars",
         dest="vars_file",
-        type=str,
         action=_OrderedInputAction,
         default=None,
         help=(
@@ -328,9 +379,9 @@ def _add_validation_report_format_arg(parser: argparse.ArgumentParser) -> None:
 
 def _configure_inspect_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "resource_type",
+        "component_type",
         nargs="*",
-        help="Resource type(s) to inspect. Inspects all when omitted.",
+        help="Component type(s) to inspect. Inspects all when omitted.",
     )
     parser.add_argument(
         "--format",
@@ -359,7 +410,6 @@ def _add_stack_arg(
 ) -> None:
     parser.add_argument(
         "--stack",
-        type=str,
         action="append",
         default=None,
         help=(

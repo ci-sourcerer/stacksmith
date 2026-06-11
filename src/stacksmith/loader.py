@@ -7,12 +7,18 @@ from typing import Any
 
 import yaml
 from deepmerge import Merger
+from jinja2.sandbox import SandboxedEnvironment
 from jsonschema import validate
 from loguru import logger as LOGGER
 
 from .enums import MergeMode
 from .exceptions import StacksmithConfigError, StacksmithNotFoundError
 from .models import RunFile, StackDefinition, ToolConfig
+from .utils import (
+    normalize_path_input,
+    parse_git_plus_reference,
+    render_jinja_template_values,
+)
 
 _STACK_SCHEMA: dict[str, Any] | None = None
 _CONFIG_SCHEMA: dict[str, Any] | None = None
@@ -27,11 +33,10 @@ _CONFIG_MERGER = Merger(
     ["override"],
     ["override"],
 )
-
-_LEGACY_GIT_URL_RE = re.compile(
-    r"^git\+(?P<repo_url>https?://[^/]+/[^@]+?|ssh://[^/]+/[^@]+?)"
-    r"//(?P<path>[^@]+)"
-    r"(?:@(?P<ref>.+))?$"
+_RUNFILE_MERGER = Merger(
+    [(dict, ["merge"]), (list, ["append"]), (set, ["union"])],
+    ["override"],
+    ["override"],
 )
 
 _URL_PREFIXES = ("http://", "https://", "ssh://", "git://", "git@")
@@ -47,13 +52,10 @@ def _warn_legacy(path: Path, message: str) -> None:
 
 
 def _parse_legacy_git_url(value: str) -> tuple[str, str, str | None]:
-    match = _LEGACY_GIT_URL_RE.match(value)
-    if match is None:
-        raise StacksmithConfigError(
-            "Invalid git+ reference format: "
-            f"{value}. Expected git+<proto>://<host>/<repo>//path[@ref]"
-        )
-    return match.group("repo_url"), match.group("path"), match.group("ref")
+    try:
+        return parse_git_plus_reference(value)
+    except ValueError as exc:
+        raise StacksmithConfigError(str(exc)) from exc
 
 
 def _coerce_legacy_file_reference(
@@ -208,6 +210,36 @@ def _normalize_legacy_runfile_references(
     return result
 
 
+def _resolve_runfile_local_references(
+    data: dict[str, Any],
+    runfile_dir: Path,
+) -> dict[str, Any]:
+    result = deepcopy(data)
+    for key in ("stacks", "configs", "vars"):
+        items = result.get(key)
+        if not isinstance(items, list):
+            continue
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("source") != "local":
+                continue
+
+            payload = item.get("data")
+            if not isinstance(payload, dict):
+                continue
+
+            local_path_raw = payload.get("path")
+            if not isinstance(local_path_raw, str) or not local_path_raw:
+                continue
+
+            local_path = Path(local_path_raw).expanduser()
+            if not local_path.is_absolute():
+                payload["path"] = str((runfile_dir / local_path).resolve())
+    return result
+
+
 def _normalize_legacy_config_references(
     data: dict[str, Any], path: Path
 ) -> dict[str, Any]:
@@ -337,6 +369,13 @@ def _get_config_schema() -> dict[str, Any]:
     if _CONFIG_SCHEMA is None:
         _CONFIG_SCHEMA = _load_json_schema("config.schema.json")
     return _CONFIG_SCHEMA
+
+
+_JINJA_ENV = SandboxedEnvironment()
+
+
+def _render_runfile_values(value: Any, context: dict[str, Any]) -> Any:
+    return render_jinja_template_values(value, context, jinja_env=_JINJA_ENV)
 
 
 def _get_runfile_schema() -> dict[str, Any]:
@@ -500,6 +539,17 @@ def _resolve_config_script_paths(
         for module in module_mappings.values():
             if not isinstance(module, dict):
                 continue
+
+            source = module.get("source")
+            if isinstance(source, dict) and source.get("source") == "local":
+                payload = source.get("data")
+                if isinstance(payload, dict):
+                    module_path_raw = payload.get("path")
+                    if isinstance(module_path_raw, str) and module_path_raw:
+                        module_path = Path(module_path_raw).expanduser()
+                        if not module_path.is_absolute():
+                            payload["path"] = str((config_dir / module_path).resolve())
+
             properties = module.get("properties")
             if not isinstance(properties, dict):
                 continue
@@ -563,20 +613,6 @@ def _merge_config_layers(
             merger=_CONFIG_MERGER,
         )
     return merged
-
-
-def _normalize_config_paths(path: Path | list[Path]) -> list[Path]:
-    config_paths = [path] if isinstance(path, Path) else list(path)
-    if not config_paths:
-        raise StacksmithConfigError("At least one config file path must be provided")
-    return config_paths
-
-
-def _normalize_stack_paths(path: Path | list[Path]) -> list[Path]:
-    stack_paths = [path] if isinstance(path, Path) else list(path)
-    if not stack_paths:
-        raise StacksmithConfigError("At least one stack file path must be provided")
-    return stack_paths
 
 
 def _dedupe_unique_stack_fields(data: Any) -> Any:
@@ -676,7 +712,10 @@ def load_stacks(
         jsonschema.ValidationError: If any file or the merged result does not
             match the stack schema.
     """
-    stack_paths = _normalize_stack_paths(path)
+    stack_paths = normalize_path_input(
+        path,
+        empty_error="At least one stack file path must be provided",
+    )
     data = _merge_stack_layers(stack_paths, merge_mode=merge_mode)
     data = _dedupe_unique_stack_fields(data)
     return _build_stack(data, stack_paths)
@@ -701,7 +740,10 @@ def load_config(
     Raises:
         jsonschema.ValidationError: If the file does not match the config schema.
     """
-    config_paths = _normalize_config_paths(path)
+    config_paths = normalize_path_input(
+        path,
+        empty_error="At least one config file path must be provided",
+    )
     data = _merge_config_layers(config_paths, merge_mode=merge_mode)
     return _build_config(data, config_paths)
 
@@ -714,10 +756,9 @@ def load_config_with_locations(
     """Load config and collect source locations for inline validation specs.
 
     Args:
-        path: `Path` or list of `Path`s to stacksmith-config YAML/JSON files.
-            When a list is provided, files are deep-merged in order where later
-            files override earlier scalar values, dicts merge recursively, and
-            lists append.
+        path: `Path` or list of `Path`s to stacksmith-config YAML/JSON files. When a
+            list is provided, files are deep-merged in order where later files override
+            earlier scalar values, dicts merge recursively, and lists append.
     Returns:
         Tuple containing the validated ToolConfig model and a dictionary mapping
         tuple keys to source locations for inline validation specs.
@@ -725,7 +766,10 @@ def load_config_with_locations(
     Raises:
         jsonschema.ValidationError: If the file does not match the config schema.
     """
-    config_paths = _normalize_config_paths(path)
+    config_paths = normalize_path_input(
+        path,
+        empty_error="At least one config file path must be provided",
+    )
     data, locations = _merge_config_layers_with_locations(
         config_paths,
         merge_mode=merge_mode,
@@ -733,21 +777,68 @@ def load_config_with_locations(
     return _build_config(data, config_paths), locations
 
 
+def _merge_runfile_layers(
+    runfile_paths: list[Path],
+    *,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
+) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for runfile_path in runfile_paths:
+        resolved_path = runfile_path.resolve()
+        loaded_layer = _load_file(resolved_path)
+        rendered_layer = _render_runfile_values(
+            loaded_layer,
+            {"runfile": {"path": str(resolved_path)}},
+        )
+        layer = _normalize_legacy_runfile_references(rendered_layer, resolved_path)
+        layer = _resolve_runfile_local_references(layer, resolved_path.parent)
+        merged = _merge_layer(
+            merged,
+            layer,
+            merge_mode=merge_mode,
+            merger=_RUNFILE_MERGER,
+        )
+    return merged
+
+
 def load_runfile(path: Path) -> RunFile:
-    """Load and validate a Stacksmith run file.
+    """Load and validate a Stacksmith runfile.
 
     Args:
-        path: Path to a `stacksmith.yaml`, `stacksmith.yml`, or JSON run file.
+        path: Path to a `stacksmith.yaml`, `stacksmith.yml`, or JSON runfile.
 
     Returns:
-        Validated run-file model.
+        Validated runfile model.
 
     Raises:
-        jsonschema.ValidationError: If the file does not match the run-file schema.
+        jsonschema.ValidationError: If the file does not match the runfile schema.
     """
-    resolved_path = path.resolve()
-    data = _normalize_legacy_runfile_references(
-        _load_file(resolved_path), resolved_path
+    return load_runfiles(path)
+
+
+def load_runfiles(
+    path: Path | list[Path],
+    *,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
+) -> RunFile:
+    """Load and deep-merge one or more Stacksmith runfiles.
+
+    Args:
+        path: `Path` or list of `Path`s to stacksmith YAML/JSON runfiles.
+            When a list is provided, files are deep-merged in order where later
+            files override earlier scalar values, dicts merge recursively, and
+            lists append.
+
+    Returns:
+        Validated merged runfile model.
+
+    Raises:
+        jsonschema.ValidationError: If the file does not match the runfile schema.
+    """
+    runfile_paths = normalize_path_input(
+        path,
+        empty_error="At least one runfile path must be provided",
     )
+    data = _merge_runfile_layers(runfile_paths, merge_mode=merge_mode)
     validate(instance=data, schema=_get_runfile_schema())
     return RunFile.model_validate(data)

@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import Annotated, Any, Literal, TypeAlias
+from typing import Annotated, Any, Literal, Mapping, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -166,13 +166,24 @@ class ModuleGitSourceReference(BaseModel):
     data: ModuleGitSourceData
 
 
+class LocalModuleSourceReference(BaseModel):
+    """Structured local module source reference."""
+
+    source: Literal["local"]
+    data: LocalReferenceData
+
+
 ModuleSourceReference: TypeAlias = Annotated[
-    RegistrySourceReference | ModuleGitSourceReference,
+    RegistrySourceReference | ModuleGitSourceReference | LocalModuleSourceReference,
     Field(discriminator="source"),
 ]
 
 
-def render_module_source_identity(source: ModuleSourceReference) -> tuple[str, str]:
+def render_module_source_identity(
+    source: ModuleSourceReference,
+    *,
+    options: Mapping[str, Any] | None = None,
+) -> tuple[str, str]:
     """Return canonical (source, version/ref) tuple for cache and vendoring keys."""
     match source:
         case RegistrySourceReference(data=data):
@@ -180,11 +191,22 @@ def render_module_source_identity(source: ModuleSourceReference) -> tuple[str, s
         case ModuleGitSourceReference(data=data):
             in_repo_path = f"//{data.path}" if data.path else ""
             return f"{data.repo}{in_repo_path}", data.ref
+        case LocalModuleSourceReference(data=data):
+            local_path = Path(data.path).expanduser()
+            if options is not None and options.get("base_path") is not None:
+                base_path = Path(options["base_path"])
+                if not local_path.is_absolute():
+                    local_path = (base_path / local_path).resolve()
+            return str(local_path), "local"
 
     raise ValueError(f"Unsupported module source: {source!r}")
 
 
-def render_module_source_fields(source: ModuleSourceReference) -> dict[str, str]:
+def render_module_source_fields(
+    source: ModuleSourceReference,
+    *,
+    options: Mapping[str, Any] | None = None,
+) -> dict[str, str]:
     """Render Terraform module source fields from structured source data."""
     match source:
         case RegistrySourceReference(data=data):
@@ -200,6 +222,13 @@ def render_module_source_fields(source: ModuleSourceReference) -> dict[str, str]
                     else f"{git_source}?{query_suffix}"
                 )
             }
+        case LocalModuleSourceReference(data=data):
+            local_path = Path(data.path)
+            if options is not None and options.get("base_path") is not None:
+                base_path = Path(options["base_path"])
+                if not local_path.is_absolute():
+                    local_path = (base_path / local_path).resolve()
+            return {"source": str(local_path)}
 
     raise ValueError(f"Unsupported module source: {source!r}")
 
@@ -211,7 +240,11 @@ class ProviderSourceReference(BaseModel):
     data: RegistrySourceData
 
 
-def render_provider_source_fields(source: ProviderSourceReference) -> dict[str, str]:
+def render_provider_source_fields(
+    source: ProviderSourceReference,
+    *,
+    options: Mapping[str, Any] | None = None,
+) -> dict[str, str]:
     """Render provider source/version fields for required_providers blocks."""
     return {
         "source": source.data.address,
@@ -391,7 +424,7 @@ class ProviderFamily(BaseModel):
             if self.instances["default"].alias is not None:
                 raise ValueError("Provider default instance must not define an alias")
 
-        aliases: set[str] = set()
+        aliases = set()
         for instance_name, instance in self.instances.items():
             if instance_name == "default":
                 continue

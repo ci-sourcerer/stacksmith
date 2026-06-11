@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from loguru import logger as LOGGER
 from stacksmith import api
+from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.loader import load_config, load_stack
 from stacksmith.models import ComponentDefinition, StackDefinition
 from stacksmith.validation import PlanValidationOutcome
@@ -13,15 +14,15 @@ from stacksmith.validation import PlanValidationOutcome
 
 def _build_stack(
     stack_name: str,
-    resource_name: str,
-    resource_type: str,
+    component_name: str,
+    component_type: str,
     tags: set[str],
 ) -> StackDefinition:
     return StackDefinition(
         name=stack_name,
         components={
-            resource_name: ComponentDefinition(
-                type=resource_type,
+            component_name: ComponentDefinition(
+                type=component_type,
                 tags=tags,
                 properties={},
             )
@@ -51,7 +52,7 @@ def _setup_run_stack_action_mocks(
 
     def _fake_generate_single_stack(*args, **kwargs):
         calls["generated"] = True
-        return tmp_path / ".stacksmith", 0
+        return tmp_path / ".stacksmith"
 
     def _fake_run_terragrunt(args, working_dir, **kwargs):
         calls["terragrunt"] = (args, working_dir)
@@ -96,17 +97,20 @@ def _setup_run_all_stacks_mocks(
 
 
 def test_compile_tag_expression_rejects_invalid_syntax():
-    with pytest.raises(ValueError, match="Invalid --tag-expr"):
+    with pytest.raises(StacksmithConfigError, match="Invalid --tag-expr"):
         api._compile_tag_expression("contains(tags")
 
 
-def test_extract_tag_references_supports_bracket_style():
-    assert api._extract_tag_references("tag['prod']") == {"prod"}
-    assert api._extract_tag_references('tag["shared"]') == {"shared"}
-    assert api._extract_tag_references("tag.prod && tag['shared']") == {
-        "prod",
-        "shared",
-    }
+def test_extract_tag_references_supports_dot_style():
+    assert api._extract_tag_references("tag.prod") == {"prod"}
+    assert api._extract_tag_references(
+        "tag.experimental && contains(tags, 'prod')"
+    ) == {"experimental"}
+
+
+def test_compile_tag_expression_rejects_bracket_style_syntax():
+    with pytest.raises(StacksmithConfigError, match="Invalid --tag-expr"):
+        api._compile_tag_expression("tag['prod']")
 
 
 def test_compute_stack_target_modules_uses_effective_tag_union(
@@ -127,7 +131,7 @@ def test_compute_stack_target_modules_uses_effective_tag_union(
     assert targets == ["module.my-bucket"]
 
 
-def test_compute_stack_target_modules_filters_with_bracket_style_tag_expression(
+def test_compute_stack_target_modules_filters_with_dot_style_tag_expression(
     sample_stack_yaml: Path,
     sample_config_yaml: Path,
 ):
@@ -136,7 +140,7 @@ def test_compute_stack_target_modules_filters_with_bracket_style_tag_expression(
 
     stack.components["my-bucket"].tags = {"prod", "shared"}
 
-    expression = api._compile_tag_expression("tag['prod'] && tag[\"shared\"]")
+    expression = api._compile_tag_expression("tag.prod && tag.shared")
     targets = api._compute_stack_target_modules(stack, config, expression)
 
     assert targets == ["module.my-bucket"]
@@ -152,7 +156,7 @@ def test_compute_stack_target_modules_requires_boolean_results(
     stack.components["my-bucket"].tags = {"prod"}
 
     expression = api._compile_tag_expression("tag.prod && tag.shared")
-    with pytest.raises(ValueError, match="must evaluate to a boolean"):
+    with pytest.raises(StacksmithConfigError, match="must evaluate to a boolean"):
         api._compute_stack_target_modules(stack, config, expression)
 
 
@@ -284,6 +288,27 @@ def test_run_stack_action_combines_tags_and_expression_with_and_semantics(
         ["plan", "-target", "module.my-bucket"],
         tmp_path / ".stacksmith",
     )
+
+
+def test_generate_stack_returns_output_path(
+    monkeypatch,
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+):
+    config = load_config(sample_config_yaml)
+    monkeypatch.setattr(
+        api,
+        "_load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(
+        api, "_generate_single_stack", lambda *args, **kwargs: tmp_path / ".stacksmith"
+    )
+
+    output_dir = api.generate_stack(sample_stack_yaml)
+
+    assert output_dir == tmp_path / ".stacksmith"
 
 
 def test_run_all_stacks_uses_stack_specific_target_args(
@@ -423,11 +448,11 @@ def test_validate_stack_emits_single_json_report_block(
     monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
     monkeypatch.setattr(api, "resolve_inputs", lambda *args, **kwargs: {"ok": True})
 
-    exit_code = api.validate_stack(tmp_path / "stack.yaml")
+    report = api.validate_stack(tmp_path / "stack.yaml")
 
-    assert exit_code == 0
+    assert report["exit_code"] == 0
     payload = json.loads(capsys.readouterr().out)
-    report = payload
+    assert payload == report
     assert report["command"] == "validate"
     assert report["status"] == "pass"
     assert report["summary"] == {"pass": 1, "warn": 0, "fail": 0}
@@ -451,12 +476,12 @@ def test_validate_stack_emits_csv_report_block_when_requested(
     monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
     monkeypatch.setattr(api, "resolve_inputs", lambda *args, **kwargs: {"ok": True})
 
-    exit_code = api.validate_stack(
+    report = api.validate_stack(
         tmp_path / "stack.yaml",
         validation_report_format="csv",
     )
 
-    assert exit_code == 0
+    assert report["exit_code"] == 0
     rows = list(csv.DictReader(StringIO(capsys.readouterr().out)))
     assert len(rows) == 2
     assert rows[0]["command"] == "validate"
@@ -493,12 +518,12 @@ def test_validate_stack_var_validation_failure_emits_csv_report(
         ),
     )
 
-    exit_code = api.validate_stack(
+    report = api.validate_stack(
         tmp_path / "stack.yaml",
         validation_report_format="csv",
     )
 
-    assert exit_code == 1
+    assert report["exit_code"] == 1
     rows = list(csv.DictReader(StringIO(capsys.readouterr().out)))
     assert len(rows) == 2
     assert rows[0]["report_status"] == "fail"
@@ -541,8 +566,8 @@ def test_validate_stack_failure_logs_are_concise(
             ),
         )
 
-        exit_code = api.validate_stack(tmp_path / "stack.yaml")
-        assert exit_code == 1
+        report = api.validate_stack(tmp_path / "stack.yaml")
+        assert report["exit_code"] == 1
 
         log_text = buffer.getvalue()
         assert "see validation report for details" in log_text

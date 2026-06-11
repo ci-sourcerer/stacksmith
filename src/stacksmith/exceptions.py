@@ -19,4 +19,4 @@ class StacksmithRemoteError(ValueError, StacksmithError):
 
 
 class StacksmithNotFoundError(FileNotFoundError, StacksmithError):
-    """Expected resource was not found."""
+    """Expected component was not found."""

@@ -4,7 +4,13 @@ from pathlib import Path
 import pytest
 from jsonschema import ValidationError
 from loguru import logger as LOGGER
-from stacksmith.loader import load_config, load_runfile, load_stack, load_stacks
+from stacksmith.loader import (
+    load_config,
+    load_runfile,
+    load_runfiles,
+    load_stack,
+    load_stacks,
+)
 
 
 def _s3_config_yaml(
@@ -308,9 +314,61 @@ class TestLoadStack:
 
 
 class TestLoadRunFile:
+    def test_load_runfiles_merges_layers_in_order(self, tmp_path: Path):
+        base_run_file = tmp_path / "base.yaml"
+        base_run_file.write_text(
+            "merge_mode: deep\n"
+            "stacks:\n"
+            "  - ./base-stack.yaml\n"
+            "configs:\n"
+            "  - ./base-config.yaml\n"
+            "vars:\n"
+            "  - ./base-vars.yaml\n"
+            "var:\n"
+            "  region: us-east-1\n"
+            "  tags:\n"
+            "    owner: platform\n",
+            encoding="utf-8",
+        )
+        override_run_file = tmp_path / "override.yaml"
+        override_run_file.write_text(
+            "merge_mode: override\n"
+            "stacks:\n"
+            "  - ./override-stack.yaml\n"
+            "configs:\n"
+            "  - ./override-config.yaml\n"
+            "vars:\n"
+            "  - ./override-vars.yaml\n"
+            "var:\n"
+            "  region: eu-west-1\n"
+            "  tags:\n"
+            "    env: dev\n",
+            encoding="utf-8",
+        )
+
+        loaded = load_runfiles([base_run_file, override_run_file])
+
+        assert loaded.merge_mode == "override"
+        assert [ref.data.path for ref in loaded.stacks] == [
+            str((tmp_path / "base-stack.yaml").resolve()),
+            str((tmp_path / "override-stack.yaml").resolve()),
+        ]
+        assert [ref.data.path for ref in loaded.configs] == [
+            str((tmp_path / "base-config.yaml").resolve()),
+            str((tmp_path / "override-config.yaml").resolve()),
+        ]
+        assert [ref.data.path for ref in loaded.vars] == [
+            str((tmp_path / "base-vars.yaml").resolve()),
+            str((tmp_path / "override-vars.yaml").resolve()),
+        ]
+        assert loaded.var == {
+            "region": "eu-west-1",
+            "tags": {"owner": "platform", "env": "dev"},
+        }
+
     def test_load_runfile(self, tmp_path: Path):
-        run_file = tmp_path / "stacksmith.yaml"
-        run_file.write_text(
+        runfile = tmp_path / "stacksmith.yaml"
+        runfile.write_text(
             "merge_mode: override\n"
             "stacks:\n"
             "  - source: http\n"
@@ -334,22 +392,60 @@ class TestLoadRunFile:
             encoding="utf-8",
         )
 
-        loaded = load_runfile(run_file)
+        loaded = load_runfile(runfile)
 
         assert loaded.merge_mode == "override"
         assert loaded.stacks[0].source == "http"
         assert loaded.stacks[0].data.url == "https://example.com/base-stack.yaml"
         assert loaded.stacks[1].source == "local"
-        assert loaded.stacks[1].data.path == "./stack.yaml"
+        assert loaded.stacks[1].data.path == str((tmp_path / "stack.yaml").resolve())
         assert loaded.configs[0].source == "local"
-        assert loaded.configs[0].data.path == "./stacksmith-config.yaml"
+        assert loaded.configs[0].data.path == str(
+            (tmp_path / "stacksmith-config.yaml").resolve()
+        )
         assert loaded.vars[0].source == "local"
-        assert loaded.vars[0].data.path == "./vars.dev.yaml"
+        assert loaded.vars[0].data.path == str((tmp_path / "vars.dev.yaml").resolve())
         assert loaded.var == {"replicas": 2, "features": {"enabled": True}}
 
+    def test_load_runfile_renders_runfile_path_in_string_refs(self, tmp_path: Path):
+        runfile = tmp_path / "stacksmith.yaml"
+        runfile.write_text(
+            """
+vars:
+  - "{{ runfile.path | replace('stacksmith.yaml', 'vars.dev.yaml') }}"
+""",
+            encoding="utf-8",
+        )
+
+        loaded = load_runfile(runfile)
+
+        assert loaded.vars[0].source == "local"
+        assert loaded.vars[0].data.path == str(
+            runfile.resolve().with_name("vars.dev.yaml")
+        )
+
+    def test_load_runfile_renders_runfile_path_in_structured_refs(self, tmp_path: Path):
+        runfile = tmp_path / "stacksmith.yaml"
+        runfile.write_text(
+            """
+vars:
+  - source: local
+    data:
+      path: "{{ runfile.path | replace('stacksmith.yaml', 'vars.dev.yaml') }}"
+""",
+            encoding="utf-8",
+        )
+
+        loaded = load_runfile(runfile)
+
+        assert loaded.vars[0].source == "local"
+        assert loaded.vars[0].data.path == str(
+            runfile.resolve().with_name("vars.dev.yaml")
+        )
+
     def test_load_runfile_rejects_unknown_keys(self, tmp_path: Path):
-        run_file = tmp_path / "stacksmith.yaml"
-        run_file.write_text(
+        runfile = tmp_path / "stacksmith.yaml"
+        runfile.write_text(
             "stacks:\n"
             "  - source: local\n"
             "    data:\n"
@@ -359,11 +455,11 @@ class TestLoadRunFile:
         )
 
         with pytest.raises(ValidationError):
-            load_runfile(run_file)
+            load_runfile(runfile)
 
     def test_load_runfile_normalizes_legacy_string_references(self, tmp_path: Path):
-        run_file = tmp_path / "stacksmith.yaml"
-        run_file.write_text(
+        runfile = tmp_path / "stacksmith.yaml"
+        runfile.write_text(
             "stacks:\n"
             "  - ./stack.yaml\n"
             "  - https://example.com/base-stack.yaml\n"
@@ -374,10 +470,10 @@ class TestLoadRunFile:
             encoding="utf-8",
         )
 
-        loaded = load_runfile(run_file)
+        loaded = load_runfile(runfile)
 
         assert loaded.stacks[0].source == "local"
-        assert loaded.stacks[0].data.path == "./stack.yaml"
+        assert loaded.stacks[0].data.path == str((tmp_path / "stack.yaml").resolve())
         assert loaded.stacks[1].source == "http"
         assert loaded.stacks[1].data.url == "https://example.com/base-stack.yaml"
         assert loaded.configs[0].source == "git"
@@ -385,7 +481,7 @@ class TestLoadRunFile:
         assert loaded.configs[0].data.path == "stacksmith-config.yaml"
         assert loaded.configs[0].data.ref == "v1.2.3"
         assert loaded.vars[0].source == "local"
-        assert loaded.vars[0].data.path == "./vars.dev.yaml"
+        assert loaded.vars[0].data.path == str((tmp_path / "vars.dev.yaml").resolve())
 
     def test_load_runfile_logs_warning_for_legacy_string_references(
         self, tmp_path: Path
@@ -394,8 +490,8 @@ class TestLoadRunFile:
         sink_id = LOGGER.add(buffer, level="WARNING")
 
         try:
-            run_file = tmp_path / "stacksmith.yaml"
-            run_file.write_text(
+            runfile = tmp_path / "stacksmith.yaml"
+            runfile.write_text(
                 "stacks:\n"
                 "  - ./stack.yaml\n"
                 "  - https://example.com/base-stack.yaml\n"
@@ -406,7 +502,7 @@ class TestLoadRunFile:
                 encoding="utf-8",
             )
 
-            loaded = load_runfile(run_file)
+            loaded = load_runfile(runfile)
 
             assert loaded.stacks[0].source == "local"
             assert loaded.stacks[1].source == "http"
@@ -581,6 +677,45 @@ class TestLoadConfig:
     def test_source_path_is_set(self, sample_config_yaml: Path):
         config = load_config(sample_config_yaml)
         assert config.source_path == sample_config_yaml.resolve()
+
+    def test_local_module_source_path_resolves_relative_to_config(self, tmp_path: Path):
+        config_dir = tmp_path / "shared"
+        config_dir.mkdir(parents=True)
+        config_file = config_dir / "stacksmith-config.yaml"
+        config_file.write_text(
+            "backend:\n"
+            "  type: local\n"
+            "  path: .state\n"
+            "tofu:\n"
+            "  version: '1.8.0'\n"
+            "provider_mappings:\n"
+            "  aws:\n"
+            "    source:\n"
+            "      source: registry\n"
+            "      data:\n"
+            "        address: hashicorp/aws\n"
+            "        version: '~> 5.0'\n"
+            "    instances:\n"
+            "      default:\n"
+            "        config:\n"
+            "          data:\n"
+            "            region: us-east-1\n"
+            "module_mappings:\n"
+            "  helm_app:\n"
+            "    source:\n"
+            "      source: local\n"
+            "      data:\n"
+            "        path: ../modules/helm_app\n",
+            encoding="utf-8",
+        )
+
+        config = load_config(config_file)
+
+        module_source = config.module_mappings["helm_app"].source
+        assert module_source.source == "local"
+        assert module_source.data.path == str(
+            (config_dir / "../modules/helm_app").resolve()
+        )
 
     def test_load_config_override_mode_replaces_previous_layer(self, tmp_path: Path):
         base_file = tmp_path / "base-stacksmith-config.yaml"

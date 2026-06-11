@@ -6,6 +6,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from stacksmith.exceptions import (
+    StacksmithConfigError,
+    StacksmithTransformError,
+    StacksmithValidationError,
+)
 from stacksmith.generator import generate_tf_json, write_tf_json
 from stacksmith.loader import load_config, load_stack
 from stacksmith.models import (
@@ -110,7 +115,9 @@ class TestGenerateTfJson:
 
         assert module_options_calls
         assert provider_options_calls
-        assert all(call == {"dialect": "terraform"} for call in module_options_calls)
+        assert all(call["dialect"] == "terraform" for call in module_options_calls)
+        assert all("base_path" in call for call in module_options_calls)
+        assert all(isinstance(call["base_path"], Path) for call in module_options_calls)
         assert all(call == {"dialect": "terraform"} for call in provider_options_calls)
 
     def test_terraform_block(self, sample_stack_yaml: Path, sample_config_yaml: Path):
@@ -418,7 +425,7 @@ class TestGenerateTfJson:
         assert "bucket_acl" in bucket_mod
         assert "acl" not in bucket_mod
 
-    def test_unknown_resource_type_raises(
+    def test_unknown_component_type_raises(
         self, sample_config_yaml: Path, tmp_path: Path
     ):
         stack_file = tmp_path / "stack.yaml"
@@ -430,7 +437,7 @@ class TestGenerateTfJson:
         stack = load_stack(stack_file)
         config = load_config(sample_config_yaml)
 
-        with pytest.raises(ValueError, match="aws_unknown_thing"):
+        with pytest.raises(StacksmithConfigError, match="aws_unknown_thing"):
             generate_tf_json(stack, config, {})
 
     def test_generic_module_source_uses_literal_version(
@@ -461,6 +468,43 @@ class TestGenerateTfJson:
         result = generate_tf_json(stack, config, {"bucket_name": "my-bucket-jinja"})
 
         assert result["module"]["my-bucket"]["bucket"] == "my-bucket-jinja"
+
+    def test_jinja2_has_stack_context(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path
+    ):
+        """Templates should be able to access `stack.name` and `stack.tags`."""
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+
+        # Use stack metadata in a property template
+        stack.components["my-bucket"].properties[
+            "bucket"
+        ] = "{{ stack.name }}-{{ inputs.bucket_name }}"
+
+        result = generate_tf_json(stack, config, {"bucket_name": "ctx"})
+
+        assert result["module"]["my-bucket"]["bucket"] == "my-stack-ctx"
+
+    def test_jinja2_transform_has_stack_context(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path
+    ):
+        """Property transform Jinja templates should be able to access stack metadata."""
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+
+        stack.components["my-bucket"].properties["bucket_name"] = "ignored"
+        config.module_mappings["aws_s3_bucket"].properties["bucket_name"] = (
+            ModulePropertySpec(
+                mapped_to="bucket",
+                transform=TransformSpec(
+                    jinja="{{ stack.name }}-{{ stack.tags | join('-') }}"
+                ),
+            )
+        )
+
+        result = generate_tf_json(stack, config, {"bucket_name": "ignored"})
+
+        assert result["module"]["my-bucket"]["bucket"] == "my-stack-networking-storage"
 
     def test_example_secondary_provider_skips_assume_role_for_root_identity(
         self,
@@ -628,7 +672,7 @@ class TestPropertyValidation:
                 )
             ),
         )
-        with pytest.raises(ValueError, match="property 'acl'"):
+        with pytest.raises(StacksmithValidationError, match="property 'acl'"):
             generate_tf_json(stack, config, {"bucket_name": "my-bucket-test"})
 
     def test_property_validation_fails_by_postmapping_name(
@@ -646,7 +690,7 @@ class TestPropertyValidation:
                 )
             ),
         )
-        with pytest.raises(ValueError, match="property 'acl'"):
+        with pytest.raises(StacksmithValidationError, match="property 'acl'"):
             generate_tf_json(stack, config, {"bucket_name": "my-bucket-test"})
 
     def test_property_validation_raise_pattern(
@@ -669,7 +713,7 @@ class TestPropertyValidation:
             mapped_to="bucket_acl",
             validation=ValidationSpec(inline=code),
         )
-        with pytest.raises(ValueError, match="private or public-read"):
+        with pytest.raises(StacksmithValidationError, match="private or public-read"):
             generate_tf_json(stack, config, {})
 
     def test_property_validation_script_path_resolves_relative_to_config(
@@ -758,7 +802,10 @@ class TestPropertyTransform:
             transform=TransformSpec(jinja="{{ value | }}"),
         )
 
-        with pytest.raises(ValueError, match="transform error"):
+        with pytest.raises(
+            StacksmithTransformError,
+            match="property 'acl' transform",
+        ):
             generate_tf_json(stack, config, {"bucket_name": "my-bucket-test"})
 
     def test_property_transform_inline_success(
@@ -801,7 +848,9 @@ def transform(value, **context):
             mapped_to="bucket_acl",
             transform=TransformSpec(inline=code),
         )
-        with pytest.raises(ValueError, match="must define a callable 'transform"):
+        with pytest.raises(
+            StacksmithTransformError, match="must define a callable 'transform"
+        ):
             generate_tf_json(stack, config, {"bucket_name": "my-bucket-test"})
 
     def test_property_transform_by_premapping_name(
@@ -843,7 +892,10 @@ def transform(value, **context):
                 inline="""def transform(value, **context): raise ValueError('transform intentionally failed')"""
             ),
         )
-        with pytest.raises(ValueError, match="transform error"):
+        with pytest.raises(
+            StacksmithTransformError,
+            match="property 'acl' transform",
+        ):
             generate_tf_json(stack, config, {"bucket_name": "my-bucket-test"})
 
     def test_property_transform_script_path_resolves_relative_to_config(
@@ -936,7 +988,7 @@ class TestWriteTfJson:
         )
 
         assert output.exists()
-        assert output.name == "main.tf.json"
+        assert output.name == "stacksmith.tf.json"
         data = json.loads(output.read_text())
         assert "terraform" in data
         assert "module" in data
@@ -1127,6 +1179,103 @@ class TestLocalModuleVendoring:
         )
         assert bucket_mod["source"] == expected
         assert "version" not in bucket_mod
+
+    def test_local_module_source_uses_direct_path_without_version(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path, tmp_path: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+        mapping_data = config.module_mappings["aws_s3_bucket"].model_dump()
+        mapping_data["source"] = {
+            "source": "local",
+            "data": {"path": "../../examples/modules/helm_app"},
+        }
+        config.module_mappings["aws_s3_bucket"] = ModuleMapping.model_validate(
+            mapping_data
+        )
+
+        result = generate_tf_json(
+            stack,
+            config,
+            {"bucket_name": "test-bucket"},
+            use_local_modules=True,
+            vendor_dir=tmp_path,
+        )
+
+        bucket_mod = result["module"]["my-bucket"]
+        assert bucket_mod["source"] == str(
+            (
+                Path(__file__).resolve().parent
+                / "fixtures"
+                / "../../examples/modules/helm_app"
+            ).resolve()
+        )
+        assert "version" not in bucket_mod
+
+    def test_local_module_version_property_is_mapped_to_chart_version(
+        self, tmp_path: Path
+    ):
+        stack_path = tmp_path / "stack.yaml"
+        stack_path.write_text(
+            'name: test-stack\ncomponents:\n  frontend:\n    type: helm_app\n    properties:\n      chart: ingress-nginx\n      repository: https://kubernetes.github.io/ingress-nginx\n      version: "4.11.3"\n      namespace: default\n'
+        )
+        stack = load_stack(stack_path)
+
+        config = load_config(Path("examples/shared-config-repo/stacksmith-config.yaml"))
+        config.module_mappings["helm_app"].properties = {
+            "version": ModulePropertySpec(mapped_to="chart_version")
+        }
+
+        result = generate_tf_json(
+            stack,
+            config,
+            {"bucket_name": "unused"},
+        )
+
+        module_block = result["module"]["frontend"]
+        assert module_block["chart_version"] == "4.11.3"
+        assert "version" not in module_block
+
+    def test_module_path_inputs_are_normalized_to_absolute_paths(self, tmp_path: Path):
+        stack_path = tmp_path / "stack.yaml"
+        stack_path.write_text(
+            (
+                "name: test-stack\n"
+                "components:\n"
+                "  frontend_release:\n"
+                "    type: helm_app\n"
+                "    properties:\n"
+                "      chart: ingress-nginx\n"
+                "      repository: https://kubernetes.github.io/ingress-nginx\n"
+                '      version: "4.11.3"\n'
+                "      namespace: default\n"
+                "      values_files:\n"
+                "        - examples/gitops-repo/manifests/environments/dev/frontend-values.yaml\n"
+                "  app_config:\n"
+                "    type: k8s_app\n"
+                "    properties:\n"
+                "      namespace: default\n"
+                "      manifest_files:\n"
+                "        - examples/gitops-repo/manifests/environments/dev/app-config.yaml\n"
+            ),
+            encoding="utf-8",
+        )
+
+        stack = load_stack(stack_path)
+        config = load_config(Path("examples/shared-config-repo/stacksmith-config.yaml"))
+
+        result = generate_tf_json(stack, config, {"id": 1234})
+
+        frontend_release = result["module"]["frontend_release"]
+        app_config = result["module"]["app_config"]
+
+        assert Path(frontend_release["values_files"][0]).is_absolute()
+        assert frontend_release["values_files"][0].endswith("frontend-values.yaml")
+        assert Path(frontend_release["values_files"][0]).exists()
+
+        assert Path(app_config["manifest_files"][0]).is_absolute()
+        assert app_config["manifest_files"][0].endswith("app-config.yaml")
+        assert Path(app_config["manifest_files"][0]).exists()
 
     def test_vendor_rewrite_disabled_uses_remote(
         self, sample_stack_yaml: Path, sample_config_yaml: Path

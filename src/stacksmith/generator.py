@@ -6,6 +6,11 @@ from typing import Any
 from jinja2.sandbox import SandboxedEnvironment
 from loguru import logger as LOGGER
 
+from .exceptions import (
+    StacksmithConfigError,
+    StacksmithTransformError,
+    StacksmithValidationError,
+)
 from .formatters import render_module_source_for
 from .generation.providers import (
     _build_provider_blocks,
@@ -14,13 +19,14 @@ from .generation.providers import (
 )
 from .introspection import discover_module_variables
 from .models import (
+    LocalModuleSourceReference,
     ModulePropertySpec,
     RemoteAuthConfig,
     StackDefinition,
     ToolConfig,
     render_module_source_identity,
 )
-from .utils import derive_stack_state_key
+from .utils import derive_stack_state_key, render_jinja_template_values
 from .validation import InputValidationOutcome, apply_transform, validate_value
 from .vendor import get_vendor_dir, resolve_module_source
 
@@ -28,15 +34,48 @@ _JINJA_ENV = SandboxedEnvironment()
 
 
 def _render_property_value(value: Any, context: dict[str, Any]) -> Any:
-    match value:
-        case str() if "{{" in value:
-            return _JINJA_ENV.from_string(value).render(context)
-        case dict():
-            return {k: _render_property_value(v, context) for k, v in value.items()}
-        case list():
-            return [_render_property_value(item, context) for item in value]
-        case _:
-            return value
+    return render_jinja_template_values(value, context, jinja_env=_JINJA_ENV)
+
+
+def _looks_like_module_path_input(name: str) -> bool:
+    return name.endswith("_files") or name in {"cwd"}
+
+
+def _resolve_module_input_path(value: str, base_paths: list[Path]) -> str:
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return str(path)
+
+    for base_path in base_paths:
+        candidate = (base_path / path).resolve()
+        if candidate.exists():
+            return str(candidate)
+
+    return str((Path.cwd() / path).resolve())
+
+
+def _normalize_module_input_value(
+    name: str,
+    value: Any,
+    base_paths: list[Path],
+) -> Any:
+    if not _looks_like_module_path_input(name):
+        return value
+
+    if isinstance(value, str):
+        return _resolve_module_input_path(value, base_paths)
+
+    if isinstance(value, list):
+        return [
+            (
+                _resolve_module_input_path(item, base_paths)
+                if isinstance(item, str)
+                else item
+            )
+            for item in value
+        ]
+
+    return value
 
 
 def _render_transform_jinja(template: str, value: Any, context: dict[str, Any]) -> Any:
@@ -45,6 +84,13 @@ def _render_transform_jinja(template: str, value: Any, context: dict[str, Any]) 
         return json.loads(rendered)
     except json.JSONDecodeError:
         return rendered
+
+
+def _stack_context(stack: StackDefinition) -> dict[str, Any]:
+    return {
+        "name": stack.name,
+        "tags": sorted(stack.tags),
+    }
 
 
 def _generate_terraform_block(
@@ -103,8 +149,8 @@ def _apply_property_spec(
                     auth_config=auth_config,
                 )
         except Exception as exc:
-            raise ValueError(
-                f"Resource '{property_context['resource_name']}' property '{property_context['name']}' transform error: {exc}"
+            raise StacksmithTransformError(
+                f"Component '{property_context['component_name']}' property '{property_context['name']}' transform {exc}"
             ) from exc
 
     validation_code = property_spec.validation
@@ -120,8 +166,8 @@ def _apply_property_spec(
             auth_config=auth_config,
         )
         if outcome != InputValidationOutcome.PASS:
-            raise ValueError(
-                f"Resource '{property_context['resource_name']}' property '{property_context['name']}': {error_msg}"
+            raise StacksmithValidationError(
+                f"Component '{property_context['component_name']}' property '{property_context['name']}': {error_msg}"
             )
 
     return rendered
@@ -131,19 +177,24 @@ def _build_property_context(
     *,
     name: str,
     kind: str,
-    resource_name: str,
-    resource_type: str,
+    component_name: str,
+    component_type: str,
     output_name: str,
-    inputs: dict[str, Any],
+    inputs: dict[str, Any] | None = None,
+    stack: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    context = {
         "name": name,
         "kind": kind,
-        "resource_name": resource_name,
-        "resource_type": resource_type,
+        "component_name": component_name,
+        "component_type": component_type,
         "output_name": output_name,
-        "inputs": inputs,
     }
+    if inputs is not None:
+        context["inputs"] = inputs
+    if stack is not None:
+        context["stack"] = stack
+    return context
 
 
 def _generate_module_blocks(
@@ -157,35 +208,69 @@ def _generate_module_blocks(
     *,
     module_source_formatter_options: Mapping[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    context = {"inputs": resolved_inputs}
-    modules: dict[str, dict[str, Any]] = {}
+    # Provide both `inputs` and a lightweight `stack` object to Jinja so
+    # templates and transforms can access stack metadata like `stack.name`
+    # and `stack.tags`.
+    context = {
+        "inputs": resolved_inputs,
+        "stack": _stack_context(stack),
+    }
+    modules = {}
+
+    path_bases: list[Path] = []
+    if stack.source_path is not None:
+        path_bases.append(stack.source_path.parent)
+    if config.source_path is not None:
+        path_bases.append(config.source_path.parent)
+    path_bases.append(Path.cwd())
 
     vendor_dir = vendor_dir or get_vendor_dir()
 
-    for resource_name, resource in stack.components.items():
-        mapping = config.module_mappings.get(resource.type)
+    for component_name, component in stack.components.items():
+        mapping = config.module_mappings.get(component.type)
         if mapping is None:
-            raise ValueError(
-                f"Component '{resource_name}' has type '{resource.type}' "
+            raise StacksmithConfigError(
+                f"Component '{component_name}' has type '{component.type}' "
                 f"which is not defined in the tool configuration module mappings. "
                 f"Available types: {', '.join(config.module_mappings.keys())}"
             )
 
-        mapping_source, mapping_version = render_module_source_identity(mapping.source)
+        mapping_source, mapping_version = render_module_source_identity(
+            mapping.source,
+            options={
+                "base_path": (
+                    config.source_path.parent
+                    if config.source_path is not None
+                    else None
+                )
+            },
+        )
         LOGGER.info(
-            "Generating module block for component '{resource_name}' of type '{resource_type}' using module {source}@{version}",
-            resource_name=resource_name,
-            resource_type=resource.type,
+            "Generating module block for component '{component_name}' of type '{component_type}' using module {source}@{version}",
+            component_name=component_name,
+            component_type=component.type,
             source=mapping_source,
             version=mapping_version,
         )
         if mapping.auto_inject:
             LOGGER.debug(
-                "Module mapping for component '{resource_name}' has auto_inject enabled",
+                "Module mapping for component '{component_name}' has auto_inject enabled",
             )
 
         module_block: dict[str, Any] = {}
-        if use_local_modules:
+        source_options = dict(module_source_formatter_options or {})
+        if config.source_path is not None:
+            source_options.setdefault("base_path", config.source_path.parent)
+
+        if isinstance(mapping.source, LocalModuleSourceReference):
+            module_block.update(
+                render_module_source_for(
+                    "terraform",
+                    mapping.source,
+                    options=source_options,
+                )
+            )
+        elif use_local_modules:
             try:
                 module_block["source"] = resolve_module_source(
                     mapping_source,
@@ -202,7 +287,7 @@ def _generate_module_blocks(
                     render_module_source_for(
                         "terraform",
                         mapping.source,
-                        options=module_source_formatter_options,
+                        options=source_options,
                     )
                 )
         else:
@@ -210,7 +295,7 @@ def _generate_module_blocks(
                 render_module_source_for(
                     "terraform",
                     mapping.source,
-                    options=module_source_formatter_options,
+                    options=source_options,
                 )
             )
 
@@ -223,7 +308,7 @@ def _generate_module_blocks(
                 for module_provider_name, provider_reference in mapping.providers.items()
             }
 
-        for prop_name, prop_value in resource.properties.items():
+        for prop_name, prop_value in component.properties.items():
             rendered = _render_property_value(prop_value, context)
             property_spec = mapping.properties.get(prop_name)
             output_name = (
@@ -233,18 +318,19 @@ def _generate_module_blocks(
             )
             if output_name != prop_name:
                 LOGGER.debug(
-                    "Component '{resource_name}' property '{prop_name}' is mapped to module input '{output_name}'",
-                    resource_name=resource_name,
+                    "Component '{component_name}' property '{prop_name}' is mapped to module input '{output_name}'",
+                    component_name=component_name,
                     prop_name=prop_name,
                     output_name=output_name,
                 )
             property_context = _build_property_context(
                 name=prop_name,
-                kind="resource_property",
-                resource_name=resource_name,
-                resource_type=resource.type,
+                kind="component_property",
+                component_name=component_name,
+                component_type=component.type,
                 output_name=output_name,
                 inputs=resolved_inputs,
+                stack=_stack_context(stack),
             )
 
             rendered = _apply_property_spec(
@@ -255,6 +341,7 @@ def _generate_module_blocks(
                 cache_dir=cache_dir,
                 auth_config=auth_config,
             )
+            rendered = _normalize_module_input_value(output_name, rendered, path_bases)
             module_block[output_name] = rendered
 
         injected_keys = []
@@ -267,14 +354,14 @@ def _generate_module_blocks(
                 vendor_dir=vendor_dir if use_local_modules else None,
             )
             LOGGER.debug(
-                "Module '{resource_type}' declares variables: {vars}",
-                resource_type=resource.type,
+                "Module '{component_type}' declares variables: {vars}",
+                component_type=component.type,
                 vars=sorted(discovered_vars),
             )
 
             reserved_output_names = set(module_block)
             for input_name, input_value in resolved_inputs.items():
-                if input_name in resource.properties:
+                if input_name in component.properties:
                     continue
 
                 property_spec = mapping.properties.get(input_name)
@@ -299,11 +386,12 @@ def _generate_module_blocks(
                 rendered = input_value
                 property_context = _build_property_context(
                     name=input_name,
-                    kind="resource_property",
-                    resource_name=resource_name,
-                    resource_type=resource.type,
+                    kind="component_property",
+                    component_name=component_name,
+                    component_type=component.type,
                     output_name=output_name,
                     inputs=resolved_inputs,
+                    stack=_stack_context(stack),
                 )
 
                 rendered = _apply_property_spec(
@@ -314,14 +402,17 @@ def _generate_module_blocks(
                     cache_dir=cache_dir,
                     auth_config=auth_config,
                 )
+                rendered = _normalize_module_input_value(
+                    output_name, rendered, path_bases
+                )
                 module_block[output_name] = rendered
                 injected_keys.append(input_name)
                 reserved_output_names.add(output_name)
 
         if injected_keys:
             LOGGER.debug(
-                "Auto-injected inputs into component '{resource_name}': {keys}",
-                resource_name=resource_name,
+                "Auto-injected inputs into component '{component_name}': {keys}",
+                component_name=component_name,
                 keys=sorted(injected_keys),
             )
 
@@ -333,10 +424,11 @@ def _generate_module_blocks(
             property_context = _build_property_context(
                 name=prop_name,
                 kind="module_property_default",
-                resource_name=resource_name,
-                resource_type=resource.type,
+                component_name=component_name,
+                component_type=component.type,
                 output_name=output_name,
                 inputs=resolved_inputs,
+                stack=_stack_context(stack),
             )
             module_block[output_name] = _apply_property_spec(
                 prop_spec.default,
@@ -346,8 +438,13 @@ def _generate_module_blocks(
                 cache_dir=cache_dir,
                 auth_config=auth_config,
             )
+            module_block[output_name] = _normalize_module_input_value(
+                output_name,
+                module_block[output_name],
+                path_bases,
+            )
 
-        modules[resource_name] = module_block
+        modules[component_name] = module_block
 
     return modules
 
@@ -363,7 +460,7 @@ def generate_tf_json(
     root: Path | None = None,
     formatter_options: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Generate the complete .tf.json structure for a stack.
+    """Generate the complete `.tf.json` structure for a stack.
 
     Args:
         stack: Parsed stack definition.
@@ -371,13 +468,13 @@ def generate_tf_json(
         resolved_inputs: Resolved input values.
         cache_dir: Cache directory for fetching remote scripts.
         auth_config: Optional host-keyed auth configuration for remote fetching.
-        use_local_modules: When True, rewrite module sources to local vendored paths.
+        use_local_modules: When `True`, rewrite module sources to local vendored paths.
         vendor_dir: Root directory containing vendored modules.
         formatter_options: Optional formatter option mappings keyed by
             `module_source` and `provider_source`.
 
     Returns:
-        Dict representing the entire .tf.json file content.
+        Dict representing the entire `.tf.json` file content.
     """
     module_source_options = None
     provider_source_options = None
@@ -426,22 +523,22 @@ def write_tf_json(
     root: Path | None = None,
     formatter_options: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> Path:
-    """Generate and write main.tf.json to the output directory.
+    """Generate and write `stacksmith.tf.json` to the output directory.
 
     Args:
         stack: Parsed stack definition.
         config: Tool configuration.
         resolved_inputs: Resolved input values.
-        output_dir: Directory to write main.tf.json into.
+        output_dir: Directory to write `stacksmith.tf.json` into.
         cache_dir: Cache directory for fetching remote scripts.
         auth_config: Optional host-keyed auth configuration for remote fetching.
-        use_local_modules: When True, rewrite module sources to local vendored paths.
+        use_local_modules: When `True`, rewrite module sources to local vendored paths.
         vendor_dir: Root directory containing vendored modules.
         formatter_options: Optional formatter option mappings keyed by
             `module_source` and `provider_source`.
 
     Returns:
-        Path to the written main.tf.json file.
+        Path to the written `stacksmith.tf.json` file.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     tf_json = generate_tf_json(
@@ -455,7 +552,7 @@ def write_tf_json(
         root=root,
         formatter_options=formatter_options,
     )
-    output_path = output_dir / "main.tf.json"
+    output_path = output_dir / "stacksmith.tf.json"
     output_path.write_text(json.dumps(tf_json, indent=2) + "\n", encoding="utf-8")
-    LOGGER.debug("Wrote generated OpenTofu JSON: {path}", path=output_path)
+    LOGGER.debug("Wrote generated JSON: {path}", path=output_path)
     return output_path

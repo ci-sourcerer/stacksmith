@@ -5,6 +5,7 @@ from typing import Any
 
 from loguru import logger as LOGGER
 
+from .exceptions import StacksmithConfigError
 from .introspection import discover_module_variables
 from .models import (
     FileReference,
@@ -37,10 +38,10 @@ class InputInfo:
 
 
 @dataclass
-class ResourceTypeInfo:
-    """Inspection result for a single resource type."""
+class ComponentTypeInfo:
+    """Inspection result for a single component type."""
 
-    resource_type: str
+    component_type: str
     display_name: str
     module_source: str
     module_version: str
@@ -155,7 +156,7 @@ def _resolve_var_validation_location(
 def _build_property_input_info(
     property_name: str,
     property_spec: ModulePropertySpec,
-    resource_type: str,
+    component_type: str,
     config: ToolConfig | None,
     config_locations: dict[tuple[str, ...], str] | None,
 ) -> InputInfo:
@@ -165,7 +166,7 @@ def _build_property_input_info(
         config_locations,
         (
             "modules",
-            resource_type,
+            component_type,
             "properties",
             property_name,
             "validation",
@@ -190,7 +191,7 @@ def _build_property_input_info(
             config_locations,
             (
                 "modules",
-                resource_type,
+                component_type,
                 "properties",
                 property_name,
                 "transform",
@@ -201,8 +202,8 @@ def _build_property_input_info(
     )
 
 
-def inspect_resource_type(
-    resource_type: str,
+def inspect_component_type(
+    component_type: str,
     mapping: ModuleMapping,
     config: ToolConfig | None = None,
     *,
@@ -210,23 +211,32 @@ def inspect_resource_type(
     auth_config: RemoteAuthConfig | None = None,
     vendor_dir: Path | None = None,
     config_locations: dict[tuple[str, ...], str] | None = None,
-) -> ResourceTypeInfo:
-    """Inspect a single configured resource type.
+) -> ComponentTypeInfo:
+    """Inspect a single configured component type.
 
     Discovers the module's declared variables via introspection and merges
     that information with any property specs from the configuration.
 
     Args:
-        resource_type: The abstract resource type name (e.g. `aws_s3_bucket`).
+        component_type: The abstract component type name (e.g. `aws_s3_bucket`).
         mapping: The module mapping from the tool config.
         cache_dir: Cache directory for fetching remote modules.
         auth_config: Optional host-keyed auth configuration.
         vendor_dir: Vendored module root directory.
 
     Returns:
-        An `ResourceTypeInfo` containing input metadata for the module.
+        An `ComponentTypeInfo` containing input metadata for the module.
     """
-    mapping_source, mapping_version = render_module_source_identity(mapping.source)
+    mapping_source, mapping_version = render_module_source_identity(
+        mapping.source,
+        options={
+            "base_path": (
+                config.source_path.parent
+                if config is not None and config.source_path is not None
+                else None
+            )
+        },
+    )
     try:
         discovered_vars = discover_module_variables(
             mapping_source,
@@ -238,7 +248,7 @@ def inspect_resource_type(
     except Exception as exc:
         LOGGER.warning(
             "Could not introspect module for {rt}: {exc}",
-            rt=resource_type,
+            rt=component_type,
             exc=exc,
         )
         discovered_vars = set()
@@ -246,7 +256,7 @@ def inspect_resource_type(
     inputs: list[InputInfo] = []
 
     # 1. Inputs explicitly configured in property specs
-    seen_vars: set[str] = set()
+    seen_vars = set()
     for prop_name, prop_spec in mapping.properties.items():
         module_var = prop_spec.mapped_to or prop_name
         seen_vars.add(module_var)
@@ -255,7 +265,7 @@ def inspect_resource_type(
             _build_property_input_info(
                 prop_name,
                 prop_spec,
-                resource_type,
+                component_type,
                 config,
                 config_locations,
             )
@@ -280,9 +290,9 @@ def inspect_resource_type(
             )
         )
 
-    return ResourceTypeInfo(
-        resource_type=resource_type,
-        display_name=mapping.description or resource_type,
+    return ComponentTypeInfo(
+        component_type=component_type,
+        display_name=mapping.description or component_type,
         module_source=mapping_source,
         module_version=mapping_version,
         auto_inject=mapping.auto_inject,
@@ -318,42 +328,39 @@ def _build_input_info(
 def inspect_all(
     config: ToolConfig,
     *,
-    resource_types: list[str] | None = None,
+    component_types: list[str] | None = None,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
     vendor_dir: Path | None = None,
     config_locations: dict[tuple[str, ...], str] | None = None,
-) -> list[ResourceTypeInfo]:
+) -> list[ComponentTypeInfo]:
     """Inspect one or more configured resource types.
 
     Args:
         config: Loaded tool configuration.
-        resource_types: Specific resource type(s) to inspect. Inspects all when `None`.
+        component_types: Specific resource type(s) to inspect. Inspects all when `None`.
         cache_dir: Cache directory for fetching remote modules.
         auth_config: Optional host-keyed auth configuration.
         vendor_dir: Vendored module root directory.
 
     Returns:
-        List of `ResourceTypeInfo` results, one per resource type.
-
-    Raises:
-        ValueError: If a requested resource type is not in the configuration.
+        List of `ComponentTypeInfo` results, one per component type.
     """
     targets = (
-        resource_types if resource_types else sorted(config.module_mappings.keys())
+        component_types if component_types else sorted(config.module_mappings.keys())
     )
 
-    results: list[ResourceTypeInfo] = []
-    for rt in targets:
-        mapping = config.module_mappings.get(rt)
+    results = []
+    for t in targets:
+        mapping = config.module_mappings.get(t)
         if mapping is None:
-            raise ValueError(
-                f"Resource type '{rt}' is not configured. "
+            raise StacksmithConfigError(
+                f"Component type '{t}' is not configured. "
                 f"Available types: {', '.join(sorted(config.module_mappings.keys()))}"
             )
         results.append(
-            inspect_resource_type(
-                rt,
+            inspect_component_type(
+                t,
                 mapping,
                 config,
                 cache_dir=cache_dir,
@@ -393,7 +400,7 @@ def inspect_plan_policies(
     return policies
 
 
-def format_json(results: list[ResourceTypeInfo], *, details: bool = True) -> str:
+def format_json(results: list[ComponentTypeInfo], *, details: bool = True) -> str:
     """Serialize inspection results to JSON.
 
     Args:
@@ -429,11 +436,11 @@ def format_json(results: list[ResourceTypeInfo], *, details: bool = True) -> str
         if info.tags:
             resource_entry["tags"] = info.tags
         resource_entry["inputs"] = inputs_list
-        output[info.resource_type] = resource_entry
+        output[info.component_type] = resource_entry
     return json.dumps(output, indent=2)
 
 
-def format_yaml(results: list[ResourceTypeInfo], *, details: bool = True) -> str:
+def format_yaml(results: list[ComponentTypeInfo], *, details: bool = True) -> str:
     """Serialize inspection results to YAML.
 
     Args:
@@ -450,7 +457,7 @@ def format_yaml(results: list[ResourceTypeInfo], *, details: bool = True) -> str
 
 
 def format_table(
-    results: list[ResourceTypeInfo],
+    results: list[ComponentTypeInfo],
     *,
     details: bool = True,
     basic: bool = False,
@@ -470,8 +477,8 @@ def format_table(
     for info in results:
         console.print()
         title = info.display_name
-        if info.display_name != info.resource_type:
-            title = f"{info.display_name} [dim]({info.resource_type})[/dim]"
+        if info.display_name != info.component_type:
+            title = f"{info.display_name} [dim]({info.component_type})[/dim]"
         console.print(
             f"[bold]{title}[/bold]  "
             f"[dim]{info.module_source} @ {info.module_version}[/dim]"

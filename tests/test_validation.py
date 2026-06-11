@@ -365,18 +365,18 @@ else:
             ValidationSpec(inline="def validate(value, **context): return 'fail'"),
             "ignored",
             context={
-                "kind": "resource_property",
+                "kind": "component_property",
                 "name": "bucket_name",
-                "resource_name": "web",
-                "resource_type": "aws_s3_bucket",
+                "component_name": "web",
+                "component_type": "aws_s3_bucket",
                 "output_name": "bucket",
             },
         )
 
         assert outcome == InputValidationOutcome.FAIL
-        assert "resource_property" in msg
-        assert "resource_name=web" in msg
-        assert "resource_type=aws_s3_bucket" in msg
+        assert "component_property" in msg
+        assert "component_name=web" in msg
+        assert "component_type=aws_s3_bucket" in msg
         assert "output_name=bucket" in msg
 
 

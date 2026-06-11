@@ -2,6 +2,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from .exceptions import StacksmithConfigError
 from .models import (
     FileReference,
     ModuleSourceReference,
@@ -32,15 +33,15 @@ def _render_file_reference_default(
 
 
 def _render_module_source_terraform(
-    source: ModuleSourceReference, _options: Mapping[str, Any] | None = None
+    source: ModuleSourceReference, options: Mapping[str, Any] | None = None
 ) -> dict[str, str]:
-    return render_module_source_fields(source)
+    return render_module_source_fields(source, options=options)
 
 
 def _render_provider_source_terraform(
-    source: ProviderSourceReference, _options: Mapping[str, Any] | None = None
+    source: ProviderSourceReference, options: Mapping[str, Any] | None = None
 ) -> dict[str, str]:
-    return render_provider_source_fields(source)
+    return render_provider_source_fields(source, options=options)
 
 
 FILE_REFERENCE_FORMATTERS: dict[str, FileReferenceFormatter] = {
@@ -77,11 +78,11 @@ def render_file_reference_for(
         Rendered string for the target.
 
     Raises:
-        ValueError: If the target is not supported.
+        StacksmithConfigError: If the target is not supported.
     """
     formatter = FILE_REFERENCE_FORMATTERS.get(target)
     if formatter is None:
-        raise ValueError(
+        raise StacksmithConfigError(
             f"Unknown file reference formatter target '{target}'. "
             f"Available targets: {', '.join(sorted(FILE_REFERENCE_FORMATTERS))}"
         )
@@ -105,11 +106,11 @@ def render_module_source_for(
         Mapping of module source fields expected by the target.
 
     Raises:
-        ValueError: If the target is not supported.
+        StacksmithConfigError: If the target is not supported.
     """
     formatter = MODULE_SOURCE_FORMATTERS.get(target)
     if formatter is None:
-        raise ValueError(
+        raise StacksmithConfigError(
             f"Unknown module source formatter target '{target}'. "
             f"Available targets: {', '.join(sorted(MODULE_SOURCE_FORMATTERS))}"
         )
@@ -133,11 +134,11 @@ def render_provider_source_for(
         Mapping of provider source fields expected by the target.
 
     Raises:
-        ValueError: If the target is not supported.
+        StacksmithConfigError: If the target is not supported.
     """
     formatter = PROVIDER_SOURCE_FORMATTERS.get(target)
     if formatter is None:
-        raise ValueError(
+        raise StacksmithConfigError(
             f"Unknown provider source formatter target '{target}'. "
             f"Available targets: {', '.join(sorted(PROVIDER_SOURCE_FORMATTERS))}"
         )

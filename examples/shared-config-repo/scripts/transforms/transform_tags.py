@@ -12,6 +12,7 @@ def transform(value: Any, **context: Any) -> dict[str, Any]:
         "managed-by": "stacksmith",
         "example": "bucket-and-ec2",
         "environment": str(inputs.get("environment", "dev")),
+        "id": str(inputs.get("id", "")),
     }
 
     incoming_tags = value if isinstance(value, dict) else {}

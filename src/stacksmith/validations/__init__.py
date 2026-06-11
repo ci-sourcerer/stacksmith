@@ -1,5 +1,3 @@
-"""Internal validation helpers and shared outcome models."""
-
 from .outcomes import (
     InputValidationOutcome,
     PlanValidationOutcome,

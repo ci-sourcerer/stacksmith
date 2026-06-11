@@ -4,7 +4,8 @@ tags:
   - storage
   - example
   - prod
-# Components can carry tag metadata that is usable in --tag and --tag-expr filters.
+# Components can carry tag metadata that is usable in --tag and --tag-expr filters,
+# not just stacks.
 components:
   app_ec2_instance:
     type: aws_ec2_instance

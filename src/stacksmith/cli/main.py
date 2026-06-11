@@ -8,15 +8,18 @@ from pathlib import Path
 from loguru import logger as LOGGER
 from stacksmith.cli.args import (
     _add_common_args,
+    _add_plan_output_args,
     _add_stack_arg,
+    _add_target_selection_args,
     _add_validation_report_format_arg,
     _configure_diagnose_parser,
     _configure_inspect_parser,
     _path_type,
+    get_default_run_file,
     get_default_stack_refs,
 )
 from stacksmith.enums import MergeMode
-from stacksmith.loader import load_runfile
+from stacksmith.loader import load_runfiles
 from stacksmith.models import FileReference
 from stacksmith.remote import is_remote_url, resolve_if_remote
 from stacksmith.utils import stacksmith_env
@@ -148,40 +151,50 @@ def _runfile_cache_dir(args: argparse.Namespace) -> Path:
 
 
 def _load_runfile_if_present(args: argparse.Namespace):
-    run_file_ref = getattr(args, "run_file", None)
-    if not run_file_ref:
+    run_file_refs = list(getattr(args, "runfile", None) or [])
+    if not run_file_refs:
+        default_run_file = get_default_run_file()
+        if default_run_file:
+            run_file_refs = [default_run_file]
+
+    if not run_file_refs:
         return None
 
-    if is_remote_url(run_file_ref):
-        path = resolve_if_remote(run_file_ref, _runfile_cache_dir(args))
-    else:
-        path = Path(run_file_ref).expanduser()
-    return load_runfile(path)
+    resolved_paths = []
+    for run_file_ref in run_file_refs:
+        if is_remote_url(run_file_ref):
+            resolved_paths.append(
+                resolve_if_remote(run_file_ref, _runfile_cache_dir(args))
+            )
+        else:
+            resolved_paths.append(Path(run_file_ref).expanduser())
+
+    return load_runfiles(resolved_paths)
 
 
 def _apply_runfile(args: argparse.Namespace) -> argparse.Namespace:
     if getattr(args, "_runfile_applied", False):
         return args
 
-    run_file = _load_runfile_if_present(args)
-    if run_file is None:
+    runfile = _load_runfile_if_present(args)
+    if runfile is None:
         args._runfile_applied = True
         return args
 
-    if getattr(args, "merge_mode", None) is None and run_file.merge_mode is not None:
-        args.merge_mode = run_file.merge_mode.value
+    if getattr(args, "merge_mode", None) is None and runfile.merge_mode is not None:
+        args.merge_mode = runfile.merge_mode.value
 
-    args.config = [*run_file.configs, *(getattr(args, "config", None) or [])] or None
+    args.config = [*runfile.configs, *(getattr(args, "config", None) or [])] or None
 
-    run_layers = [("vars", item) for item in run_file.vars]
+    run_layers = [("vars", item) for item in runfile.vars]
     run_layers.extend(
-        ("var", f"{name}={json.dumps(value)}") for name, value in run_file.var.items()
+        ("var", f"{name}={json.dumps(value)}") for name, value in runfile.var.items()
     )
     if run_layers:
         args.input_layers = run_layers + list(getattr(args, "input_layers", None) or [])
 
     if hasattr(args, "stack"):
-        stack_refs = [*run_file.stacks, *(getattr(args, "stack", None) or [])]
+        stack_refs = [*runfile.stacks, *(getattr(args, "stack", None) or [])]
         args.stack = stack_refs or None
 
     args._runfile_applied = True
@@ -230,7 +243,7 @@ def _validation_report_format(args: argparse.Namespace) -> ValidationReportForma
 
 def _cmd_validate(args: argparse.Namespace) -> int:
     _apply_runfile(args)
-    return validate_stack(
+    report = validate_stack(
         _stack_arg(args),
         config=args.config,
         vars_file=_vars_arg(args),
@@ -241,11 +254,12 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         merge_mode=_merge_mode_arg(args),
         validation_report_format=_validation_report_format(args),
     )
+    return report["exit_code"]
 
 
 def _cmd_generate(args: argparse.Namespace) -> int:
     _apply_runfile(args)
-    return generate_stack(
+    generate_stack(
         _stack_arg(args),
         config=args.config,
         vars_file=_vars_arg(args),
@@ -255,14 +269,15 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         use_local_modules=args.use_local_modules,
         merge_mode=_merge_mode_arg(args),
     )
+    return 0
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
     _apply_runfile(args)
-    resource_types = args.resource_type if args.resource_type else None
+    component_types = args.component_type if args.component_type else None
     results, plan_policies = inspect_modules(
         config=args.config,
-        resource_types=resource_types,
+        component_types=component_types,
         build_dir=args.build_dir,
         no_cache=args.no_cache,
         merge_mode=_merge_mode_arg(args),
@@ -414,37 +429,14 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_stack_arg(p_run_all, include_positional=False)
     _add_common_args(p_run_all)
     _add_validation_report_format_arg(p_run_all)
-    p_run_all.add_argument(
-        "--destroy",
-        action="store_true",
-        help="Plan destroy operations instead of a create/update when action is plan.",
-    )
-    p_run_all.add_argument(
-        "--save-plan-json",
-        type=_path_type,
-        default=None,
-        help="Save rendered plan JSON for each stack to the given directory when action is plan.",
-    )
-    p_run_all.add_argument(
-        "--fail-on-changes",
-        action="store_true",
-        default=False,
-        help="Return a non-zero exit code if the plan contains any resource changes.",
-    )
-    p_run_all.add_argument(
-        "--tag",
-        action="append",
-        default=None,
-        help=(
-            "Select resources by tag. Repeat to require multiple tags. "
+    _add_plan_output_args(p_run_all)
+    _add_target_selection_args(
+        p_run_all,
+        tag_help=(
+            "Select components by tag. Repeat to require multiple tags. "
             "Supported for run-all plan/apply/destroy."
         ),
-    )
-    p_run_all.add_argument(
-        "--tag-expr",
-        type=str,
-        default=None,
-        help=(
+        tag_expr_help=(
             "JMESPath expression used to select resource targets. "
             "Supported for run-all plan/apply/destroy."
         ),
@@ -487,55 +479,13 @@ def _build_parser() -> argparse.ArgumentParser:
         )
         match action:
             case TerragruntAction.PLAN:
-                p_action.add_argument(
-                    "--destroy",
-                    action="store_true",
-                    default=False,
-                    help="Plan a destroy operation instead of a regular plan.",
-                )
-                p_action.add_argument(
-                    "--save-plan-json",
-                    type=_path_type,
-                    default=None,
-                    help="Save rendered plan JSON to the given file or directory.",
-                )
-                p_action.add_argument(
-                    "--fail-on-changes",
-                    action="store_true",
-                    default=False,
-                    help="Return a non-zero exit code if the plan contains any resource changes.",
-                )
-                p_action.add_argument(
-                    "--tag",
-                    action="append",
-                    default=None,
-                    help="Select resources by tag. Repeat to require multiple tags.",
-                )
-                p_action.add_argument(
-                    "--tag-expr",
-                    type=str,
-                    default=None,
-                    help="JMESPath expression used to select resource targets.",
-                )
+                _add_plan_output_args(p_action)
+                _add_target_selection_args(p_action)
                 _add_validation_report_format_arg(p_action)
             case TerragruntAction.APPLY | TerragruntAction.DESTROY:
-                p_action.add_argument(
-                    "--auto-approve",
-                    action="store_true",
-                    default=False,
-                    help="Skip interactive approval",
-                )
-                p_action.add_argument(
-                    "--tag",
-                    action="append",
-                    default=None,
-                    help="Select resources by tag. Repeat to require multiple tags.",
-                )
-                p_action.add_argument(
-                    "--tag-expr",
-                    type=str,
-                    default=None,
-                    help="JMESPath expression used to select resource targets.",
+                _add_target_selection_args(
+                    p_action,
+                    include_auto_approve=True,
                 )
 
     # info group
@@ -562,7 +512,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """CLI entry point."""
-    if env_files := get_env_file_paths():
+    env_files = get_env_file_paths()
+    if env_files:
         load_env_files(env_files)
 
     parser = _build_parser()
@@ -648,13 +599,13 @@ def main() -> None:
                 parser.print_help(sys.stderr)
                 exit_code = 1
     except FileNotFoundError as exc:
-        LOGGER.error("Error: {exc}", exc=exc)
+        LOGGER.error("{exc}", exc=exc)
         exit_code = 4
     except StacksmithError as exc:
-        LOGGER.error("Error: {exc}", exc=exc)
+        LOGGER.error("{exc}", exc=exc)
         exit_code = 6
     except (ValueError, RuntimeError) as exc:
-        LOGGER.error("Error: {exc}", exc=exc)
+        LOGGER.error("{exc}", exc=exc)
         exit_code = 6
     except KeyboardInterrupt:
         LOGGER.warning("Aborted.")

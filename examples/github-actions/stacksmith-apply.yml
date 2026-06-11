@@ -1,12 +1,5 @@
 name: stacksmith-apply
 
-env:
-  STACKSMITH_GITOPS_ROOT: ${{ vars.STACKSMITH_GITOPS_ROOT || '.' }}
-  STACKSMITH_WORKDIR: ${{ vars.STACKSMITH_WORKDIR || '.' }}
-  STACKSMITH_ENV_FILE: ${{ vars.STACKSMITH_ENV_FILE || '/dev/null' }}
-  STACKSMITH_IMAGE_VERSION: ${{ vars.STACKSMITH_IMAGE_VERSION || 'latest' }}
-  STACKSMITH_APPLY_ARGS: ${{ vars.STACKSMITH_APPLY_ARGS || '' }}
-
 on:
   push:
     branches:
@@ -26,21 +19,26 @@ on:
         description: Relative path to the GitOps root folder.
         required: false
         type: string
+      discovery_mode:
+        description: "Discovery mode. Supported values: folders (default) or flat-files."
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   apply:
-    uses: cisourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main
+    uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main
     with:
       operation: apply
       environments: ${{ github.event.inputs.environments || '' }}
-      gitops_root: ${{ github.event.inputs.gitops_root || env.STACKSMITH_GITOPS_ROOT }}
-      workdir: ${{ env.STACKSMITH_WORKDIR }}
-      env_file: ${{ env.STACKSMITH_ENV_FILE }}
-      image_version: ${{ env.STACKSMITH_IMAGE_VERSION }}
-      apply_args: ${{ env.STACKSMITH_APPLY_ARGS }}
+      gitops_root: ${{ github.event.inputs.gitops_root || vars.STACKSMITH_GITOPS_ROOT || '.' }}
+      discovery_mode: ${{ github.event.inputs.discovery_mode || vars.STACKSMITH_DISCOVERY_MODE || 'folders' }}
+      workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
+      env_file: ${{ vars.STACKSMITH_ENV_FILE || '/dev/null' }}
+      image_version: ${{ vars.STACKSMITH_IMAGE_VERSION || 'latest' }}
+      apply_args: ${{ vars.STACKSMITH_APPLY_ARGS || '' }}
       dockerhub_username: ${{ vars.DOCKERHUB_USERNAME || '' }}
       caller_event_name: ${{ github.event_name }}
       caller_event_before: ${{ github.event.before || '' }}

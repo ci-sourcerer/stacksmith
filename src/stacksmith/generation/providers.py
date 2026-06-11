@@ -9,9 +9,8 @@ from ..models import (
     RemoteAuthConfig,
     ToolConfig,
     parse_provider_instance_reference,
-    render_file_reference,
 )
-from ..remote import is_remote_url, resolve_remote
+from ..remote import resolve_reference_path
 
 
 def _load_provider_config_code(
@@ -28,25 +27,23 @@ def _load_provider_config_code(
             "Provider config data does not require code loading"
         )
     if getattr(spec, "script", None) is not None:
-        script_ref = spec.script
-        if is_remote_url(script_ref):
-            if cache_dir is None:
-                raise StacksmithConfigError(
+        script_path = resolve_reference_path(
+            spec.script,
+            base_path=base_path or Path.cwd(),
+            cache_dir=cache_dir,
+            auth_config=auth_config,
+            missing_cache_error_factory=(
+                lambda script_reference: StacksmithConfigError(
                     "Cannot fetch remote provider config script without a cache directory: "
-                    f"{render_file_reference(script_ref)}"
+                    f"{script_reference}"
                 )
-            script_path = resolve_remote(script_ref, cache_dir, auth_config)
-        else:
-            rendered = render_file_reference(script_ref)
-            script_path = (
-                base_path / rendered
-                if base_path and not Path(rendered).is_absolute()
-                else Path(rendered)
-            )
-        if not script_path.is_absolute():
-            script_path = script_path.resolve()
-        if not script_path.exists():
-            raise StacksmithNotFoundError(f"Script not found: {script_path}")
+            ),
+            not_found_error_factory=(
+                lambda resolved_path: StacksmithNotFoundError(
+                    f"Script not found: {resolved_path}"
+                )
+            ),
+        )
         return script_path.read_text(encoding="utf-8"), str(script_path)
     raise StacksmithConfigError(
         "Provider config spec must define exactly one of 'inline', 'script', or 'data'."
@@ -73,7 +70,7 @@ def _evaluate_provider_config(
         auth_config=auth_config,
     )
     code = textwrap.dedent(code)
-    ns: dict[str, Any] = {}
+    ns = {}
     exec(compile(code, origin, "exec"), ns)  # noqa: S102
     config_fn = ns.get("config")
     if not callable(config_fn):

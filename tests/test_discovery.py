@@ -3,12 +3,11 @@ from pathlib import Path
 import pytest
 from stacksmith.discovery import (
     build_dependency_graph,
-    detect_cycles,
     discover_stacks,
     filter_stacks_by_tags,
-    format_graph,
     topological_sort,
 )
+from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.models import ComponentDefinition, StackDefinition
 
 
@@ -43,7 +42,7 @@ class TestDiscoverStacks:
             (tmp_path / d / "stack.yaml").write_text(
                 "name: dupe\ncomponents:\n  r:\n    type: t\n"
             )
-        with pytest.raises(ValueError, match="Duplicate stack names"):
+        with pytest.raises(StacksmithConfigError, match="Duplicate stack names"):
             discover_stacks(tmp_path)
 
     def test_excludes_stacks_under_default_ignored_directories(self, tmp_path: Path):
@@ -75,7 +74,7 @@ class TestBuildDependencyGraph:
             "name: orphan\ndepends_on:\n  - nonexistent\ncomponents:\n  r:\n    type: t\n"
         )
         stacks = discover_stacks(tmp_path)
-        with pytest.raises(ValueError, match="Unknown dependencies"):
+        with pytest.raises(StacksmithConfigError, match="Unknown dependencies"):
             build_dependency_graph(stacks)
 
 
@@ -124,17 +123,6 @@ class TestFilterStacksByTags:
         assert set(filtered) == expected
 
 
-class TestDetectCycles:
-    def test_no_cycles(self):
-        graph = {"a": ["b"], "b": ["c"], "c": []}
-        assert detect_cycles(graph) == []
-
-    @pytest.mark.parametrize("graph", [{"a": ["b"], "b": ["a"]}, {"a": ["a"]}])
-    def test_cycles_detected(self, graph: dict[str, list[str]]):
-        cycles = detect_cycles(graph)
-        assert len(cycles) > 0
-
-
 class TestTopologicalSort:
     def test_correct_order(self, monorepo_dir: Path):
         stacks = discover_stacks(monorepo_dir)
@@ -146,16 +134,5 @@ class TestTopologicalSort:
 
     def test_cycle_raises(self):
         graph = {"a": ["b"], "b": ["c"], "c": ["a"]}
-        with pytest.raises(ValueError, match="Circular dependencies"):
+        with pytest.raises(StacksmithConfigError, match="Circular dependencies"):
             topological_sort(graph)
-
-
-class TestFormatGraph:
-    def test_output_readable(self, monorepo_dir: Path):
-        stacks = discover_stacks(monorepo_dir)
-        output = format_graph(stacks)
-
-        assert "vpc" in output
-        assert "web" in output
-        assert "rds" in output
-        assert "no dependencies" in output

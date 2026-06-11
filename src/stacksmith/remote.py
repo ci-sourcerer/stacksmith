@@ -1,7 +1,7 @@
 import os
-import re
 import shutil
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -18,6 +18,7 @@ from .utils import cache_key as _cache_key
 from .utils import (
     clone_git_repo,
     env_truthy,
+    parse_git_plus_reference,
 )
 from .utils import resolve_git_env as _resolve_git_env
 from .utils import (
@@ -28,12 +29,6 @@ if TYPE_CHECKING:
     from .models import FileReference, RemoteAuthConfig
 
 _REMOTE_PREFIXES = ("http://", "https://", "git+https://", "git+ssh://")
-
-_GIT_URL_RE = re.compile(
-    r"^git\+(?P<repo_url>https?://[^/]+/[^@]+?|ssh://[^/]+/[^@]+?)"
-    r"//(?P<path>[^@]+)"
-    r"(?:@(?P<ref>.+))?$"
-)
 
 
 @dataclass(frozen=True)
@@ -46,7 +41,7 @@ class GitRef:
 
 
 def is_remote_url(reference: str | Path | "FileReference") -> bool:
-    """Return True when `reference` is a remote URL or structured remote ref."""
+    """Return `True` when `reference` is a remote URL or structured remote ref."""
     if is_file_reference_remote(reference):
         return True
     normalized = render_file_reference(reference)
@@ -68,19 +63,75 @@ def parse_git_url(url: str) -> GitRef:
         Parsed GitRef with repo_url, path, and optional ref.
 
     Raises:
-        ValueError: If the URL does not match the expected format.
+        StacksmithRemoteError: If the URL does not match the expected format.
     """
-    m = _GIT_URL_RE.match(url)
-    if not m:
-        raise StacksmithRemoteError(
-            f"Invalid git URL format: {url}. "
-            "Expected: git+<proto>://<host>/<repo>//path[@ref]"
-        )
-    return GitRef(
-        repo_url=m.group("repo_url"),
-        path=m.group("path"),
-        ref=m.group("ref"),
-    )
+    try:
+        repo_url, path, ref = parse_git_plus_reference(url)
+    except ValueError as exc:
+        raise StacksmithRemoteError(str(exc)) from exc
+    return GitRef(repo_url=repo_url, path=path, ref=ref)
+
+
+def resolve_reference_path(
+    reference: str | Path | "FileReference",
+    *,
+    base_path: Path | None,
+    cache_dir: Path | None = None,
+    auth_config: "RemoteAuthConfig | None" = None,
+    missing_cache_error_factory: Callable[[str], Exception] | None = None,
+    relative_path_error_factory: Callable[[str], Exception] | None = None,
+    not_found_error_factory: Callable[[Path], Exception] | None = None,
+) -> Path:
+    """Resolve a local/remote reference into an existing local filesystem path.
+
+    Args:
+        reference: Local path, structured file reference, or remote URL.
+        base_path: Base directory used for resolving relative local paths.
+        cache_dir: Cache directory required for remote references.
+        auth_config: Optional host-keyed auth configuration for remote fetching.
+        missing_cache_error_factory: Optional callback used to raise a custom
+            exception when `cache_dir` is required but not provided.
+        relative_path_error_factory: Optional callback used to raise a custom
+            exception when resolving a relative local path requires `base_path`.
+        not_found_error_factory: Optional callback used to raise a custom
+            exception when the resolved path does not exist.
+
+    Returns:
+        Resolved local path.
+
+    Raises:
+        StacksmithRemoteError: If a remote reference cannot be resolved due to
+            missing cache configuration.
+        StacksmithNotFoundError: If the resolved local path does not exist.
+    """
+    rendered = render_file_reference(reference)
+    if is_remote_url(reference):
+        if cache_dir is None:
+            if missing_cache_error_factory is not None:
+                raise missing_cache_error_factory(rendered)
+            raise StacksmithRemoteError(
+                "Cannot fetch remote reference without a cache directory: "
+                f"{rendered}"
+            )
+        return resolve_remote(reference, cache_dir, auth_config)
+
+    local_path = Path(rendered)
+    if not local_path.is_absolute():
+        if base_path is None:
+            if relative_path_error_factory is not None:
+                raise relative_path_error_factory(rendered)
+            raise StacksmithRemoteError(
+                f"Cannot resolve relative local path without a base path: {rendered}"
+            )
+        local_path = base_path / local_path
+
+    resolved_path = local_path.resolve()
+    if not resolved_path.exists():
+        if not_found_error_factory is not None:
+            raise not_found_error_factory(resolved_path)
+        raise StacksmithNotFoundError(f"Reference not found: {resolved_path}")
+
+    return resolved_path
 
 
 def _resolve_auth_headers(
@@ -323,7 +374,7 @@ def resolve_if_remote(
 ) -> Path:
     """Return a local `Path` — fetching first when the reference is a remote URL.
 
-    For local paths the string is returned as-is wrapped in a `Path`.  For
+    For local paths the string is returned as-is wrapped in a `Path`. For
     remote URLs the resource is fetched (or served from cache) and the cached
     path is returned.
 

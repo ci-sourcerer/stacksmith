@@ -6,11 +6,8 @@ from loguru import logger as LOGGER
 
 from .utils import cache_key
 
-#: Default root directory for vendored modules inside the container image.
 DEFAULT_VENDOR_DIR = Path("/workspace/.stacksmith/modules")
-#: Environment variable to override the vendor directory.
 VENDOR_DIR_ENV = "STACKSMITH_VENDOR_DIR"
-#: Manifest filename written alongside vendored module directories.
 MANIFEST_FILENAME = "vendor-manifest.json"
 
 
@@ -45,14 +42,15 @@ def vendor_path(source: str, version: str, vendor_dir: Path | None = None) -> Pa
     Args:
         source: Module source string from the config.
         version: Module version string from the config.
-        vendor_dir: Root directory containing all vendored modules.
-            If omitted, the environment variable `STACKSMITH_VENDOR_DIR`
-            overrides the embedded default.
+        vendor_dir: Root directory containing all vendored modules. If omitted, the
+            environment variable `STACKSMITH_VENDOR_DIR` overrides the embedded default.
 
     Returns:
         Path to the expected vendored module directory.
     """
-    vendor_dir = vendor_dir or get_vendor_dir()
+    if vendor_dir is None:
+        vendor_dir = get_vendor_dir()
+
     return vendor_dir / vendor_key(source, version)
 
 
@@ -63,19 +61,17 @@ def resolve_module_source(
 
     When the vendored directory for the given *source* and *version* exists,
     this returns a local filesystem path that OpenTofu accepts as a module
-    source.  If the directory does not exist, a `FileNotFoundError` is raised
-    so the caller can fail fast.
+    source.
 
     Args:
         source: Original remote module source from the config.
         version: Module version from the config.
-        vendor_dir: Root directory containing all vendored modules.
-            If omitted, the environment variable `STACKSMITH_VENDOR_DIR`
-            overrides the embedded default.
+        vendor_dir: Root directory containing all vendored modules. If omitted, the
+            environment variable `STACKSMITH_VENDOR_DIR` overrides the embedded default.
 
     Returns:
         Local filesystem path string suitable for the `source` field in
-        generated `main.tf.json`.
+        generated `stacksmith.tf.json`.
 
     Raises:
         FileNotFoundError: If the expected vendored module directory is absent.
@@ -107,8 +103,10 @@ def write_vendor_manifest(
     Returns:
         Path to the written manifest file.
     """
-    vendor_dir = vendor_dir or get_vendor_dir()
-    entries: dict[str, dict[str, str]] = {}
+    if vendor_dir is None:
+        vendor_dir = get_vendor_dir()
+
+    entries = {}
     for module_type, (source, version) in modules.items():
         key = vendor_key(source, version)
         entries[key] = {
@@ -137,6 +135,11 @@ def load_vendor_manifest(vendor_dir: Path | None = None) -> dict[str, dict[str, 
     Raises:
         FileNotFoundError: If the manifest file does not exist.
     """
-    vendor_dir = vendor_dir or get_vendor_dir()
+    if vendor_dir is None:
+        vendor_dir = get_vendor_dir()
+
     manifest_path = vendor_dir / MANIFEST_FILENAME
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"Vendor manifest not found at {manifest_path}")
+
     return json.loads(manifest_path.read_text(encoding="utf-8"))

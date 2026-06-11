@@ -1,0 +1,61 @@
+# Shared environment-aware service manifest.
+# Environment-specific values are provided through vars files like vars/vars.dev.yaml
+# and vars/vars.prod.yaml, including the `environment` input.
+
+components:
+  app_ec2_instance:
+    tags:
+      - "{{ inputs.environment }}"
+    properties:
+      name: "{{ inputs.environment }}-writer"
+      create_iam_instance_profile: true
+      create_security_group: true
+      metadata_options:
+        http_tokens: required
+        http_endpoint: enabled
+      monitoring: true
+  frontend_release:
+    type: helm_app
+    tags:
+      - app
+      - web
+    properties:
+      chart: ingress-nginx
+      repository: https://kubernetes.github.io/ingress-nginx
+      version: "4.11.3"
+      namespace: "{{ inputs.environment }}"
+      values_files:
+        - "examples/gitops-repo/manifests/environments/{{ inputs.environment }}/frontend-values.yaml"
+  app_config:
+    type: k8s_app
+    tags:
+      - app
+      - config
+    properties:
+      namespace: "{{ inputs.environment }}"
+      manifest_files:
+        - "examples/gitops-repo/manifests/environments/{{ inputs.environment }}/app-config.yaml"
+  deploy_command:
+    type: command_runner
+    tags:
+      - maintenance
+    properties:
+      command_name: deploy
+      cwd: /tmp
+      vars:
+        APP_ENV: "{{ inputs.environment }}"
+        RELEASE_TAG: "{{ inputs.deployment_name }}"
+        DEPLOYMENT_TAGS: "{{ inputs.deployment_tags }}"
+  logs_bucket:
+    type: aws_s3_bucket
+    tags:
+      - logs
+    properties:
+      versioning_enabled: true
+      block_public_acls: true
+      block_public_policy: true
+      ignore_public_acls: true
+      restrict_public_buckets: true
+      control_object_ownership: true
+      object_ownership: BucketOwnerEnforced
+      attach_deny_insecure_transport_policy: true

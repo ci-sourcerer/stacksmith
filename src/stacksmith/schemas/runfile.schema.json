@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://stacksmith.dev/schemas/runfile.schema.json",
-  "title": "Stacksmith Run File",
+  "title": "Stacksmith runfile",
   "description": "Defines a reproducible Stacksmith invocation with layered stack, config, and variable inputs.",
   "type": "object",
   "additionalProperties": false,

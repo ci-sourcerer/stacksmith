@@ -11,8 +11,8 @@ on:
         description: Deployment environment name.
         required: true
         type: string
-      run_file:
-        description: Path or URL to the Stacksmith run file for this environment.
+      runfile:
+        description: Path or URL to the Stacksmith runfile for this environment.
         required: true
         type: string
       workdir:
@@ -92,7 +92,7 @@ jobs:
 
           stacksmith plan \
               --env-file "${{ inputs.env_file }}" \
-              --run-file "${{ inputs.run_file }}" \
+              --runfile "${{ inputs.runfile }}" \
               --save-plan-json "$artifact_dir/plan.json" \
               --validation-report-format "${{ inputs.validation_report_format }}" \
               ${{ inputs.stacksmith_args }} \
@@ -113,7 +113,7 @@ jobs:
               echo "## Stacksmith Plan"
               echo ""
               echo "- Environment: `${{ inputs.environment }}`"
-              echo "- Run file: `${{ inputs.run_file }}`"
+              echo "- Runfile: `${{ inputs.runfile }}`"
               echo "- Operation: `plan`"
               echo "- Report: `.stacksmith-ci/${{ inputs.environment }}/validation-report.${{ inputs.validation_report_format }}`"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -143,7 +143,7 @@ jobs:
           set -euo pipefail
           stacksmith apply \
               --env-file "${{ inputs.env_file }}" \
-              --run-file "${{ inputs.run_file }}" \
+              --runfile "${{ inputs.runfile }}" \
               --auto-approve \
               ${{ inputs.stacksmith_args }}
 
@@ -153,6 +153,6 @@ jobs:
               echo "## Stacksmith Apply"
               echo ""
               echo "- Environment: `${{ inputs.environment }}`"
-              echo "- Run file: `${{ inputs.run_file }}`"
+              echo "- Runfile: `${{ inputs.runfile }}`"
               echo "- Operation: `apply`"
           } >> "$GITHUB_STEP_SUMMARY"

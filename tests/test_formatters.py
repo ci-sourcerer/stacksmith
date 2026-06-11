@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.formatters import (
     render_file_reference_for,
     render_module_source_for,
@@ -8,6 +9,7 @@ from stacksmith.formatters import (
 )
 from stacksmith.models import (
     GitReference,
+    LocalModuleSourceReference,
     LocalReference,
     ModuleGitSourceReference,
     ProviderSourceReference,
@@ -82,6 +84,20 @@ def test_render_module_source_for_terraform_registry_source():
     }
 
 
+def test_render_module_source_for_terraform_local_source_with_base_path():
+    rendered = render_module_source_for(
+        "terraform",
+        LocalModuleSourceReference(
+            source="local",
+            data={"path": "examples/modules/helm_app"},
+        ),
+        options={"base_path": "."},
+    )
+
+    assert rendered == {"source": str(Path("examples/modules/helm_app").resolve())}
+    assert "version" not in rendered
+
+
 def test_render_provider_source_for_terraform_registry_source():
     rendered = render_provider_source_for(
         "terraform",
@@ -100,8 +116,27 @@ def test_render_provider_source_for_terraform_registry_source():
     }
 
 
+def test_render_provider_source_for_terraform_registry_source_with_options():
+    rendered = render_provider_source_for(
+        "terraform",
+        ProviderSourceReference(
+            source="registry",
+            data={
+                "address": "hashicorp/aws",
+                "version": "~> 6.0",
+            },
+        ),
+        options={"unused": True},
+    )
+
+    assert rendered == {
+        "source": "hashicorp/aws",
+        "version": "~> 6.0",
+    }
+
+
 def test_render_module_source_for_unknown_target_raises_error():
-    with pytest.raises(ValueError, match="Unknown module source formatter"):
+    with pytest.raises(StacksmithConfigError, match="Unknown module source formatter"):
         render_module_source_for(
             "unknown",
             RegistrySourceReference(

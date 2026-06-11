@@ -204,3 +204,50 @@ module_mappings:
             source: local
             data:
               path: scripts/transforms/transform_tags.py
+
+  helm_app:
+    description: Helm-style app deployment
+    source:
+      source: local
+      data:
+        path: ../modules/helm_app
+    auto_inject: true
+    properties:
+      version:
+        mapped_to: chart_version
+
+  k8s_app:
+    description: Kubernetes manifest delivery
+    source:
+      source: local
+      data:
+        path: ../modules/kubernetes_app
+    auto_inject: true
+
+  command_runner:
+    description: Approved command execution
+    source:
+      source: local
+      data:
+        path: ../modules/command_runner
+    properties:
+      command_name:
+        mapped_to: command_name
+        validation:
+          inline: |
+            def validate(value, **context):
+                approved = {"deploy", "migrate", "prune"}
+                if not isinstance(value, str):
+                    return {"status": "fail", "message": "command_name must be a string"}
+                if value not in approved:
+                    return {
+                        "status": "fail",
+                        "message": f"command_name must be one of {sorted(approved)}",
+                    }
+                return "pass"
+      cwd:
+        mapped_to: cwd
+      env:
+        mapped_to: env
+      vars:
+        mapped_to: vars
