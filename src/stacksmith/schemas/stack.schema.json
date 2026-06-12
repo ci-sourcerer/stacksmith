@@ -63,7 +63,10 @@
             "additionalProperties": true,
             "description": "Properties passed as inputs to the module. Values may contain Jinja2 expressions."
           }
-        }
+        },
+        "required": [
+          "type"
+        ]
       },
       "description": "Component definitions. Keys are component names, values specify type and properties."
     }

@@ -4,6 +4,7 @@
 
 components:
   app_ec2_instance:
+    type: aws_ec2_instance
     tags:
       - "{{ inputs.environment }}"
     properties:
