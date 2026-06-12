@@ -14,10 +14,18 @@ class FakeVersionResult:
         self.stderr = stderr
 
 
+def _command_name(cmd: list[str]) -> str:
+    return Path(cmd[0]).name if cmd else ""
+
+
+def _matches_command(cmd: list[str], tool_name: str, *args: str) -> bool:
+    return _command_name(cmd) == tool_name and cmd[1 : 1 + len(args)] == list(args)
+
+
 def _supported_tool_version_result(cmd: list[str]) -> FakeVersionResult | None:
-    if cmd[:2] == ["terragrunt", "--version"]:
+    if _matches_command(cmd, "terragrunt", "--version"):
         return FakeVersionResult(returncode=0, stdout="terragrunt version v1.5.0")
-    if cmd[:2] == ["tofu", "-version"]:
+    if _matches_command(cmd, "tofu", "-version"):
         return FakeVersionResult(returncode=0, stdout="tofu v1.5.0")
     return None
 
@@ -275,7 +283,8 @@ def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path)
     )
 
     assert exit_code == 0
-    assert calls["plan_cmd"] == ["terragrunt", "plan"]
+    assert calls["plan_cmd"][1:] == ["plan"]
+    assert Path(calls["plan_cmd"][0]).name == "terragrunt"
     assert calls["args"] == ["plan"]
     assert calls["working_dir"] == tmp_path
     assert calls["stack_name"] == "web"
@@ -294,7 +303,9 @@ def test_run_terragrunt_plan_destroy_skips_plan_validations(monkeypatch, tmp_pat
         returncode = 0
 
     def _fake_subprocess_run(cmd, **kwargs):
-        if cmd[:2] == ["terragrunt", "--version"] or cmd[:2] == ["tofu", "-version"]:
+        if _matches_command(cmd, "terragrunt", "--version") or _matches_command(
+            cmd, "tofu", "-version"
+        ):
             return _supported_tool_version_result(cmd)
         return FakeVersionResult(returncode=0, stdout="terragrunt plan simulated")
 
@@ -322,11 +333,13 @@ def test_run_terragrunt_strict_warning_mode_fails_on_warning(monkeypatch, tmp_pa
             self.stderr = stderr
 
     def _fake_subprocess_run(cmd, **kwargs):
-        if cmd[:2] == ["terragrunt", "--version"] or cmd[:2] == ["tofu", "-version"]:
+        if _matches_command(cmd, "terragrunt", "--version") or _matches_command(
+            cmd, "tofu", "-version"
+        ):
             return _supported_tool_version_result(cmd)
-        if cmd[:2] == ["terragrunt", "plan"]:
+        if _matches_command(cmd, "terragrunt", "plan"):
             return FakeResult(returncode=0)
-        if cmd[:3] == ["terragrunt", "show", "-json"]:
+        if _matches_command(cmd, "terragrunt", "show", "-json"):
             return FakeResult(returncode=0, stdout='{"planned_values": {"ok": true}}')
         raise AssertionError(f"Unexpected command: {cmd}")
 
@@ -370,11 +383,13 @@ def test_run_terragrunt_delegates_plan_result_processing(monkeypatch, tmp_path):
     calls: dict[str, object] = {}
 
     def _fake_subprocess_run(cmd, **kwargs):
-        if cmd[:2] == ["terragrunt", "--version"] or cmd[:2] == ["tofu", "-version"]:
+        if _matches_command(cmd, "terragrunt", "--version") or _matches_command(
+            cmd, "tofu", "-version"
+        ):
             return _supported_tool_version_result(cmd)
-        if cmd[:2] == ["terragrunt", "plan"]:
+        if _matches_command(cmd, "terragrunt", "plan"):
             return FakeResult(returncode=0)
-        if cmd[:3] == ["terragrunt", "show", "-json"]:
+        if _matches_command(cmd, "terragrunt", "show", "-json"):
             return FakeResult(returncode=0, stdout='{"planned_values": {"ok": true}}')
         raise AssertionError(f"Unexpected command: {cmd}")
 
@@ -431,12 +446,14 @@ def test_run_terragrunt_saves_plan_json(monkeypatch, tmp_path):
     calls: list[list[str]] = []
 
     def _fake_subprocess_run(cmd, **kwargs):
-        if cmd[:2] == ["terragrunt", "--version"] or cmd[:2] == ["tofu", "-version"]:
+        if _matches_command(cmd, "terragrunt", "--version") or _matches_command(
+            cmd, "tofu", "-version"
+        ):
             return _supported_tool_version_result(cmd)
         calls.append(cmd)
-        if cmd[:2] == ["terragrunt", "plan"]:
+        if _matches_command(cmd, "terragrunt", "plan"):
             return FakeResult(returncode=0)
-        if cmd[:3] == ["terragrunt", "show", "-json"]:
+        if _matches_command(cmd, "terragrunt", "show", "-json"):
             return FakeResult(returncode=0, stdout='{"planned_values": {"ok": true}}')
         raise AssertionError(f"Unexpected command: {cmd}")
 
@@ -465,11 +482,13 @@ def test_run_terragrunt_fail_on_changes(monkeypatch, tmp_path):
             self.stderr = stderr
 
     def _fake_subprocess_run(cmd, **kwargs):
-        if cmd[:2] == ["terragrunt", "--version"] or cmd[:2] == ["tofu", "-version"]:
+        if _matches_command(cmd, "terragrunt", "--version") or _matches_command(
+            cmd, "tofu", "-version"
+        ):
             return _supported_tool_version_result(cmd)
-        if cmd[:2] == ["terragrunt", "plan"]:
+        if _matches_command(cmd, "terragrunt", "plan"):
             return FakeResult(returncode=0)
-        if cmd[:3] == ["terragrunt", "show", "-json"]:
+        if _matches_command(cmd, "terragrunt", "show", "-json"):
             return FakeResult(
                 returncode=0,
                 stdout='{"resource_changes": [{"address": "aws_s3_bucket.example", "change": {"actions": ["create"]}}]}',
@@ -498,11 +517,13 @@ def test_run_terragrunt_fail_on_changes_no_change(monkeypatch, tmp_path):
             self.stderr = stderr
 
     def _fake_subprocess_run(cmd, **kwargs):
-        if cmd[:2] == ["terragrunt", "--version"] or cmd[:2] == ["tofu", "-version"]:
+        if _matches_command(cmd, "terragrunt", "--version") or _matches_command(
+            cmd, "tofu", "-version"
+        ):
             return _supported_tool_version_result(cmd)
-        if cmd[:2] == ["terragrunt", "plan"]:
+        if _matches_command(cmd, "terragrunt", "plan"):
             return FakeResult(returncode=0)
-        if cmd[:3] == ["terragrunt", "show", "-json"]:
+        if _matches_command(cmd, "terragrunt", "show", "-json"):
             return FakeResult(
                 returncode=0,
                 stdout='{"resource_changes": [{"address": "aws_s3_bucket.example", "change": {"actions": ["no-op"]}}]}',
@@ -549,19 +570,23 @@ def test_run_terragrunt_all_ordered_saves_stack_specific_plan_json(
 
 
 def test_check_required_tool_versions_runs_both_tools(monkeypatch):
-    calls: list[list[str]] = []
+    calls: list[object] = []
 
-    def _fake_subprocess_run(cmd, **kwargs):
-        calls.append(cmd)
-        return FakeVersionResult(returncode=0, stdout=f"{cmd[0]} version v1.5.0")
+    def _fake_resolve_toolchain(*args, **kwargs):
+        calls.append((args, kwargs))
+        return runner.ResolvedToolchain(tofu="/tmp/tofu", terragrunt="/tmp/terragrunt")
 
-    monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
+    monkeypatch.setattr(runner, "resolve_toolchain", _fake_resolve_toolchain)
     runner._TOOL_VERSION_CHECKED = False
 
     runner._check_required_tool_versions()
 
-    assert ["terragrunt", "--version"] in calls
-    assert ["tofu", "-version"] in calls
+    assert len(calls) == 1
+    assert calls[0][0] == (None, None, None)
+    assert calls[0][1]["subprocess_module"] is runner.subprocess
+    assert runner._RESOLVED_TOOLCHAIN.tofu == "/tmp/tofu"
+    assert runner._RESOLVED_TOOLCHAIN.terragrunt == "/tmp/terragrunt"
+    assert runner._TOOL_VERSION_CHECKED is True
 
 
 def test_check_required_tool_versions_skips_when_disabled(monkeypatch):
