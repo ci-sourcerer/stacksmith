@@ -69,7 +69,7 @@ def _coerce_legacy_file_reference(
 
     if value.startswith("git+"):
         repo, file_path, ref = _parse_legacy_git_url(value)
-        payload: dict[str, Any] = {
+        payload = {
             "source": "git",
             "data": {"repo": repo, "path": file_path},
         }
@@ -147,7 +147,7 @@ def _coerce_legacy_module_source(
                 f"Module '{module_name}' git source requires a non-empty version/ref"
             )
         repo, module_path = _parse_legacy_module_git_source(source)
-        payload: dict[str, Any] = {"repo": repo, "ref": version}
+        payload = {"repo": repo, "ref": version}
         if module_path:
             payload["path"] = module_path
         module["source"] = {

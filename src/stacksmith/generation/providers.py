@@ -113,7 +113,7 @@ def _build_provider_blocks(
 ) -> dict[str, list[dict[str, Any]]]:
     provider_blocks: dict[str, list[dict[str, Any]]] = {}
     for provider_name, provider_family in config.provider_mappings.items():
-        instances: list[dict[str, Any]] = []
+        instances = []
         if "default" not in provider_family.instances:
             instances.append({})
         for instance_name, instance in provider_family.instances.items():

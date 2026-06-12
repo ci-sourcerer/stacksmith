@@ -414,7 +414,7 @@ def format_json(results: list[ComponentTypeInfo], *, details: bool = True) -> st
     for info in results:
         inputs_list = []
         for inp in info.inputs:
-            entry: dict[str, Any] = {
+            entry = {
                 "name": inp.name,
                 "module_variable": inp.module_variable,
             }
@@ -427,7 +427,7 @@ def format_json(results: list[ComponentTypeInfo], *, details: bool = True) -> st
                 if inp.transform:
                     entry["transform"] = inp.transform
             inputs_list.append(entry)
-        resource_entry: dict[str, Any] = {
+        resource_entry = {
             "module_source": info.module_source,
             "module_version": info.module_version,
             "display_name": info.display_name,

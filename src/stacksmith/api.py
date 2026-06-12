@@ -501,8 +501,8 @@ def _resolve_stacks_for_generation(
 ) -> dict[str, StackDefinition]:
     """Resolve the stack set for generation, including explicit ref deduplication."""
     if stack_refs:
-        stacks: dict[str, StackDefinition] = {}
-        duplicates: list[str] = []
+        stacks = {}
+        duplicates = []
         for stack_path in _resolve_stack_paths(stack_refs, cache_dir):
             stack = load_stack(stack_path, merge_mode=merge_mode)
             if stack.name in stacks:
@@ -1209,7 +1209,7 @@ def run_all_stacks(
     stack_args_by_name: dict[str, list[str]] | None = None
     plan_validation_results: list[PlanValidationResult] = []
     if tags or tag_expr:
-        filtered_stack_dirs: dict[str, Path] = {}
+        filtered_stack_dirs = {}
         stack_args_by_name = {}
         for stack_name, stack_dir in stack_build_dirs.items():
             _, _, targets = _resolve_tag_targets(

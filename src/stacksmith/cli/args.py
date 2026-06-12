@@ -30,7 +30,7 @@ class _OrderedInputAction(argparse.Action):
         parser: argparse.ArgumentParser,
         namespace: argparse.Namespace,
         values: str,
-        option_string: str | None = None,
+        option_string = None,
     ) -> None:
         current_values = list(getattr(namespace, self.dest) or [])
         current_values.append(values)

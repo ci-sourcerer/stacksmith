@@ -50,7 +50,7 @@ def generate_terragrunt_json(
     }
 
     if stack.depends_on:
-        deps: dict[str, Any] = {}
+        deps = {}
         for dep_name in stack.depends_on:
             dep_stack = dependency_stacks.get(dep_name)
             dep_build_dir = dependency_build_dirs.get(dep_name)
@@ -59,7 +59,7 @@ def generate_terragrunt_json(
             if dep_build_dir:
                 config_path = str(dep_build_dir)
 
-            dep_block: dict[str, Any] = {"config_path": config_path}
+            dep_block = {"config_path": config_path}
             if dep_stack and dep_stack.mock_outputs:
                 dep_block["mock_outputs"] = dep_stack.mock_outputs
                 dep_block["mock_outputs_allowed_terraform_commands"] = [

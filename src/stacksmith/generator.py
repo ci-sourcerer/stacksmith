@@ -257,7 +257,7 @@ def _generate_module_blocks(
                 "Module mapping for component '{component_name}' has auto_inject enabled",
             )
 
-        module_block: dict[str, Any] = {}
+        module_block = {}
         source_options = dict(module_source_formatter_options or {})
         if config.source_path is not None:
             source_options.setdefault("base_path", config.source_path.parent)

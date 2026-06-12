@@ -65,7 +65,7 @@ def _format_validation_error(
     if context:
         kind = context.get("kind")
         name = context.get("name")
-        details: list[str] = []
+        details = []
         if kind:
             details.append(kind)
         if name:
