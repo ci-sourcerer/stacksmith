@@ -30,6 +30,9 @@ examples/
       common/
         platform.stack.yaml
         service.stack.yaml
+        .stacksmith/
+          stacksmith.tf.json
+          terragrunt.hcl.json
       environments/
         dev/
           app-config.yaml
@@ -38,16 +41,23 @@ examples/
           app-config.yaml
           frontend-values.yaml
     vars/
-      dev.yaml
-      prod.yaml
+      vars.dev.yaml
+      vars.prod.yaml
   stack-repo/
     bucket-and-ec2/
       stack.yaml
       vars.dev.yaml
       .stacksmith/
+        stacksmith.tf.json
+        terragrunt.hcl.json
+    .stacksmith/
+      bucket-and-ec2/
   shared-config-repo/
     stacksmith-config.yaml
     scripts/
+      providers/
+        aws_identity.py
+        configure_aws_secondary_provider.py
       transforms/
       validations/
 ```
@@ -334,12 +344,13 @@ High-value flags for this example workflow.
 
 ## Generated output
 
-Generated files are written under
-`examples/stack-repo/bucket-and-ec2/.stacksmith`.
+For single-stack operations, generated files are written under `examples/stack-repo/bucket-and-ec2/.stacksmith`.
 
-You can override this location with `--build-dir`.
+When using `run-all` commands, generated files are organized as `examples/stack-repo/.stacksmith/<stack-name>/`.
 
-Notable files are `stacksmith.tf.json` and `terragrunt.hcl.json`.
+You can override the default build directory location with `--build-dir`.
+
+Notable generated files include `stacksmith.tf.json` and `terragrunt.hcl.json`.
 
 ## Security posture demonstrated
 
