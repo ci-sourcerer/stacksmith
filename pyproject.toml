@@ -39,26 +39,29 @@ CONTAINER_BUILD_ARGS="APT_PACKAGES=git"
 CONTAINER_DEPS_FILE = "Dockerfile.deps"
 CONTAINER_DEPS_MOVE_SCRIPT_PATH = "scripts/move_deps.sh"
 
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stacksmith"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/stacksmith", "README.md", "LICENSE"]
+
 [project.scripts]
 stacksmith = "stacksmith.cli.main:main"
-
-[build-system]
-requires = ["poetry-core>=2.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.poetry]
-packages = [{ include = "stacksmith", from = "src" }]
-version = "0.0.0"
-
-[tool.poetry.requires-plugins]
-poetry-dynamic-versioning = { version = ">=1.0.0,<2.0.0", extras = ["plugin"] }
-poetry-plugin-export = { version = ">=1.9.0,<2.0.0" }
 
 [dependency-groups]
 debug = ["debugpy (>=1.8.16,<2.0.0)", "jmespath (>=1.1.0,<2.0.0)"]
 dev = ["common-python-tasks (>=0.4.0,<0.5.0)", "boto3 (>=1.43.14,<2.0.0)", "botocore[crt] (>=1.43.15,<2.0.0)"]
 
-[tool.poetry-dynamic-versioning]
-enable = true
+[build-system]
+requires = ["hatchling>=1.27.0", "uv-dynamic-versioning>=0.14.0"]
+build-backend = "hatchling.build"
+
+[tool.uv-dynamic-versioning]
 style = "pep440"
 dirty = true
+
+[tool.uv]
+package = true
