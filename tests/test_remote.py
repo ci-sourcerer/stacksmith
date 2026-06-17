@@ -58,9 +58,9 @@ def test_is_remote_url_false(ref: str):
 
 
 def test_is_remote_url_true_for_git_plus_string():
-    assert is_remote_url(
-        "git+https://github.com/org/repo.git//path/file.py@main"
-    ) is True
+    assert (
+        is_remote_url("git+https://github.com/org/repo.git//path/file.py@main") is True
+    )
 
 
 def test_cache_key_deterministic():
@@ -237,7 +237,11 @@ def test_resolve_remote_git_plus_string(tmp_path, monkeypatch):
     ):
         mock_run.return_value = SimpleNamespace(returncode=0, stderr="")
 
-        clone_dir = tmp_path / "git" / f"{_cache_key('https://github.com/org/repo.git')}-{_cache_key('main')}"
+        clone_dir = (
+            tmp_path
+            / "git"
+            / f"{_cache_key('https://github.com/org/repo.git')}-{_cache_key('main')}"
+        )
         clone_dir.mkdir(parents=True)
         (clone_dir / "scripts").mkdir()
         (clone_dir / "scripts" / "validate.py").write_text("print('ok')")

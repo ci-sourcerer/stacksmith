@@ -50,7 +50,12 @@ def _redact_sensitive_plan_value(value: Any, sensitivity: Any = None) -> Any:
             if isinstance(current_value, dict):
                 num_keys = len(current_value)
                 items_reversed = [value_stack.pop() for _ in range(num_keys)]
-                result = {k: v for k, v in zip(reversed(current_value.keys()), reversed(items_reversed))}
+                result = {
+                    k: v
+                    for k, v in zip(
+                        reversed(current_value.keys()), reversed(items_reversed)
+                    )
+                }
             elif isinstance(current_value, list):
                 num_items = len(current_value)
                 items = []
@@ -69,13 +74,19 @@ def _redact_sensitive_plan_value(value: Any, sensitivity: Any = None) -> Any:
             # Mark for return visit, then push all children in reverse order
             stack.append((current_value, current_sens, True))
             for key in reversed(current_value.keys()):
-                child_sens = current_sens.get(key) if isinstance(current_sens, dict) else None
+                child_sens = (
+                    current_sens.get(key) if isinstance(current_sens, dict) else None
+                )
                 stack.append((current_value[key], child_sens, False))
         elif isinstance(current_value, list):
             # Mark for return visit, then push all children in reverse order
             stack.append((current_value, current_sens, True))
             for i in reversed(range(len(current_value))):
-                child_sens = current_sens[i] if isinstance(current_sens, list) and i < len(current_sens) else None
+                child_sens = (
+                    current_sens[i]
+                    if isinstance(current_sens, list) and i < len(current_sens)
+                    else None
+                )
                 stack.append((current_value[i], child_sens, False))
         else:
             value_stack.append(current_value)
