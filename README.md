@@ -777,3 +777,21 @@ poe build-image \
 - Using a monorepo and concerned about who can edit what? Use GitHub's [CODEOWNERS](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners) file to restrict write access to certain stack files while allowing broader read access. Similarly, the managed config can be locked down to a small team of platform engineers, while the validation policies themselves can be tightly controlled by a security team.
 - Doing a lot of `get` calls on dictionaries in your validation scripts? Try using `jmespath` instead to query complex nested structures with ease. For example, `jmespath.search("components.*.properties.bucket", stack)` would return a list of all bucket properties across all components in the stack.
 - Want to take existing resources into consideration for validation rules? Import `boto3` and use it to query AWS directly from your validation scripts. Just be mindful of latency implications.
+
+## Feature ideas
+
+If your goal is to keep Stacksmith as self-contained as possible, these are likely high-value next steps.
+
+### Lower-effort, high-impact ideas
+
+- Add `stacksmith info environments` to preview the GitOps environment selection logic used by the opinionated reusable workflow (`folders`, `flat-files`, and `env-files` modes). This reuses existing logic and makes CI behavior easier to debug locally.
+- Add `stacksmith ci validate` to statically verify workflow inputs (runfile path, discovery mode, env file path, report format) before CI runs.
+- Add first-class support for writing plan/apply artifacts and summaries to a predictable local output folder so the same output contract works both in CI and on developer machines.
+- Add `stacksmith lock` to write a lock file for resolved module/provider refs and remote script/config URLs (with digest pinning where possible) to improve reproducibility.
+
+### Larger features that would take longer
+
+- Add a native `stacksmith gitops` command group that can perform environment discovery, change-based targeting, matrix rendering, and plan/apply orchestration without embedding Python scripts in workflow YAML.
+- Add provider/module mirror support with optional offline mode so Stacksmith can run fully air-gapped from pre-vendored artifacts, including remote runfiles/configs/scripts.
+- Add policy bundles with signed/verified distribution (validation scripts, transforms, shared defaults) so teams can centrally publish trusted policy packs and consume them as versioned Stacksmith dependencies.
+- Add state-aware drift and health reporting across all stacks (including `depends_on` graph context) with machine-readable export suitable for dashboards and automated remediation workflows.
