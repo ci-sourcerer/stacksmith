@@ -1,0 +1,134 @@
+name: stacksmith-gitops-opinionated-reusable
+
+on:
+  workflow_call:
+    inputs:
+      operation:
+        description: Plan or apply operation.
+        required: true
+        type: string
+      environments:
+        description: Comma-separated environment names. Leave empty for automatic selection.
+        required: false
+        type: string
+        default: ""
+      discovery_mode:
+        description: "Discovery mode. Supported values: folders (default), flat-files, or env-files."
+        required: false
+        type: string
+        default: folders
+      gitops_root:
+        description: Relative path to the GitOps root folder.
+        required: false
+        type: string
+        default: .
+      workdir:
+        description: Working directory to run Stacksmith from.
+        required: false
+        type: string
+        default: .
+
+permissions:
+  contents: read
+
+jobs:
+  validate-inputs:
+    name: validate-inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate operation
+        shell: bash
+        run: |
+          set -euo pipefail
+          operation="${{ inputs.operation }}"
+          case "$operation" in
+            plan|apply)
+              ;;
+            *)
+              echo "Invalid operation '$operation'. Expected 'plan' or 'apply'." >&2
+              exit 1
+              ;;
+          esac
+
+  discover:
+    name: discover-environments
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      count: ${{ steps.select.outputs.count }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Select target environments
+        id: select
+        env:
+          INPUT_ENVIRONMENTS: ${{ inputs.environments }}
+          INPUT_DISCOVERY_MODE: ${{ inputs.discovery_mode }}
+          INPUT_GITOPS_ROOT: ${{ inputs.gitops_root }}
+          CALLER_EVENT_NAME: ${{ github.event_name }}
+          CALLER_BASE_REF: ${{ github.base_ref }}
+          CALLER_EVENT_BEFORE: ${{  github.event.before }}
+          CALLER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+            python3 scripts/select_gitops_environments.py
+
+  plan:
+    name: plan
+    needs: discover
+    if: ${{ inputs.operation == 'plan' && needs.discover.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/stacksmith-gitops-reusable.yml
+    with:
+      operation: plan
+      environment: ${{ matrix.environment }}
+      runfile: ${{ matrix.runfile }}
+      workdir: ${{ inputs.workdir }}
+      env_file: ${{ fromJson(toJson(vars)).STACKSMITH_ENV_FILE || '/dev/null' }}
+      stacksmith_args: --var environment=${{ matrix.environment }}
+      image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+      validation_report_format: ${{ fromJson(toJson(vars)).STACKSMITH_VALIDATION_REPORT_FORMAT || 'json' }}
+      upload_artifacts: ${{ (fromJson(toJson(vars)).STACKSMITH_UPLOAD_ARTIFACTS || 'true') != 'false' }}
+    secrets: inherit
+
+  apply:
+    name: apply
+    needs: discover
+    if: ${{ inputs.operation == 'apply' && needs.discover.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/stacksmith-gitops-reusable.yml
+    with:
+      operation: apply
+      environment: ${{ matrix.environment }}
+      runfile: ${{ matrix.runfile }}
+      workdir: ${{ inputs.workdir }}
+      env_file: ${{ fromJson(toJson(vars)).STACKSMITH_ENV_FILE || '/dev/null' }}
+      stacksmith_args: --var environment=${{ matrix.environment }}
+      image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+    secrets: inherit
+
+  no-op:
+    name: no-op
+    runs-on: ubuntu-latest
+    needs: discover
+    if: ${{ needs.discover.outputs.count == '0' }}
+    steps:
+      - name: Summary
+        run: |
+          {
+              echo "## Stacksmith ${INPUT_OPERATION}"
+              echo ""
+              echo "No environment manifests were selected for this event."
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          INPUT_OPERATION: ${{ inputs.operation }}
