@@ -1,0 +1,637 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stacksmith.dev/schemas/config.schema.json",
+  "title": "Stacksmith Tool Configuration",
+  "description": "Defines backend, provider mappings, module mappings, OpenTofu version, and validation rules for stacksmith.",
+  "type": "object",
+  "$defs": {
+    "localReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "local",
+          "description": "Reference source type for local files."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Local filesystem path to the referenced file."
+            }
+          }
+        }
+      }
+    },
+    "gitReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "git",
+          "description": "Reference source type for Git-hosted files."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "repo",
+            "path"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "repo": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(https?://|ssh://|git://|git@).+",
+              "description": "Git repository URL for the referenced file."
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Path inside the Git repository to the referenced file."
+            },
+            "ref": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Git ref, branch, or tag used to resolve the reference."
+            }
+          }
+        }
+      }
+    },
+    "httpReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "http",
+          "description": "Reference source type for HTTP(S) URLs."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^https?://",
+              "description": "HTTP or HTTPS URL for the referenced resource."
+            }
+          }
+        }
+      }
+    },
+    "registryReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "registry",
+          "description": "Reference source type for registry module references."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "address",
+            "version"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "address": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\s]+/[^\\s]+$",
+              "description": "Registry module address in the format <namespace>/<name>."
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Registry module version to use."
+            }
+          }
+        }
+      }
+    },
+    "moduleGitSourceReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "git",
+          "description": "Reference source type for Git-hosted modules."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "repo",
+            "ref"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "repo": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(https?://|ssh://|git://|git@).+",
+              "description": "Git repository URL for the referenced module source."
+            },
+            "ref": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Git ref, branch, or tag used to resolve the module source."
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional path within the Git repository to the module source."
+            }
+          }
+        }
+      }
+    },
+    "sourceReference": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/localReference"
+        },
+        {
+          "$ref": "#/$defs/gitReference"
+        },
+        {
+          "$ref": "#/$defs/httpReference"
+        },
+        {
+          "$ref": "#/$defs/registryReference"
+        }
+      ]
+    },
+    "fileReference": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/localReference"
+        },
+        {
+          "$ref": "#/$defs/gitReference"
+        },
+        {
+          "$ref": "#/$defs/httpReference"
+        }
+      ]
+    },
+    "moduleSourceReference": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/localReference"
+        },
+        {
+          "$ref": "#/$defs/registryReference"
+        },
+        {
+          "$ref": "#/$defs/moduleGitSourceReference"
+        }
+      ]
+    },
+    "providerSourceReference": {
+      "$ref": "#/$defs/registryReference"
+    },
+    "validationSpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "inline"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "inline": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Inline Python expression or code block. `value` is available in scope and a truthy result passes validation."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "script"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "script": {
+              "$ref": "#/$defs/fileReference",
+              "description": "Structured reference to a Python validation script."
+            }
+          }
+        }
+      ]
+    },
+    "transformSpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "inline"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "inline": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Inline Python code defining `transform(value, **context)` and returning the transformed value."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "jinja"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "jinja": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Jinja template rendered with `value` in scope. Rendered output is JSON-decoded when valid JSON, otherwise treated as a string."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "script"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "script": {
+              "$ref": "#/$defs/fileReference",
+              "description": "Structured reference to a Python transform script defining `transform(value, **context)`."
+            }
+          }
+        }
+      ]
+    },
+    "modulePropertySpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mapped_to": {
+          "type": "string",
+          "description": "Optional mapped module input name for the property. If omitted, the original property name is used."
+        },
+        "default": {
+          "description": "Default value used when no explicit value is supplied for this module property."
+        },
+        "transform": {
+          "$ref": "#/$defs/transformSpec",
+          "description": "Optional transformation applied to the property value before it is passed to the module."
+        },
+        "validation": {
+          "$ref": "#/$defs/validationSpec",
+          "description": "Optional validation rule applied to the resolved property value."
+        },
+        "auto_inject": {
+          "type": "boolean",
+          "description": "Optional per-property override for module auto-injection. Set to false to skip injecting this input even when module auto_inject is enabled."
+        }
+      }
+    },
+    "planValidation": {
+      "type": "object",
+      "required": [
+        "rule"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Optional human-readable description of the post-plan validation."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this plan validation rule should be executed. Defaults to true."
+        },
+        "rule": {
+          "$ref": "#/$defs/validationSpec",
+          "description": "Python validation rule to apply to parsed OpenTofu JSON plan output."
+        }
+      }
+    },
+    "providerInstance": {
+      "type": "object",
+      "required": [
+        "config"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "alias": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider alias used for non-default instances."
+        },
+        "config": {
+          "$ref": "#/$defs/providerConfigSpec",
+          "description": "Provider configuration for this instance."
+        }
+      }
+    },
+    "providerConfigSpec": {
+      "description": "Provider configuration specification as inline code, script reference, or static data.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "inline"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "inline": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Inline Python code defining `config(**context)` and returning a provider configuration mapping."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "script"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "script": {
+              "$ref": "#/$defs/fileReference",
+              "description": "Structured reference to a Python provider config script defining `config(**context)`."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": true,
+              "description": "Provider-specific YAML mapping such as region, assume_role, endpoints, and retry settings."
+            }
+          }
+        }
+      ]
+    },
+    "providerFamily": {
+      "type": "object",
+      "required": [
+        "source",
+        "instances"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/providerSourceReference",
+          "description": "Structured provider source reference."
+        },
+        "instances": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/providerInstance"
+          },
+          "description": "Named provider instances. A default instance is optional; non-default instances must be explicitly aliased."
+        }
+      }
+    },
+    "toolDownloadSpec": {
+      "type": "object",
+      "required": [
+        "url_template"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "url_template": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Parameterized download URL template. Supports placeholders like {version}, {os}, and {arch}."
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional SHA-256 checksum for the downloaded artifact."
+        },
+        "sha256_url_template": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional parameterized URL template pointing to a checksum file for the artifact."
+        }
+      }
+    },
+    "toolBinaryConfig": {
+      "type": "object",
+      "required": [
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required tool version constraint or exact version."
+        },
+        "download": {
+          "$ref": "#/$defs/toolDownloadSpec",
+          "description": "Optional download metadata for resolving missing binaries."
+        }
+      }
+    },
+    "toolsConfig": {
+      "type": "object",
+      "required": [
+        "tofu",
+        "terragrunt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tofu": {
+          "$ref": "#/$defs/toolBinaryConfig",
+          "description": "OpenTofu binary settings."
+        },
+        "terragrunt": {
+          "$ref": "#/$defs/toolBinaryConfig",
+          "description": "Terragrunt binary settings."
+        }
+      }
+    }
+  },
+  "required": [
+    "backend",
+    "tools",
+    "provider_mappings",
+    "module_mappings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "remote_auth": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "token",
+              "basic",
+              "ssh"
+            ],
+            "description": "Auth type: 'token' for Bearer token, 'basic' for username/password, 'ssh' for SSH key."
+          },
+          "token_env": {
+            "type": "string",
+            "description": "Name of the environment variable holding the Bearer token."
+          },
+          "username_env": {
+            "type": "string",
+            "description": "Name of the environment variable holding the username for basic auth."
+          },
+          "password_env": {
+            "type": "string",
+            "description": "Name of the environment variable holding the password for basic auth."
+          },
+          "ssh_key_path": {
+            "type": "string",
+            "description": "Path to the SSH private key file."
+          }
+        }
+      },
+      "description": "Optional per-host auth configuration for fetching remote resources. Keys are hostnames."
+    },
+    "var_validations": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/validationSpec"
+      },
+      "description": "Optional per-variable Python validation rules applied after all resolution layers. Keyed by variable name. `value` holds the resolved variable value."
+    },
+    "plan_validations": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/planValidation"
+      },
+      "description": "Optional post-plan validation rules keyed by name. Rules run against parsed OpenTofu JSON plan output unless disabled."
+    },
+    "backend": {
+      "description": "Backend configuration with explicit backend type and freeform backend-specific settings.",
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OpenTofu backend type (for example: s3, local, azurerm, gcs, oss)."
+        }
+      },
+      "additionalProperties": true
+    },
+    "tools": {
+      "$ref": "#/$defs/toolsConfig",
+      "description": "OpenTofu and Terragrunt version and download settings."
+    },
+    "provider_mappings": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/providerFamily"
+      },
+      "description": "Provider families keyed by OpenTofu provider name."
+    },
+    "module_mappings": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional friendly display name for the module. Used by stacksmith inspect output when present."
+          },
+          "source": {
+            "$ref": "#/$defs/moduleSourceReference",
+            "description": "Structured module source reference. Use `source: git` with `data.repo`/`data.ref` and optional `data.path`, or `source: registry` with `data.address`/`data.version`."
+          },
+          "auto_inject": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, resolved input values are auto-injected into this module mapping by exact input key match and declared mapping keys. Defaults to false."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true,
+            "description": "Optional module-level tags used for tag-expression targeting."
+          },
+          "providers": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+            },
+            "description": "Optional module provider mapping. Keys are module provider names, values are provider instance references in `<provider>.<instance>` format."
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/$defs/modulePropertySpec"
+            },
+            "description": "Optional per-property configuration for module inputs. Keys are original property names from stack resources."
+          }
+        }
+      },
+      "description": "Module mappings keyed by abstract resource type."
+    }
+  }
+}

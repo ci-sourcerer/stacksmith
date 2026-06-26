@@ -1,0 +1,8 @@
+configs:
+  - source: local
+    data:
+      path: ../../shared-config-repo/stacksmith-config.yaml
+stacks:
+  - source: local
+    data:
+      path: ../manifests/common/iam.stack.yaml

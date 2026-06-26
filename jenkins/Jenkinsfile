@@ -1,0 +1,310 @@
+boolean parseBoolean(value) {
+    if (!value) {
+        return false
+    }
+
+    return value.toString().trim().toLowerCase() in ['1', 'true', 'yes', 'on']
+}
+
+String stacksmithImage() {
+    return env.STACKSMITH_IMAGE ?:
+        "cisourcerer/stacksmith:${env.STACKSMITH_IMAGE_VERSION ?: 'latest'}"
+}
+
+void withStacksmithAgent(Closure body) {
+    if (parseBoolean(env.STACKSMITH_USE_K8S)) {
+        withStacksmithKubernetesAgent(body)
+        return
+    }
+
+    if (env.STACKSMITH_NODE_LABEL) {
+        node(env.STACKSMITH_NODE_LABEL) {
+            body()
+        }
+        return
+    }
+
+    node {
+        docker.image(stacksmithImage())
+            .inside('--entrypoint ""') {
+                body()
+            }
+    }
+}
+
+void withStacksmithKubernetesAgent(Closure body) {
+    podTemplate(
+        containers: [
+            containerTemplate(
+                name: 'stacksmith',
+                image: stacksmithImage(),
+                command: 'sleep',
+                args: '99d'
+            )
+        ]
+    ) {
+        node(POD_LABEL) {
+            container('stacksmith') {
+                body()
+            }
+        }
+    }
+}
+
+String credentialId(Map credentials, String credentialType) {
+    def entry = credentials[credentialType]
+    if (!(entry instanceof Map)) {
+        return null
+    }
+
+    def id = entry.credentialId ?: entry.id
+    return id?.toString()?.trim() ?: null
+}
+
+List buildCredentialBindings(Map credentials) {
+    def bindings = []
+
+    def gitTokenCredentialId = credentialId(credentials, 'git_token')
+    if (gitTokenCredentialId) {
+        bindings << string(
+            credentialsId: gitTokenCredentialId,
+            variable: 'STACKSMITH_GIT_TOKEN'
+        )
+    }
+
+    def httpTokenCredentialId = credentialId(credentials, 'http_token')
+    if (httpTokenCredentialId) {
+        bindings << string(
+            credentialsId: httpTokenCredentialId,
+            variable: 'STACKSMITH_HTTP_TOKEN'
+        )
+    }
+
+    def httpBasicCredentialId = credentialId(credentials, 'http_basic')
+    if (httpBasicCredentialId) {
+        bindings << usernamePassword(
+            credentialsId: httpBasicCredentialId,
+            usernameVariable: 'STACKSMITH_HTTP_USERNAME',
+            passwordVariable: 'STACKSMITH_HTTP_PASSWORD'
+        )
+    }
+
+    def gitSshCredentialId = credentialId(credentials, 'git_ssh_key')
+    if (gitSshCredentialId) {
+        bindings << sshUserPrivateKey(
+            credentialsId: gitSshCredentialId,
+            keyFileVariable: 'STACKSMITH_GIT_SSH_KEY',
+            usernameVariable: 'STACKSMITH_GIT_SSH_USERNAME'
+        )
+    }
+
+    return bindings
+}
+
+int executeStacksmith() {
+    return sh(
+        script: '''#!/usr/bin/env bash
+            mkdir -p "$ARTIFACT_DIR"
+
+            runfiles=(--runfile "$RUNFILE")
+            [ -n "$ENVIRONMENT_RUNFILE" ] && runfiles+=(--runfile "$ENVIRONMENT_RUNFILE")
+
+            extra_args_file="$ARTIFACT_DIR/extra-args.bin"
+            python3 -c 'import json, os, sys
+args = json.loads(os.environ.get("STACKSMITH_ARGS_JSON") or "[]")
+if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+    sys.exit("STACKSMITH_ARGS_JSON must be a JSON array of strings")
+if any("\0" in arg for arg in args):
+    sys.exit("STACKSMITH_ARGS_JSON entries cannot contain NUL bytes")
+sys.stdout.buffer.write(b"".join(arg.encode() + b"\0" for arg in args))' > "$extra_args_file"
+            mapfile -d '' -t extra_args < "$extra_args_file"
+
+            set +e
+            if [ "$OPERATION" = plan ]; then
+                stacksmith "$OPERATION" \
+                    "${extra_args[@]}" $EXTRA_FLAGS \
+                    --var "environment=$ENVIRONMENT" \
+                    --env-file "$ENV_FILE" \
+                    "${runfiles[@]}" \
+                    --build-dir "$ARTIFACT_DIR" \
+                    --save-plan-json "$ARTIFACT_DIR/plan.json" \
+                    --validation-report-format "$VALIDATION_REPORT_FORMAT" \
+                    >"$ARTIFACT_DIR/validation-report.$VALIDATION_REPORT_FORMAT"
+            else
+                stacksmith "$OPERATION" \
+                    "${extra_args[@]}" $EXTRA_FLAGS \
+                    --var "environment=$ENVIRONMENT" \
+                    --env-file "$ENV_FILE" \
+                    "${runfiles[@]}" \
+                    --build-dir "$ARTIFACT_DIR" \
+                    --auto-approve
+            fi
+
+            exit $?
+        ''',
+        returnStatus: true
+    )
+}
+
+withStacksmithAgent {
+    try {
+        ansiColor('xterm') {
+            properties([
+                parameters([
+                    string(name: 'OPERATION', defaultValue: 'plan', description: 'plan or apply'),
+                    string(name: 'ENVIRONMENTS', defaultValue: '', description: 'comma-separated environments to target manually'),
+                    string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
+                    booleanParam(name: 'FAIL_ON_CHANGES', defaultValue: false, description: 'fail if plan contains changes'),
+                    booleanParam(name: 'STRICT_VALIDATION_WARNINGS', defaultValue: false, description: 'treat validation warnings as failures'),
+                ])
+            ])
+
+            checkout(scm)
+
+            withFolderProperties {
+                env.OPERATION = params.OPERATION.toString().trim().toLowerCase()
+
+                if (!(env.OPERATION in ['plan', 'apply'])) {
+                    error("Invalid operation '${params.OPERATION}'. Expected 'plan' or 'apply'.")
+                }
+
+                if (!parseBoolean(env.NO_VALIDATE_BRANCH_AND_OPERATION)) {
+                    if (env.CHANGE_ID && env.OPERATION == 'apply') {
+                        error('\'apply\' operation is not allowed on pull requests. Use \'plan\' instead.')
+                    }
+                    if (!env.CHANGE_ID && !env.BRANCH_IS_PRIMARY) {
+                        error("Operations are only allowed on main branch or pull requests to main. Current branch: ${env.BRANCH_NAME}")
+                    }
+                }
+            }
+
+            stage('Init pipeline') {
+                withFolderProperties {
+                    def selectionOutput = withEnv([
+                        "INPUT_GITOPS_ROOT=${env.STACKSMITH_GITOPS_ROOT ?: env.STACKSMITH_GITSOPS_ROOT ?: params.WORKDIR}",
+                        "INPUT_DISCOVERY_MODE=${env.STACKSMITH_DISCOVERY_MODE ?: 'auto'}",
+                        "INPUT_ENVIRONMENTS=${params.ENVIRONMENTS}",
+                    ]) {
+                        sh(
+                            script: '''#!/usr/bin/env bash
+                                stacksmith info environments \
+                                    --gitops-root "$INPUT_GITOPS_ROOT" \
+                                    --discovery-mode "$INPUT_DISCOVERY_MODE" \
+                                    --environments "$INPUT_ENVIRONMENTS" \
+                                    --format json
+                            ''',
+                            returnStdout: true
+                        )
+                    }
+
+                    def selection = readJSON(text: selectionOutput)
+                    def matrix = selection.matrix
+                    env.SELECTED_ENVIRONMENTS = matrix.collect { it.environment }.join(',')
+                    env.COMMON_RUNFILE = matrix.collect { it.runfile }.find { it }
+                    env.SELECTION_MATRIX = writeJSON(json: matrix, returnText: true)
+
+                    if (!env.SELECTED_ENVIRONMENTS) {
+                        echo "No environments selected; skipping ${params.OPERATION}."
+                        currentBuild.result = 'SUCCESS'
+                        return
+                    }
+
+                    echo("Selected environments: ${env.SELECTED_ENVIRONMENTS}")
+                    echo("Common runfile: ${env.COMMON_RUNFILE}")
+                }
+            }
+
+            stage('Approve apply') {
+                if (env.OPERATION == 'apply' && env.SELECTED_ENVIRONMENTS) {
+                    input(
+                        message: "Apply Stacksmith changes to ${env.SELECTED_ENVIRONMENTS}?",
+                        ok: 'Apply'
+                    )
+                }
+            }
+
+            stage('Run Stacksmith') {
+                withFolderProperties {
+                    if (!env.SELECTED_ENVIRONMENTS) {
+                        echo('No selected environments to run.')
+                        return
+                    }
+
+                    def matrix = readJSON(text: env.SELECTION_MATRIX)
+                    def branches = [:]
+
+                    for (row in matrix) {
+                        def environment = row.environment
+                        def runfile = row.runfile
+                        def environmentRunfile = row.environment_runfile ?: ''
+                        def artifactDir = ".stacksmith-ci/${environment}"
+
+                        branches[environment] = {
+                            dir(params.WORKDIR) {
+
+                                def extraFlags = ''
+                                if (env.OPERATION == 'plan' && params.FAIL_ON_CHANGES) {
+                                    extraFlags += ' --fail-on-changes'
+                                }
+                                if (env.OPERATION == 'plan' && params.STRICT_VALIDATION_WARNINGS) {
+                                    extraFlags += ' --strict-validation-warnings'
+                                }
+                                if (parseBoolean(env.STACKSMITH_NO_CAS ?: 'false')) {
+                                    extraFlags += ' --no-cas'
+                                }
+
+                                def credentialsJson = (env.STACKSMITH_CREDENTIALS_JSON ?: '').toString().trim()
+                                def parsedCredentials = [:]
+                                if (credentialsJson) {
+                                    try {
+                                        parsedCredentials = readJSON(text: credentialsJson)
+                                    } catch (Exception e) {
+                                        error("Invalid STACKSMITH_CREDENTIALS_JSON: ${e.message}")
+                                    }
+                                }
+
+                                def credentialBindings = buildCredentialBindings(parsedCredentials)
+
+                                withEnv([
+                                    "ARTIFACT_DIR=${artifactDir}",
+                                    "RUNFILE=${runfile}",
+                                    "ENVIRONMENT_RUNFILE=${environmentRunfile}",
+                                    "ENVIRONMENT=${environment}",
+                                    "ENV_FILE=${env.STACKSMITH_ENV_FILE ?: '/dev/null'}",
+                                    "STACKSMITH_ARGS_JSON=${env.STACKSMITH_ARGS_JSON ?: '[]'}",
+                                    "EXTRA_FLAGS=${extraFlags}",
+                                    "VALIDATION_REPORT_FORMAT=${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
+                                    "TG_AUTH_PROVIDER_CMD=${env.TG_AUTH_PROVIDER_CMD ?: ''}",
+                                    "TG_IAM_ASSUME_ROLE=${env.TG_IAM_ASSUME_ROLE ?: ''}",
+                                ]) {
+                                    def status = credentialBindings
+                                        ? withCredentials(credentialBindings) { executeStacksmith() }
+                                        : executeStacksmith()
+
+                                    if (env.OPERATION == 'plan' && parseBoolean(env.STACKSMITH_UPLOAD_ARTIFACTS ?: 'true')) {
+                                        archiveArtifacts(
+                                            allowEmptyArchive: true,
+                                            artifacts: "${artifactDir}/plan.json,${artifactDir}/validation-report.*"
+                                        )
+                                    }
+
+                                    return status
+                                }
+                            }
+                        }
+                    }
+
+                    def results = parallel(branches)
+                    def failedEnvironments = results.findAll { environment, status -> status != 0 }.keySet()
+
+                    if (failedEnvironments) {
+                        error("Stacksmith failed in: ${failedEnvironments.join(', ')}")
+                    }
+                }
+            }
+
+        }
+    } finally {
+        cleanWs()
+    }
+}

@@ -1,0 +1,16 @@
+# NOTE: For a GitOps workflow these referenced files often live in other repositories.
+# For local testing we use relative paths within this example checkout.
+# Paths are resolved relative to this runfile.
+configs:
+  - source: local
+    data:
+      path: ../../shared-config-repo/stacksmith-config.yaml
+stacks:
+  - source: local
+    data:
+      path: ../manifests/common/service.stack.yaml
+  - source: local
+    data:
+      path: ../manifests/common/platform.stack.yaml
+var:
+  id: 1234

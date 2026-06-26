@@ -1,0 +1,13 @@
+name: vpc
+
+mock_outputs:
+  vpc_id: "mock-vpc-id"
+  subnet_ids:
+    - "mock-subnet-1"
+    - "mock-subnet-2"
+
+components:
+  main-vpc:
+    type: aws_vpc
+    properties:
+      cidr_block: "10.0.0.0/16"

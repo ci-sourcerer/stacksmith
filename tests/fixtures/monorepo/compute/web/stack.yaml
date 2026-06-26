@@ -1,0 +1,11 @@
+name: web
+
+depends_on:
+  - vpc
+
+components:
+  web-server:
+    type: aws_ec2_instance
+    properties:
+      ami: ami-web123
+      instance_type: t3.medium

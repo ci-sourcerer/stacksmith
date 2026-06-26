@@ -1,0 +1,188 @@
+name: stacksmith-gitops-opinionated-reusable
+
+on:
+  workflow_call:
+    inputs:
+      operation:
+        description: Plan or apply operation.
+        required: true
+        type: string
+      environments:
+        description: Comma-separated environment names. Leave empty for automatic selection.
+        required: false
+        type: string
+        default: ""
+      discovery_mode:
+        description: "Discovery mode. Supported values: auto (default), folders, flat-files, or env-files."
+        required: false
+        type: string
+        default: auto
+      gitops_root:
+        description: Relative path to the GitOps root folder.
+        required: false
+        type: string
+        default: .
+      workdir:
+        description: Working directory to run Stacksmith from.
+        required: false
+        type: string
+        default: .
+      stacksmith_args_json:
+        description: JSON array of additional Stacksmith CLI arguments applied to every selected environment.
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  validate-inputs:
+    name: validate-inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate operation
+        shell: bash
+        env:
+          INPUT_OPERATION: ${{ inputs.operation }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          BASE_REF: ${{ github.base_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SKIP_BRANCH_VALIDATION: ${{ vars.NO_VALIDATE_BRANCH_AND_OPERATION || 'false' }}
+        run: |
+          set -euo pipefail
+          case "$INPUT_OPERATION" in
+            plan|apply)
+              ;;
+            *)
+              echo "Invalid operation '$INPUT_OPERATION'. Expected 'plan' or 'apply'." >&2
+              exit 1
+              ;;
+          esac
+
+          case "$SKIP_BRANCH_VALIDATION" in
+            1|true|TRUE|yes|YES|on|ON) exit 0 ;;
+          esac
+
+          if [ -z "$DEFAULT_BRANCH" ]; then
+            exit 0
+          elif [ "$EVENT_NAME" = pull_request ]; then
+            if [ "$INPUT_OPERATION" = apply ]; then
+              echo "'apply' operation is not allowed on pull requests. Use 'plan' instead." >&2
+              exit 1
+            fi
+            if [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
+              echo "Pull request operations must target the default branch '$DEFAULT_BRANCH'." >&2
+              exit 1
+            fi
+          elif [ "$REF_NAME" != "$DEFAULT_BRANCH" ]; then
+            echo "Operations are only allowed on the default branch or pull requests to it. Current branch: $REF_NAME" >&2
+            exit 1
+          fi
+
+  discover:
+    name: discover-environments
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/cisourcerer/stacksmith:${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      count: ${{ steps.select.outputs.count }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Select target environments
+        id: select
+        env:
+          INPUT_ENVIRONMENTS: ${{ inputs.environments }}
+          INPUT_DISCOVERY_MODE: ${{ inputs.discovery_mode }}
+          INPUT_GITOPS_ROOT: ${{ inputs.gitops_root }}
+          CALLER_EVENT_NAME: ${{ github.event_name }}
+          CALLER_BASE_REF: ${{ github.base_ref }}
+          CALLER_EVENT_BEFORE: ${{  github.event.before }}
+          CALLER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          selection_file="${RUNNER_TEMP:-/tmp}/stacksmith-environment-selection.json"
+          stacksmith info environments \
+            --gitops-root "$INPUT_GITOPS_ROOT" \
+            --discovery-mode "$INPUT_DISCOVERY_MODE" \
+            --environments "$INPUT_ENVIRONMENTS" \
+            --event-name "$CALLER_EVENT_NAME" \
+            --base-ref "$CALLER_BASE_REF" \
+            --before "$CALLER_EVENT_BEFORE" \
+            --after "$CALLER_SHA" \
+            --format json \
+            > "$selection_file"
+          python3 -c 'import json, os, sys
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              selection = json.load(stream)
+          matrix = selection.get("matrix", [])
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("matrix=" + json.dumps(matrix, separators=(",", ":")) + "\n")
+              output.write(f"count={len(matrix)}\n")' "$selection_file"
+
+  plan:
+    name: plan
+    needs: discover
+    if: ${{ inputs.operation == 'plan' && needs.discover.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/stacksmith-gitops-reusable.yml
+    with:
+      operation: plan
+      environment: ${{ matrix.environment }}
+      runfile: ${{ matrix.runfile }}
+      environment_runfile: ${{ matrix.environment_runfile }}
+      workdir: ${{ inputs.workdir }}
+      env_file: ${{ fromJson(toJson(vars)).STACKSMITH_ENV_FILE || '/dev/null' }}
+      stacksmith_args_json: ${{ inputs.stacksmith_args_json || fromJson(toJson(vars)).STACKSMITH_ARGS_JSON || '[]' }}
+      image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+      validation_report_format: ${{ fromJson(toJson(vars)).STACKSMITH_VALIDATION_REPORT_FORMAT || 'json' }}
+      upload_artifacts: ${{ (fromJson(toJson(vars)).STACKSMITH_UPLOAD_ARTIFACTS || 'true') != 'false' }}
+      fail_on_changes: ${{ (fromJson(toJson(vars)).STACKSMITH_FAIL_ON_CHANGES || 'false') == 'true' }}
+      strict_validation_warnings: ${{ (fromJson(toJson(vars)).STACKSMITH_STRICT_VALIDATION_WARNINGS || 'false') == 'true' }}
+    secrets: inherit
+
+  apply:
+    name: apply
+    needs: discover
+    if: ${{ inputs.operation == 'apply' && needs.discover.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/stacksmith-gitops-reusable.yml
+    with:
+      operation: apply
+      environment: ${{ matrix.environment }}
+      runfile: ${{ matrix.runfile }}
+      environment_runfile: ${{ matrix.environment_runfile }}
+      workdir: ${{ inputs.workdir }}
+      env_file: ${{ fromJson(toJson(vars)).STACKSMITH_ENV_FILE || '/dev/null' }}
+      stacksmith_args_json: ${{ inputs.stacksmith_args_json || fromJson(toJson(vars)).STACKSMITH_ARGS_JSON || '[]' }}
+      image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+    secrets: inherit
+
+  no-op:
+    name: no-op
+    runs-on: ubuntu-latest
+    needs: discover
+    if: ${{ needs.discover.outputs.count == '0' }}
+    steps:
+      - name: Summary
+        run: |
+          {
+              echo "## Stacksmith ${INPUT_OPERATION}"
+              echo ""
+              echo "No environment manifests were selected for this event."
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          INPUT_OPERATION: ${{ inputs.operation }}
