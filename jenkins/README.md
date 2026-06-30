@@ -1,32 +1,23 @@
 # Jenkins GitOps Pipeline for Stacksmith
 
-This folder contains the opinionated Jenkins GitOps pipeline for Stacksmith.
+This folder contains the opinionated Jenkins GitOps multibranch pipeline for Stacksmith.
 
 ## Usage
 
-Add this folder as a git submodule to your repository so Jenkins can checkout the pipeline code alongside your app repo.
-
-```bash
-git submodule add <stacksmith-repo-url> jenkins/stacksmith-jenkins
-```
-
-Then configure your Jenkins job as a Multibranch Pipeline and set the pipeline script path to:
-
-```text
-jenkins/stacksmith-jenkins/Jenkinsfile
-```
+Configure your Jenkins job as a Multibranch Pipeline and set the pipeline script path to `jenkins/Jenkinsfile`.
 
 ## Required Jenkins configuration
 
-The pipeline uses the following environment variables:
+The pipeline supports two execution modes, controlled by environment variables:
 
-- `STACKSMITH_AGENT_LABEL` — Jenkins agent label to run on
-- `STACKSMITH_GITOPS_ROOT` — path to the GitOps root
-- `STACKSMITH_DISCOVERY_MODE` — `folders`, `flat-files`, or `env-files`
-- `STACKSMITH_ENV_FILE` — path to env file, defaults to `/dev/null`
-- `STACKSMITH_IMAGE_VERSION` — Stacksmith container image version
+1.  **Directly on a labeled agent**: Set `STACKSMITH_NODE_LABEL` to the Jenkins agent label to run on.
+2.  **Inside a Docker container**: Omit `STACKSMITH_NODE_LABEL`. The pipeline will run on any available agent and execute inside a Docker container.
 
-The following overrides are optional. If omitted, `src/stacksmith/gitops.py` derives equivalent CI context from Jenkins-native environment variables such as `JENKINS_URL`, `CHANGE_ID`, `CHANGE_TARGET`, and `GIT_COMMIT`.
+- `STACKSMITH_NODE_LABEL`: Optional Jenkins agent label. If provided, the pipeline runs directly on the agent.
+- `STACKSMITH_IMAGE_VERSION`: Optional. Specifies the Docker image tag for `cisourcerer/stacksmith` when running in container mode. Defaults to `latest`.
+- `STACKSMITH_DISCOVERY_MODE`: `folders`, `flat-files`, or `env-files`. Defaults to `folders`.
+
+The following overrides can technically be set, but it is unnecessary in most cases. If omitted (probably what you want), [`src/stacksmith/gitops.py`](../src/stacksmith/gitops.py) derives equivalent CI context from Jenkins-native environment variables such as `JENKINS_URL`, `CHANGE_ID`, `CHANGE_TARGET`, and `GIT_COMMIT`.
 
 - `CALLER_EVENT_NAME` — explicit event name override used for selection
 - `CALLER_BASE_REF` — explicit base ref override for PR diffs
@@ -35,31 +26,22 @@ The following overrides are optional. If omitted, `src/stacksmith/gitops.py` der
 
 ## Behavior
 
-- The pipeline selects environments using the same `scripts/select_gitops_environments.py` helper as GitHub Actions.
-- Jenkins-specific context is normalized in `src/stacksmith/gitops.py`, so pull request and branch builds do not need a separate Jenkins-only selection code path.
+- The pipeline is a scripted pipeline that dynamically generates parallel stages for each selected environment.
+- It selects environments using the same [`scripts/select_gitops_environments.py`](../scripts/select_gitops_environments.py) helper as the GitHub Actions workflow.
+- Jenkins-specific context is normalized in [`src/stacksmith/gitops.py`](../src/stacksmith/gitops.py), so pull request and branch builds do not need a separate Jenkins-only selection code path.
 - If no environments are selected, the job prints a summary and exits successfully.
-- Selected environments run in parallel on the configured agent label.
+- For `apply` operations, the pipeline will pause for manual approval before proceeding.
+- For `plan` operations, generated plan files and validation reports are archived as build artifacts.
+- The pipeline attempts to run all selected environments in parallel, even if one fails, and reports a summary of failures at the end.
 
-## Jenkins pipeline model
+## Parameters
 
-- `jenkins/Jenkinsfile` is the only supported Jenkins entrypoint.
-- It is best used as a Multibranch Pipeline when you want branch-aware selection and diff-based environment discovery.
-- Shared execution behavior lives in `jenkins/stacksmith-helpers.groovy`.
+The Jenkins job accepts the following parameters:
 
-## Example pipeline parameters
+- `OPERATION`: `plan` or `apply`. Defaults to `plan`.
+- `ENVIRONMENTS`: Optional comma-separated list of environments to target manually.
+- `WORKDIR`: The working directory for `stacksmith` commands. Defaults to `.`.
+- `FAIL_ON_CHANGES`: If `true`, the `plan` operation will fail if it contains any resource changes. Defaults to `false`.
+- `STRICT_VALIDATION_WARNINGS`: If `true`, validation warnings will be treated as failures. Defaults to `false`.
 
-In Jenkins, you can pass these parameters to the job:
-
-- `OPERATION`: `plan` or `apply`
-- `GITOPS_ROOT`: `.`
-- `DISCOVERY_MODE`: `folders`
-- `ENVIRONMENTS`: optional comma-separated list of target environments
-
-The following values are configured through environment variables rather than job parameters:
-
-- `STACKSMITH_ENV_FILE`: optional `.env` path, defaults to `/dev/null`
-- `STACKSMITH_IMAGE_VERSION`: defaults to `latest`
-
-The opinionated Jenkins wrapper does not expose free-form extra CLI args for `plan` or `apply`; execution behavior is defined by the pipeline configuration.
-
-If you want a local wrapper repo to consume this pipeline, the repo should checkout the submodule and use the `jenkins/stacksmith-jenkins/Jenkinsfile` path.
+Discovery mode is configured via the environment variable `STACKSMITH_DISCOVERY_MODE` rather than a job parameter.
