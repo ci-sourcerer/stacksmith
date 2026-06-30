@@ -10,8 +10,8 @@ pipeline {
 
   environment {
     OPERATION = "${params.OPERATION ?: env.OPERATION ?: 'plan'}"
-    GITOPS_ROOT = "${params.GITOPS_ROOT ?: env.STACKSMITH_GITOPS_ROOT ?: '.'}"
-    DISCOVERY_MODE = "${params.DISCOVERY_MODE ?: env.STACKSMITH_DISCOVERY_MODE ?: 'folders'}"
+    GITOPS_ROOT = "${env.STACKSMITH_GITOPS_ROOT ?: '.'}"
+    DISCOVERY_MODE = "${env.STACKSMITH_DISCOVERY_MODE ?: 'folders'}"
     ENVIRONMENTS = "${params.ENVIRONMENTS ?: env.ENVIRONMENTS ?: ''}"
     ENV_FILE = "${env.STACKSMITH_ENV_FILE ?: '/dev/null'}"
     IMAGE_VERSION = "${env.STACKSMITH_IMAGE_VERSION ?: 'latest'}"
@@ -19,9 +19,7 @@ pipeline {
 
   parameters {
     string(name: 'OPERATION', defaultValue: 'plan', description: 'plan or apply')
-    string(name: 'GITOPS_ROOT', defaultValue: '.', description: 'Relative GitOps root folder')
-    string(name: 'DISCOVERY_MODE', defaultValue: 'folders', description: 'folders, flat-files, or env-files')
-    string(name: 'ENVIRONMENTS', defaultValue: '', description: 'Comma-separated environments to target manually')
+    string(name: 'ENVIRONMENTS', defaultValue: '', description: 'comma-separated environments to target manually')
   }
 
   stages {
@@ -37,7 +35,7 @@ pipeline {
           def operation = env.OPERATION?.toLowerCase()
 
           if (env.CHANGE_ID && operation == 'apply') {
-            error "apply operation is not allowed on pull requests. Use plan instead."
+            error 'apply operation is not allowed on pull requests. Use plan instead.'
           }
           if (!env.CHANGE_ID && !env.BRANCH_IS_PRIMARY) {
             error "operations are only allowed on main branch or pull requests to main. Current branch: ${env.BRANCH_NAME}"
@@ -51,8 +49,8 @@ pipeline {
         script {
           writeFile file: 'selection.json', text: '{}'
           withEnv([
-            "INPUT_GITOPS_ROOT=${env.GITOPS_ROOT}",
-            "INPUT_DISCOVERY_MODE=${env.DISCOVERY_MODE}",
+            "INPUT_GITOPS_ROOT=${env.STACKSMITH_GITOPS_ROOT}",
+            "INPUT_DISCOVERY_MODE=${env.STACKSMITH_DISCOVERY_MODE}",
             "INPUT_ENVIRONMENTS=${env.ENVIRONMENTS}",
           ]) {
             sh 'python3 scripts/select_gitops_environments.py >selection.json'
