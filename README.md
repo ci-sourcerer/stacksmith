@@ -391,7 +391,7 @@ The opinionated reusable workflow discovers target environments and then calls `
 The wrappers pass reusable workflow inputs from repository variables when available.
 
 - `STACKSMITH_GITOPS_ROOT` (default `.`)
-- `STACKSMITH_DISCOVERY_MODE` (default `folders`; set to `flat-files` for root-level env files, or `env-files` for the hybrid `environments/<env>.yaml` layout)
+- `STACKSMITH_DISCOVERY_MODE` (default `auto`; set to `flat-files` for root-level env files, or `env-files` for the hybrid `environments/<env>.yaml` layout)
 - `STACKSMITH_WORKDIR` (default `.`)
 - `STACKSMITH_ENV_FILE` (default `/dev/null`)
 - `STACKSMITH_IMAGE_VERSION` (default `latest`)
@@ -422,7 +422,7 @@ jobs:
       operation: plan
       gitops_root: ${{ vars.STACKSMITH_GITOPS_ROOT || '.' }}
       environments: ${{ github.event.inputs.environments || '' }}
-      discovery_mode: ${{ vars.STACKSMITH_DISCOVERY_MODE || 'folders' }}
+      discovery_mode: ${{ vars.STACKSMITH_DISCOVERY_MODE || 'auto' }}
       workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
     secrets: inherit
 ```
@@ -444,7 +444,7 @@ jobs:
       operation: apply
       gitops_root: ${{ vars.STACKSMITH_GITOPS_ROOT || '.' }}
       environments: ${{ github.event.inputs.environments || '' }}
-      discovery_mode: ${{ vars.STACKSMITH_DISCOVERY_MODE || 'folders' }}
+      discovery_mode: ${{ vars.STACKSMITH_DISCOVERY_MODE || 'auto' }}
       workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
     secrets: inherit
 ```

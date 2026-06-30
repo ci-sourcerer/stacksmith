@@ -25,6 +25,11 @@ on:
         required: false
         type: string
         default: /dev/null
+      environment_runfile:
+        description: Optional second runfile path or URL for environment-specific overlays.
+        required: false
+        type: string
+        default: ""
       stacksmith_args:
         description: Extra CLI args appended to Stacksmith commands.
         required: false
@@ -72,13 +77,26 @@ jobs:
           artifact_dir=".stacksmith-ci/${{ inputs.environment }}"
           mkdir -p "$artifact_dir"
 
-          stacksmith plan \
+          if [ -n "${{ inputs.environment_runfile }}" ]; then
+            stacksmith plan \
               --env-file "${{ inputs.env_file }}" \
               --runfile "${{ inputs.runfile }}" \
+              --runfile "${{ inputs.environment_runfile }}" \
+              --build-dir "$artifact_dir" \
               --save-plan-json "$artifact_dir/plan.json" \
               --validation-report-format "${{ inputs.validation_report_format }}" \
               ${{ inputs.stacksmith_args }} \
               | tee "$artifact_dir/validation-report.${{ inputs.validation_report_format }}"
+          else
+            stacksmith plan \
+              --env-file "${{ inputs.env_file }}" \
+              --runfile "${{ inputs.runfile }}" \
+              --build-dir "$artifact_dir" \
+              --save-plan-json "$artifact_dir/plan.json" \
+              --validation-report-format "${{ inputs.validation_report_format }}" \
+              ${{ inputs.stacksmith_args }} \
+              | tee "$artifact_dir/validation-report.${{ inputs.validation_report_format }}"
+          fi
 
       - name: Upload plan artifacts
         if: ${{ (success() || failure()) && inputs.upload_artifacts }}
@@ -121,11 +139,25 @@ jobs:
       - name: Run Stacksmith apply
         run: |
           set -euo pipefail
-          stacksmith apply \
+          artifact_dir=".stacksmith-ci/${{ inputs.environment }}"
+          mkdir -p "$artifact_dir"
+
+          if [ -n "${{ inputs.environment_runfile }}" ]; then
+            stacksmith apply \
               --env-file "${{ inputs.env_file }}" \
               --runfile "${{ inputs.runfile }}" \
+              --runfile "${{ inputs.environment_runfile }}" \
+              --build-dir "$artifact_dir" \
               --auto-approve \
               ${{ inputs.stacksmith_args }}
+          else
+            stacksmith apply \
+              --env-file "${{ inputs.env_file }}" \
+              --runfile "${{ inputs.runfile }}" \
+              --build-dir "$artifact_dir" \
+              --auto-approve \
+              ${{ inputs.stacksmith_args }}
+          fi
 
       - name: Summarize apply
         run: |

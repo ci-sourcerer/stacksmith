@@ -37,12 +37,26 @@ def _write_outputs(matrix: list[dict[str, str]]) -> None:
     print(f"count={len(matrix)}")
 
 
+def _resolve_gitops_root() -> str:
+    raw_value = (
+        os.getenv("INPUT_GITOPS_ROOT") or os.getenv("STACKSMITH_GITOPS_ROOT") or ""
+    ).strip()
+    if not raw_value:
+        return ""
+
+    repo_root = pathlib.Path(__file__).resolve().parent.parent
+    resolved = pathlib.Path(raw_value)
+    if resolved.is_absolute():
+        return str(resolved)
+    return str((repo_root / resolved).resolve())
+
+
 def _main() -> int:
     repo_root = pathlib.Path(__file__).resolve().parent.parent
     gitops = _load_module("src/stacksmith/gitops.py", repo_root)
 
     selection = gitops.evaluate_environment_selection(
-        gitops_root=os.getenv("INPUT_GITOPS_ROOT", ""),
+        gitops_root=_resolve_gitops_root(),
         discovery_mode=os.getenv("INPUT_DISCOVERY_MODE", "folders"),
         manual_environments=os.getenv("INPUT_ENVIRONMENTS", ""),
         event_name=os.getenv("CALLER_EVENT_NAME", ""),

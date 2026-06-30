@@ -1,110 +1,132 @@
-def runPipeline = {
-    stage('Checkout') {
-        checkout scm
-    }
+(env.STACKSMITH_NODE_LABEL ? { c -> node(env.STACKSMITH_NODE_LABEL) { c() } } : { c -> node { docker.image(env.STACKSMITH_IMAGE ?: 'cisourcerer/stacksmith:latest').inside('--entrypoint ""') { c() } } }) {
+    try {
+        ansiColor('xterm') {
+            properties([
+                parameters([
+                    string(name: 'OPERATION', defaultValue: 'plan', description: 'plan or apply'),
+                    string(name: 'ENVIRONMENTS', defaultValue: '', description: 'comma-separated environments to target manually'),
+                    string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
+                    booleanParam(name: 'FAIL_ON_CHANGES', defaultValue: false, description: 'fail if plan contains changes'),
+                    booleanParam(name: 'STRICT_VALIDATION_WARNINGS', defaultValue: false, description: 'treat validation warnings as failures'),
+                ])
+            ])
 
-    properties([
-        parameters([
-            string(name: 'OPERATION', defaultValue: 'plan', description: 'plan or apply'),
-            string(name: 'ENVIRONMENTS', defaultValue: '', description: 'comma-separated environments to target manually'),
-            string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
-            booleanParam(name: 'FAIL_ON_CHANGES', defaultValue: false, description: 'fail if plan contains changes'),
-            booleanParam(name: 'STRICT_VALIDATION_WARNINGS', defaultValue: false, description: 'treat validation warnings as failures'),
-        ])
-    ])
+            checkout scm
 
-    stage('Validate Branch and Operation') {
-        def operation = params.OPERATION.toLowerCase()
+            withFolderProperties {
+                if (!env.NO_VALIDATE_BRANCH_AND_OPERATION) {
+                    def operation = params.OPERATION.toLowerCase()
 
-        if (env.CHANGE_ID && operation == 'apply') {
-            error 'apply operation is not allowed on pull requests. Use plan instead.'
-        }
-        if (!env.CHANGE_ID && !env.BRANCH_IS_PRIMARY) {
-            error "operations are only allowed on main branch or pull requests to main. Current branch: ${env.BRANCH_NAME}"
-        }
-    }
-
-    stage('Select environments') {
-        writeFile file: 'selection.json', text: '{}'
-        withEnv([
-            "INPUT_GITOPS_ROOT=${params.WORKDIR}",
-            "INPUT_DISCOVERY_MODE=${env.STACKSMITH_DISCOVERY_MODE ?: 'folders'}",
-            "INPUT_ENVIRONMENTS=${params.ENVIRONMENTS}",
-        ]) {
-            sh 'python3 scripts/select_gitops_environments.py >selection.json'
-        }
-        def selection = readJSON file: 'selection.json'
-        env.SELECTED_ENVIRONMENTS = selection.selected_environments.join(',')
-        env.COMMON_RUNFILE = selection.common_runfile
-        env.SELECTION_MATRIX = writeJSON json: selection.matrix, returnText: true
-    }
-
-    stage('Summary') {
-        if (!env.SELECTED_ENVIRONMENTS) {
-            echo "No environments selected; skipping ${params.OPERATION}."
-            currentBuild.result = 'SUCCESS'
-            return
-        }
-        echo "Selected environments: ${env.SELECTED_ENVIRONMENTS}"
-        echo "Common runfile: ${env.COMMON_RUNFILE}"
-    }
-
-    if (params.OPERATION.toLowerCase() == 'apply') {
-        stage('Approval') {
-            input "Proceed with apply for environments: ${env.SELECTED_ENVIRONMENTS}?"
-        }
-    }
-
-    stage('Run Stacksmith') {
-        def matrix = readJSON text: env.SELECTION_MATRIX
-        def branches = [:]
-        def results = [:]
-
-        for (row in matrix) {
-            def environment = row.environment
-            def runfile = row.runfile
-            branches[environment] = {
-                try {
-                    dir(params.WORKDIR) {
-                        def command = "stacksmith ${params.OPERATION} --runfile ${runfile}"
-                        if (params.FAIL_ON_CHANGES) {
-                            command += " --fail-on-changes"
-                        }
-                        if (params.STRICT_VALIDATION_WARNINGS) {
-                            command += " --strict-validation-warnings"
-                        }
-                        sh command
+                    if (env.CHANGE_ID && operation == 'apply') {
+                        error '\'apply\' operation is not allowed on pull requests. Use \'plan\' instead.'
                     }
-                    results[environment] = 'SUCCESS'
-                } catch (e) {
-                    echo "Error in environment ${environment}: ${e.message}"
-                    results[environment] = 'FAILURE'
-                }
-
-                if (params.OPERATION.toLowerCase() == 'plan') {
-                    dir(params.WORKDIR) {
-                        archiveArtifacts artifacts: ".stacksmith/${environment}/**/*.json, .stacksmith/${environment}/**/*.csv", allowEmptyArchive: true
+                    if (!env.CHANGE_ID && !env.BRANCH_IS_PRIMARY) {
+                        error "Operations are only allowed on main branch or pull requests to main. Current branch: ${env.BRANCH_NAME}"
                     }
                 }
             }
-        }
-        parallel branches
 
-        def failedEnvs = results.findAll { it.value == 'FAILURE' }.collect { it.key }
-        if (failedEnvs) {
-            error "Stacksmith operation failed for environments: ${failedEnvs.join(', ')}"
-        }
-    }
-}
+            stage('Init pipeline') {
+                withFolderProperties {
+                    def gitopsRoot = env.STACKSMITH_GITOPS_ROOT ?: env.STACKSMITH_GITSOPS_ROOT ?: params.WORKDIR
+                    def selectionOutput = withEnv([
+                        "INPUT_GITOPS_ROOT=${gitopsRoot}",
+                        "INPUT_DISCOVERY_MODE=${env.STACKSMITH_DISCOVERY_MODE ?: 'auto'}",
+                        "INPUT_ENVIRONMENTS=${params.ENVIRONMENTS}",
+                    ]) {
+                        sh(script: 'python3 scripts/select_gitops_environments.py', returnStdout: true)
+                    }
 
-if (env.STACKSMITH_NODE_LABEL) {
-    node(env.STACKSMITH_NODE_LABEL) {
-        runPipeline()
-    }
-} else {
-    node {
-        docker.image("cisourcerer/stacksmith:${env.STACKSMITH_IMAGE_VERSION ?: 'latest'}").inside {
-            runPipeline()
+                    def matrixLine = selectionOutput.readLines().find { it.startsWith('matrix=') }
+                    if (!matrixLine) {
+                        error "GitOps selection script did not emit a matrix payload. Output was: ${selectionOutput}"
+                    }
+
+                    def matrix = readJSON text: matrixLine.substring('matrix='.length())
+                    env.SELECTED_ENVIRONMENTS = matrix.collect { it.environment }.join(',')
+                    env.COMMON_RUNFILE = matrix.collect { it.runfile }.find { it }
+                    env.SELECTION_MATRIX = writeJSON json: matrix, returnText: true
+
+                    if (!env.SELECTED_ENVIRONMENTS) {
+                        echo "No environments selected; skipping ${params.OPERATION}."
+                        currentBuild.result = 'SUCCESS'
+                        return
+                    }
+                    echo "Selected environments: ${env.SELECTED_ENVIRONMENTS}"
+                    echo "Common runfile: ${env.COMMON_RUNFILE}"
+                }
+            }
+
+            stage('Run Stacksmith') {
+                def matrix = readJSON text: env.SELECTION_MATRIX
+                def branches = [:]
+                def failed = false
+
+                for (row in matrix) {
+                    def environment = row.environment
+                    def runfile = row.runfile
+                    def environmentRunfile = row.environment_runfile ?: ''
+                    def stacksmithArgs = row.stacksmith_args ?: ''
+                    def artifactDir = ".stacksmith-ci/${environment}"
+
+                    branches[environment] = {
+                        dir(params.WORKDIR) {
+
+                            def extraFlags = ''
+                            if (params.FAIL_ON_CHANGES) {
+                                extraFlags += ' --fail-on-changes'
+                            }
+                            if (params.STRICT_VALIDATION_WARNINGS) {
+                                extraFlags += ' --strict-validation-warnings'
+                            }
+
+                            withEnv([
+                                "ARTIFACT_DIR=${artifactDir}",
+                                "RUNFILE=${runfile}",
+                                "ENVIRONMENT_RUNFILE=${environmentRunfile}",
+                                "STACKSMITH_ARGS=${stacksmithArgs}",
+                                "EXTRA_FLAGS=${extraFlags}",
+                            ]) {
+
+                                def status = sh(
+                                    script: '''#!/usr/bin/env bash
+                                        mkdir -p "$ARTIFACT_DIR"
+
+                                        runfiles=(--runfile "$RUNFILE")
+                                        [ -n "$ENVIRONMENT_RUNFILE" ] && runfiles+=(--runfile "$ENVIRONMENT_RUNFILE")
+
+                                        set +e
+                                        stacksmith "$OPERATION" \
+                                            "${runfiles[@]}" \
+                                            --build-dir "$ARTIFACT_DIR" \
+                                            $STACKSMITH_ARGS $EXTRA_FLAGS \
+                                            --save-plan-json "$ARTIFACT_DIR/plan.json" \
+                                            --validation-report-format json \
+                                            >"$ARTIFACT_DIR/validation-report.json"
+
+                                        exit $?
+                                    ''',
+                                    returnStatus: true
+                                )
+
+                                if (status != 0) {
+                                    failed = true
+                                    error "Stacksmith failed in ${environment}"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                parallel branches
+
+                if (failed) {
+                    error 'One or more Stacksmith environments failed'
+                }
+            }
+
         }
+    } finally {
+        cleanWs()
     }
 }

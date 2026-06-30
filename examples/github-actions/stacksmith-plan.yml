@@ -60,6 +60,6 @@ jobs:
       operation: plan
       environments: ${{ github.event.inputs.environments || '' }}
       gitops_root: ${{ github.event.inputs.gitops_root || vars.STACKSMITH_GITOPS_ROOT || '.' }}
-      discovery_mode: ${{ github.event.inputs.discovery_mode || vars.STACKSMITH_DISCOVERY_MODE || 'folders' }}
+      discovery_mode: ${{ github.event.inputs.discovery_mode || vars.STACKSMITH_DISCOVERY_MODE || 'auto' }}
       workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
     secrets: inherit

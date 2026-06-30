@@ -15,7 +15,7 @@ The pipeline supports two execution modes, controlled by environment variables:
 
 - `STACKSMITH_NODE_LABEL`: Optional Jenkins agent label. If provided, the pipeline runs directly on the agent.
 - `STACKSMITH_IMAGE_VERSION`: Optional. Specifies the Docker image tag for `cisourcerer/stacksmith` when running in container mode. Defaults to `latest`.
-- `STACKSMITH_DISCOVERY_MODE`: `folders`, `flat-files`, or `env-files`. Defaults to `folders`.
+- `STACKSMITH_DISCOVERY_MODE`: `folders`, `flat-files`, or `env-files`. Defaults to `auto` for the GitOps example layout.
 
 The following overrides can technically be set, but it is unnecessary in most cases. If omitted (probably what you want), [`src/stacksmith/gitops.py`](../src/stacksmith/gitops.py) derives equivalent CI context from Jenkins-native environment variables such as `JENKINS_URL`, `CHANGE_ID`, `CHANGE_TARGET`, and `GIT_COMMIT`.
 
@@ -29,6 +29,7 @@ The following overrides can technically be set, but it is unnecessary in most ca
 - The pipeline is a scripted pipeline that dynamically generates parallel stages for each selected environment.
 - It selects environments using the same [`scripts/select_gitops_environments.py`](../scripts/select_gitops_environments.py) helper as the GitHub Actions workflow.
 - Jenkins-specific context is normalized in [`src/stacksmith/gitops.py`](../src/stacksmith/gitops.py), so pull request and branch builds do not need a separate Jenkins-only selection code path.
+- Each environment run writes generated files, plan JSON output, and cache data to `.stacksmith-ci/<environment>` to avoid collisions during parallel execution.
 - If no environments are selected, the job prints a summary and exits successfully.
 - For `apply` operations, the pipeline will pause for manual approval before proceeding.
 - For `plan` operations, generated plan files and validation reports are archived as build artifacts.

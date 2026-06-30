@@ -1233,6 +1233,8 @@ def test_cmd_info_environments_emits_json(monkeypatch, parser, capsys):
                 {
                     "environment": "dev",
                     "runfile": "examples/gitops-repo/common/stacksmith.yaml",
+                    "environment_runfile": "examples/gitops-repo/environments/dev.yaml",
+                    "stacksmith_args": "--var environment=dev",
                 }
             ],
         },

@@ -37,6 +37,7 @@ cat >"$tmpfile" <<EOF
     "operation": "$operation",
     "environment": "$environment",
     "runfile": "examples/gitops-repo/common/stacksmith.yaml",
+    "environment_runfile": "examples/gitops-repo/environments/$environment.yaml",
     "workdir": ".",
     "env_file": "/dev/null",
     "stacksmith_args": "--var environment=$environment",

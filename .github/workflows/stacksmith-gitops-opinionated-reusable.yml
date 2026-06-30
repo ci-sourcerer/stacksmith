@@ -13,10 +13,10 @@ on:
         type: string
         default: ""
       discovery_mode:
-        description: "Discovery mode. Supported values: folders (default), flat-files, or env-files."
+        description: "Discovery mode. Supported values: auto (default), folders, flat-files, or env-files."
         required: false
         type: string
-        default: folders
+        default: auto
       gitops_root:
         description: Relative path to the GitOps root folder.
         required: false
@@ -90,9 +90,10 @@ jobs:
       operation: plan
       environment: ${{ matrix.environment }}
       runfile: ${{ matrix.runfile }}
+      environment_runfile: ${{ matrix.environment_runfile }}
       workdir: ${{ inputs.workdir }}
       env_file: ${{ fromJson(toJson(vars)).STACKSMITH_ENV_FILE || '/dev/null' }}
-      stacksmith_args: --var environment=${{ matrix.environment }}
+      stacksmith_args: ${{ matrix.stacksmith_args }}
       image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
       validation_report_format: ${{ fromJson(toJson(vars)).STACKSMITH_VALIDATION_REPORT_FORMAT || 'json' }}
       upload_artifacts: ${{ (fromJson(toJson(vars)).STACKSMITH_UPLOAD_ARTIFACTS || 'true') != 'false' }}
@@ -113,7 +114,7 @@ jobs:
       runfile: ${{ matrix.runfile }}
       workdir: ${{ inputs.workdir }}
       env_file: ${{ fromJson(toJson(vars)).STACKSMITH_ENV_FILE || '/dev/null' }}
-      stacksmith_args: --var environment=${{ matrix.environment }}
+      stacksmith_args: ${{ matrix.stacksmith_args }}
       image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
     secrets: inherit
 

@@ -5,7 +5,9 @@ loaded directly from source in GitHub Actions without importing the full
 `stacksmith` package.
 """
 
+import logging
 import os
+import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,7 +28,26 @@ SUPPORTED_DISCOVERY_MODES = {
     "folders",
     "flat-files",
     "env-files",
+    "auto",
 }
+LOGGER_NAME = "stacksmith.gitops"
+
+logger = logging.getLogger(LOGGER_NAME)
+
+
+def _configure_logger() -> None:
+    """Configure the GitOps logger based on environment variables."""
+    if logger.handlers:
+        return
+
+    logger.setLevel(logging.DEBUG if os.getenv("STACKSMITH_CI_DEBUG") else logging.INFO)
+    logger.propagate = False
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
+
+
 _NON_ENVIRONMENT_NAMES = {
     "stacksmith",
     "yaml",
@@ -53,13 +74,27 @@ class GitOpsSelectionResult:
     @property
     def matrix(self) -> list[dict[str, str]]:
         """Return matrix rows compatible with GitHub Actions strategy.include."""
-        return [
-            {
-                "environment": environment,
-                "runfile": self.common_runfile,
-            }
-            for environment in self.selected_environments
-        ]
+        rows = []
+        for environment in self.selected_environments:
+            runfile = self.common_runfile
+            environment_runfile = ""
+            stacksmith_args = f"--var environment={shlex.quote(environment)}"
+            if self.discovery_mode == "env-files":
+                root = Path(self.gitops_root or ".")
+                for ext in ("yaml", "yml", "json"):
+                    env_file = root / "environments" / f"{environment}.{ext}"
+                    if env_file.exists():
+                        environment_runfile = env_file.as_posix()
+                        break
+            rows.append(
+                {
+                    "environment": environment,
+                    "runfile": runfile,
+                    "environment_runfile": environment_runfile,
+                    "stacksmith_args": stacksmith_args,
+                }
+            )
+        return rows
 
 
 def normalize_gitops_root(value: str) -> str:
@@ -71,6 +106,8 @@ def normalize_gitops_root(value: str) -> str:
     Returns:
         Empty string for current directory roots or a normalized relative prefix.
     """
+    _configure_logger()
+    logger.debug("Normalizing GitOps root input: %r", value)
     value = value.strip() or "."
     if value.startswith("./"):
         value = value[2:]
@@ -91,8 +128,14 @@ def normalize_discovery_mode(value: str) -> str:
     Returns:
         Canonical discovery mode.
     """
+    _configure_logger()
     mode = value.strip().lower() or "folders"
-    return "env-files" if mode in {"env", "env-files"} else mode
+    if mode in {"auto", ""}:
+        normalized = "auto"
+    else:
+        normalized = "env-files" if mode in {"env", "env-files"} else mode
+    logger.debug("Normalized discovery mode %r -> %r", value, normalized)
+    return normalized
 
 
 def validate_discovery_mode(value: str) -> str:
@@ -107,6 +150,7 @@ def validate_discovery_mode(value: str) -> str:
     Raises:
         ValueError: If the mode is unsupported.
     """
+    _configure_logger()
     mode = normalize_discovery_mode(value)
     if mode not in SUPPORTED_DISCOVERY_MODES:
         supported = ", ".join(sorted(SUPPORTED_DISCOVERY_MODES))
@@ -114,6 +158,20 @@ def validate_discovery_mode(value: str) -> str:
             f"Unsupported discovery mode '{value}'. Supported values: {supported}."
         )
     return mode
+
+
+def resolve_discovery_mode(mode: str, root: Path) -> str:
+    """Resolve discovery mode, defaulting to env-files for hybrid GitOps layouts."""
+    if mode != "auto":
+        return mode
+
+    env_root = root / "environments"
+    if env_root.exists() and any(env_root.iterdir()):
+        for path in env_root.iterdir():
+            if path.is_file() and path.suffix in {".yaml", ".yml", ".json"}:
+                return "env-files"
+        return "folders"
+    return "folders"
 
 
 def project_root(gitops_root: str) -> Path:
@@ -125,6 +183,7 @@ def project_root(gitops_root: str) -> Path:
     Returns:
         A path for discovery operations.
     """
+    _configure_logger()
     return Path(gitops_root or ".")
 
 
@@ -137,14 +196,14 @@ def common_run_file_for(root: Path) -> str:
     Returns:
         A relative POSIX-style runfile path.
     """
-    return next(
-        (
-            str((root / candidate).as_posix())
-            for candidate in COMMON_CANDIDATES
-            if (root / candidate).exists()
-        ),
-        str((root / "common/stacksmith.yaml").as_posix()),
+    _configure_logger()
+    candidate = next(
+        (candidate for candidate in COMMON_CANDIDATES if (root / candidate).exists()),
+        "common/stacksmith.yaml",
     )
+    resolved = str((root / candidate).as_posix())
+    logger.debug("Resolved common runfile for %s -> %s", root, resolved)
+    return resolved
 
 
 def discover_environments(mode: str, root: Path) -> tuple[list[str], str]:
@@ -157,11 +216,14 @@ def discover_environments(mode: str, root: Path) -> tuple[list[str], str]:
     Returns:
         Tuple of discovered environment names and common runfile path.
     """
+    _configure_logger()
+    logger.info("Discovering environments with mode=%s root=%s", mode, root)
     all_envs = []
     env_root = root / "environments"
 
     if mode == "flat-files":
         common_file = common_run_file_for(root)
+        logger.debug("Scanning flat-files under %s", root)
         for path in (
             sorted(root.glob("stacksmith.*.yaml"))
             + sorted(root.glob("stacksmith.*.yml"))
@@ -171,10 +233,12 @@ def discover_environments(mode: str, root: Path) -> tuple[list[str], str]:
             if name in {"yaml", "yml", "json", "common", "shared", "base", "defaults"}:
                 continue
             all_envs.append(name)
+        logger.debug("Discovered flat-file environments: %s", all_envs)
         return all_envs, common_file
 
     if mode == "env-files":
         common_file = common_run_file_for(root)
+        logger.debug("Scanning env-files under %s", env_root)
         if env_root.exists():
             for path in (
                 sorted(env_root.glob("*.yaml"))
@@ -189,13 +253,16 @@ def discover_environments(mode: str, root: Path) -> tuple[list[str], str]:
                     "defaults",
                 }:
                     all_envs.append(path.stem)
+        logger.debug("Discovered env-file environments: %s", all_envs)
         return all_envs, common_file
 
     if env_root.exists():
+        logger.debug("Scanning folder-based environments under %s", env_root)
         for env_dir in sorted(env_root.iterdir()):
             if env_dir.is_dir():
                 all_envs.append(env_dir.name)
 
+    logger.debug("Discovered folder environments: %s", all_envs)
     return all_envs, "common/stacksmith.yaml"
 
 
@@ -208,7 +275,10 @@ def parse_manual_environments(value: str) -> set[str]:
     Returns:
         Parsed set of environment names.
     """
-    return {item.strip() for item in value.split(",") if item.strip()}
+    _configure_logger()
+    parsed = {item.strip() for item in value.split(",") if item.strip()}
+    logger.debug("Parsed manual environments from %r -> %s", value, sorted(parsed))
+    return parsed
 
 
 def resolve_ci_context() -> tuple[str, str, str, str]:
@@ -221,8 +291,10 @@ def resolve_ci_context() -> tuple[str, str, str, str]:
     Returns:
         Tuple of normalized event name, base ref, before SHA, and after SHA.
     """
+    _configure_logger()
     explicit_event_name = (os.getenv("CALLER_EVENT_NAME") or "").strip()
     if explicit_event_name:
+        logger.info("Using explicit CI context overrides for GitOps selection")
         return (
             explicit_event_name,
             (os.getenv("CALLER_BASE_REF") or "").strip(),
@@ -231,34 +303,43 @@ def resolve_ci_context() -> tuple[str, str, str, str]:
         )
 
     if os.getenv("JENKINS_URL"):
+        logger.debug("Detected Jenkins CI environment")
         if os.getenv("CHANGE_ID"):
-            return (
+            resolved = (
                 "pull_request",
                 (os.getenv("CHANGE_TARGET") or "").strip(),
                 "",
                 (os.getenv("GIT_COMMIT") or "").strip(),
             )
-        return (
+            logger.debug("Resolved Jenkins PR context: %s", resolved)
+            return resolved
+        resolved = (
             "push",
             "",
             "",
             (os.getenv("GIT_COMMIT") or "").strip(),
         )
+        logger.debug("Resolved Jenkins push context: %s", resolved)
+        return resolved
 
-    return (
+    resolved = (
         (os.getenv("GITHUB_EVENT_NAME") or "").strip(),
         (os.getenv("GITHUB_BASE_REF") or "").strip(),
         (os.getenv("GITHUB_EVENT_BEFORE") or "").strip(),
         (os.getenv("GITHUB_SHA") or "").strip(),
     )
+    logger.debug("Resolved GitHub CI context: %s", resolved)
+    return resolved
 
 
 def _validated_manual_environments(
     manual_targets: set[str], all_envs: list[str]
 ) -> set[str]:
+    _configure_logger()
     discovered = set(all_envs)
     unknown = sorted(env for env in manual_targets if env not in discovered)
     if not unknown:
+        logger.info("Manual environments validated: %s", sorted(manual_targets))
         return manual_targets
 
     discovered_envs = ", ".join(sorted(all_envs)) if all_envs else "<none>"
@@ -286,6 +367,14 @@ def changed_paths_for_event(
     Returns:
         Changed repository paths.
     """
+    _configure_logger()
+    logger.debug(
+        "Resolving changed paths for event=%s base_ref=%r before=%r after=%r",
+        event_name,
+        base_ref,
+        before,
+        after,
+    )
     if event_name == "pull_request" and base_ref:
         try:
             subprocess.run(
@@ -351,10 +440,13 @@ def select_changed_environments(
     Returns:
         Selected environment names.
     """
+    _configure_logger()
+    logger.debug("Selecting environments from changed paths: %s", changed_paths)
     run_all = any(path.startswith(common_prefixes) for path in changed_paths) or any(
         path.startswith(".github/workflows/") for path in changed_paths
     )
     if run_all:
+        logger.info("Common change detected; selecting all environments")
         return set(all_envs)
 
     selected: set[str] = set()
@@ -398,6 +490,7 @@ def select_changed_environments(
         if relative_path.parts:
             selected.add(relative_path.parts[0])
 
+    logger.debug("Selected environments from changed paths: %s", sorted(selected))
     return selected
 
 
@@ -458,6 +551,7 @@ def select_target_environments(
 
     if manual:
         return sorted(selected), resolved_changed_paths
+    logger.info("Resolved selected environments: %s", sorted(selected))
     return sorted(env for env in selected if env in all_envs), resolved_changed_paths
 
 
@@ -492,13 +586,18 @@ def evaluate_environment_selection(
             without a manual override, or if manual environment targets include unknown
             names.
     """
+    _configure_logger()
+    logger.info("Evaluating GitOps environment selection")
     normalized_root = normalize_gitops_root(gitops_root)
     mode = validate_discovery_mode(discovery_mode)
     root = project_root(normalized_root)
-    all_envs, common_runfile = discover_environments(mode, root)
+    resolved_mode = resolve_discovery_mode(mode, root)
+    logger.debug("Validated discovery mode=%s root=%s", resolved_mode, root)
+    all_envs, common_runfile = discover_environments(resolved_mode, root)
 
     manual = manual_environments.strip()
     if not manual and not all_envs:
+        logger.error("No environments discovered for %s", root)
         raise ValueError(
             "No environments were discovered under 'environments/'. "
             "Also, no environments were manually specified via the "
@@ -523,9 +622,16 @@ def evaluate_environment_selection(
             after=resolved_after,
         )
     )
+    logger.debug(
+        "Resolved event context: %s %s %s %s",
+        resolved_event_name,
+        resolved_base_ref,
+        resolved_before,
+        resolved_after,
+    )
     selected, used_changed_paths = select_target_environments(
         all_envs=all_envs,
-        mode=mode,
+        mode=resolved_mode,
         gitops_root=normalized_root,
         manual_environments=manual,
         event_name=resolved_event_name,

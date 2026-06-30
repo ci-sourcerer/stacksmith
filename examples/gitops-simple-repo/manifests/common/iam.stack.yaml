@@ -1,0 +1,33 @@
+name: iam
+
+tags:
+  - iam
+  - describe
+
+components:
+  describe-instances-role:
+    type: aws_iam_role
+    properties:
+      name: "{{ inputs.environment }}-describe-instances"
+      trust_policy_permissions:
+        assume-role:
+          effect: Allow
+          principals:
+            - type: Service
+              identifiers:
+                - ec2.amazonaws.com
+          actions:
+            - sts:AssumeRole
+      create_inline_policy: true
+      inline_policy_permissions:
+        ec2_describe:
+          effect: Allow
+          actions:
+            - ec2:DescribeInstances
+            - ec2:DescribeTags
+          resources:
+            - "*"
+      tags:
+        project: simple-gitops
+        environment: "{{ inputs.environment }}"
+        target_tag: "{{ inputs.instance_tag }}"

@@ -1,7 +1,9 @@
 import importlib.util
 import io
+import logging
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from stacksmith.gitops import (
@@ -28,6 +30,19 @@ def test_normalize_discovery_mode_env_alias():
 def test_validate_discovery_mode_rejects_unsupported_value():
     with pytest.raises(ValueError, match="Unsupported discovery mode"):
         validate_discovery_mode("broken")
+
+
+def test_evaluate_environment_selection_auto_detects_env_files_layout(tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+
+    selection = evaluate_environment_selection(
+        gitops_root=str(tmp_path),
+        discovery_mode="auto",
+        event_name="workflow_dispatch",
+        changed_paths=[],
+    )
+
+    assert selection.selected_environments == ["dev", "prod"]
 
 
 def test_discover_environments_flat_files_filters_common_variants(tmp_path: Path):
@@ -119,10 +134,14 @@ def test_evaluate_environment_selection_with_manual_targets(tmp_path: Path):
         {
             "environment": "dev",
             "runfile": f"{tmp_path.as_posix()}/common/stacksmith.yaml",
+            "environment_runfile": f"{tmp_path.as_posix()}/environments/dev.yaml",
+            "stacksmith_args": "--var environment=dev",
         },
         {
             "environment": "prod",
             "runfile": f"{tmp_path.as_posix()}/common/stacksmith.yaml",
+            "environment_runfile": f"{tmp_path.as_posix()}/environments/prod.yaml",
+            "stacksmith_args": "--var environment=prod",
         },
     ]
 
@@ -234,6 +253,84 @@ def test_changed_paths_for_event_git_error_resilience(monkeypatch):
     # Verify we gracefully return [] on failures instead of raising exceptions
     assert changed_paths_for_event("push", before="sha1", after="sha256") == []
     assert changed_paths_for_event("pull_request", base_ref="main") == []
+
+
+def test_select_gitops_environments_uses_gitops_root_env_alias(monkeypatch):
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "select_gitops_environments.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "select_gitops_environments", script_path
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    captured = {}
+
+    class DummyGitOps:
+        def evaluate_environment_selection(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                matrix=[{"environment": "dev", "runfile": "common/stacksmith.yaml"}]
+            )
+
+    monkeypatch.setenv("STACKSMITH_GITOPS_ROOT", "examples/gitops-repo")
+    monkeypatch.delenv("INPUT_GITOPS_ROOT", raising=False)
+    monkeypatch.setattr(module, "_load_module", lambda *_args, **_kwargs: DummyGitOps())
+    monkeypatch.setattr(module, "_write_outputs", lambda matrix: None)
+
+    assert module._main() == 0
+    assert captured["gitops_root"] == str(
+        (Path(__file__).resolve().parents[1] / "examples" / "gitops-repo").resolve()
+    )
+
+
+def test_select_gitops_environments_resolves_relative_gitops_root_from_repo_root(
+    monkeypatch,
+):
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "select_gitops_environments.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "select_gitops_environments", script_path
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    monkeypatch.setenv("INPUT_GITOPS_ROOT", "examples/gitops-repo")
+    monkeypatch.delenv("STACKSMITH_GITOPS_ROOT", raising=False)
+
+    expected = str((script_path.parent.parent / "examples" / "gitops-repo").resolve())
+    assert module._resolve_gitops_root() == expected
+
+
+def test_gitops_logging_uses_debug_level_when_enabled(monkeypatch, tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+
+    monkeypatch.setenv("STACKSMITH_CI_DEBUG", "1")
+
+    import stacksmith.gitops as gitops
+
+    logger = logging.getLogger(gitops.LOGGER_NAME)
+    logger.setLevel(logging.NOTSET)
+    logger.handlers.clear()
+
+    with pytest.raises(ValueError):
+        evaluate_environment_selection(
+            gitops_root=str(tmp_path),
+            discovery_mode="env-files",
+            manual_environments="dev,missing",
+            event_name="workflow_dispatch",
+            changed_paths=[],
+        )
+
+    assert logger.isEnabledFor(logging.DEBUG)
 
 
 def test_evaluate_environment_selection_uses_jenkins_ci_context(
