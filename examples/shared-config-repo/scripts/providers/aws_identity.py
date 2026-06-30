@@ -38,7 +38,7 @@ def is_root_aws_identity(profile_name: str | None = None) -> bool:
             else boto3.session.Session()
         )
         identity = session.client("sts").get_caller_identity()
-    except (BotoCoreError, ClientError, ProfileNotFound, ValueError):
+    except BotoCoreError, ClientError, ProfileNotFound, ValueError:
         LOGGER.debug("Failed to resolve AWS identity", exc_info=True)
         return False
 

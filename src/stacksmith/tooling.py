@@ -176,7 +176,7 @@ def _is_usable_tool_binary(
             text=True,
             env=os.environ.copy(),
         )
-    except (FileNotFoundError, PermissionError, OSError):
+    except FileNotFoundError, PermissionError, OSError:
         return False
 
     if result.returncode != 0:
