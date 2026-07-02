@@ -8,8 +8,17 @@
 	"customizations": {
 		"vscode": {
 			"extensions": [
-				"redhat.vscode-yaml"
+				"redhat.vscode-yaml",
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"ms-python.black-formatter",
+				"ms-python.isort",
+				"njpwerner.autodocstring",
+				"-ms-python.autopep8"
 			]
 		}
-	}
+	},
+	"mounts": [
+		"source=${localEnv:HOME}/.config/gh,target=/root/.config/gh,type=bind,consistency=cached"
+	]
 }
