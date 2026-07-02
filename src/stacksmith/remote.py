@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import requests
+import requests.auth
 from loguru import logger as LOGGER
 from rich.console import Console
 from rich.prompt import Prompt
