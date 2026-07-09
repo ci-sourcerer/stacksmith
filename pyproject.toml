@@ -30,6 +30,14 @@ dynamic = ["version"]
 [tool.poe]
 include_script = "common_python_tasks:tasks(exclude_tags=['fastapi'])"
 
+[tool.poe.tasks.docs-cli-reference]
+cmd = "python scripts/update_cli_reference.py"
+help = "Update the generated CLI reference block in README.md"
+
+[tool.poe.tasks.docs-cli-reference-check]
+cmd = "python scripts/update_cli_reference.py --check"
+help = "Check that the README.md CLI reference block is current"
+
 [tool.poe.env]
 CONTAINER_ENV = "TF_PLUGIN_CACHE_DIR=/workspace/.stacksmith/providers STACKSMITH_TOOL_CACHE_DIR=/workspace/.stacksmith/.cache/tools"
 CONTAINER_BUILD_ARGS = """

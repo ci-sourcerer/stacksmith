@@ -537,64 +537,423 @@ The opinionated workflow resolves `STACKSMITH_ENV_FILE` from repository variable
 
 ## CLI reference
 
-Single-stack commands default to `stack.yaml` in the current directory (with fallback to `stack.yml` then `stack.json`) when neither `--stack`, `STACKSMITH_STACK`, nor `stacksmith.yaml` supplies stack refs. `--config` is repeatable; config files are deep-merged in order and later files override earlier ones. If `--config` is omitted, defaults come from `STACKSMITH_CONFIG` (supports one or more paths separated by your OS path separator), otherwise `./stacksmith-config.yaml`.
+<!-- BEGIN GENERATED CLI REFERENCE -->
 
-Paths passed to `--env-file`, `--build-dir`, `--root`, and the positional stack file argument support `~` expansion.
+Single-stack commands default to `stack.yaml` in the current directory, with fallback to `stack.yml` then `stack.json`, when neither `--stack`, `STACKSMITH_STACK`, nor `stacksmith.yaml` supplies stack refs.
 
-```shell
-stacksmith validate [<stack_file>] [--stack <stack> ...] [--runfile <runfile>] [--config <config> ...] [--validation-report-format json]
+### `stacksmith`
 
-stacksmith generate [<stack_file>] [--stack <stack> ...] [--runfile <runfile>] [--config <config> ...] [--build-dir <dir>]
-
-stacksmith init     [<stack_file>] [--stack <stack> ...] [--runfile <runfile>] [--config <config> ...]
-
-stacksmith plan     [<stack_file>] [--stack <stack> ...] [--runfile <runfile>] [--config <config> ...] [--validation-report-format json]
-
-stacksmith apply    [<stack_file>] [--stack <stack> ...] [--runfile <runfile>] [--config <config> ...] [--auto-approve]
-
-stacksmith destroy  [<stack_file>] [--stack <stack> ...] [--runfile <runfile>] [--config <config> ...] [--auto-approve]
-
-stacksmith run-all  <action> [--stack <stack> ...] [--runfile <runfile>] [--root <root>] [--config <config> ...]
-
-stacksmith info inspect [--runfile <runfile>] [--config <config> ...]
-
-stacksmith info diagnose [<stack_file>] [--stack <stack> ...] [--runfile <runfile>] [--config <config> ...]
-
-stacksmith info environments [--gitops-root <root>] [--discovery-mode <folders|flat-files|env-files>] [--environments <env1,env2>] [--event-name <event>] [--changed-path <path> ...]
-
-stacksmith ci validate [--gitops-root <root>] [--discovery-mode <folders|flat-files|env-files>] [--workflow-runfile <path>] [--workflow-env-file <path>] [--workflow-validation-report-format json]
+```text
+stacksmith [-h] [--version]
+                  {validate,generate,run-all,init,plan,apply,destroy,info,ci} ...
 ```
 
-Common flags available on single-stack commands:
+YAML/JSON-driven Terragrunt wrapper
 
-| Flag | Description |
+| Argument | Description |
 | - | - |
-| `--runfile` | Path or URL to `stacksmith.yaml`. Provides a reproducible base layer for stacks, configs, vars files, and inline vars. Defaults to `STACKSMITH_RUN_FILE`, then auto-detects `./stacksmith.yaml` when present. Supports `http(s)://` and `git+` URLs. |
-| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. `deep` (default) recursively merges dict/list structures. `override` replaces earlier layer values with later ones. |
-| `--stack` | Repeatable path or URL to a stack definition. On single-stack commands, repeated `--stack` entries are deep-merged in order. On `run-all`, repeated `--stack` entries bypass discovery and target those stacks explicitly. Supports `http(s)://` and `git+` URLs. |
-| `--config` | Path or URL to `stacksmith-config.yaml` (repeatable). Files are deep-merged in order, with later files overriding earlier files. Supports `http(s)://` and `git+` URLs. Default: `STACKSMITH_CONFIG` using a single value or colon-delimited list. Quote items containing colons. |
-| `--vars` | Repeatable path or URL to a vars YAML/JSON file. Explicit `--vars` entries deep-merge with `--var` in the order they are provided on the command line; dicts merge recursively and lists append. Supports `http(s)://` and `git+` URLs. Default: `STACKSMITH_VARS` using a single value or colon-delimited list when `--runfile` is not used. Quote items containing colons. |
-| `--var key=val` | Input override, repeatable. Deep-merges in CLI order alongside `--vars`. Runfile `var` entries are applied before these CLI overrides and may use non-string YAML values. |
-| `--build-dir` | Output directory (default: `.stacksmith/` next to the stack file) |
-| `--env-file` | Load environment variables from a dotenv-style file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. When omitted, Stacksmith will automatically load `.env` from the current working directory if present. |
-| `--no-cache` | Force re-fetch of Stacksmith remote references. On runtime commands, this also disables Terragrunt CAS for that invocation. |
-| `--no-cas` | Disable Terragrunt CAS for the invocation while keeping Stacksmith cache behavior unchanged. |
-| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via `STACKSMITH_ONLY_USE_LOCAL_MODULES=1`. |
-| `--no-local-modules` | Disable local module rewriting even if `STACKSMITH_ONLY_USE_LOCAL_MODULES` is set. |
-| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This affects `plan` and `run-all plan`. |
-| `--validation-report-format` | Report format for `validate`, `plan`, and `run-all plan`. Currently supports `json` (default). |
-| `--debug` | Enable debug logging and developer diagnostics, including per-rule validation checks and generated JSON file paths. |
+| `--version` | show program's version number and exit |
 
-Run-all targeting and plan flags:
+#### Commands
 
-| Flag | Description |
+| Command | Description |
 | - | - |
-| `--tag` | Repeatable simple tag selector. A component must include all specified tags to match. |
-| `--tag-expr` | Single JMESPath expression used to select target modules. Expression output must be a strict boolean for each component. |
-| `--include-tag` | Repeatable stack filter for `run-all`. Includes stacks that contain at least one of the provided tags. |
-| `--exclude-tag` | Repeatable stack filter for `run-all`. Excludes stacks that contain any of the provided tags. |
-| `--save-plan-json` | On `plan` and `run-all plan`, persist rendered plan JSON to the given file or directory. Single-stack `plan` accepts either a file path or directory. `run-all plan` writes one `<stack>.json` file per stack into the given directory. |
-| `--validation-report-format` | On `run-all plan`, select the validation report format. Currently supports `json` (default). |
+| `validate` | Validate stack schema and variables |
+| `generate` | Generate .tf.json and terragrunt.hcl.json |
+| `run-all` | Discover all stacks and run terragrunt run-all |
+| `init` | Generate + terragrunt init |
+| `plan` | Generate + terragrunt plan |
+| `apply` | Generate + terragrunt apply |
+| `destroy` | Generate + terragrunt destroy |
+| `info` | Show stacksmith inspection and diagnostics commands |
+| `ci` | CI-focused validation and diagnostics commands |
+
+### `stacksmith validate`
+
+```text
+stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE]
+                           [-c CONFIG] [--env-file ENV_FILE]
+                           [--vars VARS_FILE] [--var VARS]
+                           [--merge-mode {deep,override}]
+                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
+                           [--no-cas] [--strict-validation-warnings]
+                           [--use-local-modules | --no-local-modules]
+                           [--debug | -q] [--validation-report-format {json}]
+                           [stack_file]
+```
+
+| Argument | Description |
+| - | - |
+| `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
+| `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+| `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
+
+### `stacksmith generate`
+
+```text
+stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE]
+                           [-c CONFIG] [--env-file ENV_FILE]
+                           [--vars VARS_FILE] [--var VARS]
+                           [--merge-mode {deep,override}]
+                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
+                           [--no-cas] [--strict-validation-warnings]
+                           [--use-local-modules | --no-local-modules]
+                           [--debug | -q]
+                           [stack_file]
+```
+
+| Argument | Description |
+| - | - |
+| `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
+| `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+
+### `stacksmith run-all`
+
+```text
+stacksmith run-all [-h] [--root ROOT] [--stack STACK]
+                          [--runfile RUNFILE] [-c CONFIG]
+                          [--env-file ENV_FILE] [--vars VARS_FILE]
+                          [--var VARS] [--merge-mode {deep,override}]
+                          [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
+                          [--no-cas] [--strict-validation-warnings]
+                          [--use-local-modules | --no-local-modules]
+                          [--debug | -q] [--validation-report-format {json}]
+                          [--destroy] [--save-plan-json SAVE_PLAN_JSON]
+                          [--fail-on-changes] [--tag TAG]
+                          [--tag-expr TAG_EXPR] [--include-tag INCLUDE_TAG]
+                          [--exclude-tag EXCLUDE_TAG] [--clean]
+                          [--auto-approve]
+                          {init,plan,apply,destroy}
+```
+
+| Argument | Description |
+| - | - |
+| `action` | Terragrunt action to run across all stacks. Choices: `init`, `plan`, `apply`, `destroy`. |
+| `--root` | Root directory to discover stacks in (default: current working directory) |
+| `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+| `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
+| `--destroy` | Plan destroy operations instead of a create/update when action is plan. |
+| `--save-plan-json` | Save rendered plan JSON to the given file or directory. |
+| `--fail-on-changes` | Return a non-zero exit code if the plan contains any resource changes. |
+| `--tag` | Select components by tag. Repeat to require multiple tags. Supported for run-all plan/apply/destroy. |
+| `--tag-expr` | JMESPath expression used to select resource targets. Supported for run-all plan/apply/destroy. |
+| `--include-tag` | Include stacks that have this tag. Repeatable. |
+| `--exclude-tag` | Exclude stacks that have this tag. Repeatable. |
+| `--clean` | Remove existing build output directory before generation |
+| `--auto-approve` | Skip interactive approval for apply/destroy |
+
+### `stacksmith init`
+
+```text
+stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+                       [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+                       [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                       [--log LOG] [--no-cache] [--no-cas]
+                       [--strict-validation-warnings] [--use-local-modules |
+                       --no-local-modules] [--debug | -q]
+                       [stack_file]
+```
+
+| Argument | Description |
+| - | - |
+| `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
+| `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+
+### `stacksmith plan`
+
+```text
+stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+                       [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+                       [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                       [--log LOG] [--no-cache] [--no-cas]
+                       [--strict-validation-warnings] [--use-local-modules |
+                       --no-local-modules] [--debug | -q] [--destroy]
+                       [--save-plan-json SAVE_PLAN_JSON] [--fail-on-changes]
+                       [--tag TAG] [--tag-expr TAG_EXPR]
+                       [--validation-report-format {json}]
+                       [stack_file]
+```
+
+| Argument | Description |
+| - | - |
+| `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
+| `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+| `--destroy` | Plan destroy operations instead of a create/update when action is plan. |
+| `--save-plan-json` | Save rendered plan JSON to the given file or directory. |
+| `--fail-on-changes` | Return a non-zero exit code if the plan contains any resource changes. |
+| `--tag` | Select components by tag. Repeat to require multiple tags. |
+| `--tag-expr` | JMESPath expression used to select resource targets. |
+| `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
+
+### `stacksmith apply`
+
+```text
+stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+                        [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+                        [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                        [--log LOG] [--no-cache] [--no-cas]
+                        [--strict-validation-warnings] [--use-local-modules |
+                        --no-local-modules] [--debug | -q] [--tag TAG]
+                        [--tag-expr TAG_EXPR] [--auto-approve]
+                        [stack_file]
+```
+
+| Argument | Description |
+| - | - |
+| `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
+| `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+| `--tag` | Select components by tag. Repeat to require multiple tags. |
+| `--tag-expr` | JMESPath expression used to select resource targets. |
+| `--auto-approve` | Skip interactive approval |
+
+### `stacksmith destroy`
+
+```text
+stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+                          [--env-file ENV_FILE] [--vars VARS_FILE]
+                          [--var VARS] [--merge-mode {deep,override}]
+                          [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
+                          [--no-cas] [--strict-validation-warnings]
+                          [--use-local-modules | --no-local-modules]
+                          [--debug | -q] [--tag TAG] [--tag-expr TAG_EXPR]
+                          [--auto-approve]
+                          [stack_file]
+```
+
+| Argument | Description |
+| - | - |
+| `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
+| `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+| `--tag` | Select components by tag. Repeat to require multiple tags. |
+| `--tag-expr` | JMESPath expression used to select resource targets. |
+| `--auto-approve` | Skip interactive approval |
+
+### `stacksmith info inspect`
+
+```text
+stacksmith info inspect [-h] [--format {table,json}] [--basic]
+                               [--runfile RUNFILE] [-c CONFIG]
+                               [--env-file ENV_FILE] [--vars VARS_FILE]
+                               [--var VARS] [--merge-mode {deep,override}]
+                               [--build-dir BUILD_DIR] [--log LOG]
+                               [--no-cache] [--no-cas]
+                               [--strict-validation-warnings]
+                               [--use-local-modules | --no-local-modules]
+                               [--debug | -q]
+                               [component_type ...]
+```
+
+| Argument | Description |
+| - | - |
+| `component_type` | Component type(s) to inspect. Inspects all when omitted. |
+| `--format` | Output format (default: table). Choices: `table`, `json`. |
+| `--basic` | Show only input, validation, and transform columns in the module table. |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+
+### `stacksmith info diagnose`
+
+```text
+stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}]
+                                [--runfile RUNFILE] [-c CONFIG]
+                                [--env-file ENV_FILE] [--vars VARS_FILE]
+                                [--var VARS] [--merge-mode {deep,override}]
+                                [--build-dir BUILD_DIR] [--log LOG]
+                                [--no-cache] [--no-cas]
+                                [--strict-validation-warnings]
+                                [--use-local-modules | --no-local-modules]
+                                [--debug | -q]
+                                [stack_file]
+```
+
+| Argument | Description |
+| - | - |
+| `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
+| `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
+| `--format` | Output format for diagnostics. Choices: `table`, `json`. |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+
+### `stacksmith info environments`
+
+```text
+stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
+                                    [--discovery-mode {folders,flat-files,env-files,env,auto}]
+                                    [--environments ENVIRONMENTS]
+                                    [--event-name EVENT_NAME]
+                                    [--changed-path CHANGED_PATH]
+                                    [--base-ref BASE_REF] [--before BEFORE]
+                                    [--after AFTER] [--format {table,json}]
+```
+
+| Argument | Description |
+| - | - |
+| `--gitops-root` | Relative path to the GitOps root folder. |
+| `--discovery-mode` | Environment discovery mode. Use folders, flat-files, or env-files (env is an alias for env-files). Choices: `folders`, `flat-files`, `env-files`, `env`, `auto`. |
+| `--environments` | Optional comma-separated environment names to target manually. |
+| `--event-name` | Optional caller event name used for event-aware selection. |
+| `--changed-path` | Changed repository path used for selection simulation. Repeatable. |
+| `--base-ref` | Base branch name used for pull-request diff selection. |
+| `--before` | Previous commit SHA used for push diff selection. |
+| `--after` | Current commit SHA used for push diff selection. |
+| `--format` | Output format for environment preview data. Choices: `table`, `json`. |
+
+### `stacksmith ci validate`
+
+```text
+stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
+                              [--discovery-mode {folders,flat-files,env-files,env,auto}]
+                              [--environments ENVIRONMENTS]
+                              [--workflow-runfile WORKFLOW_RUNFILE]
+                              [--workflow-env-file WORKFLOW_ENV_FILE]
+                              [--workflow-validation-report-format WORKFLOW_VALIDATION_REPORT_FORMAT]
+                              [--format {table,json}]
+```
+
+| Argument | Description |
+| - | - |
+| `--gitops-root` | Relative path to the GitOps root folder. |
+| `--discovery-mode` | Environment discovery mode. Use folders, flat-files, or env-files (env is an alias for env-files). Choices: `folders`, `flat-files`, `env-files`, `env`, `auto`. |
+| `--environments` | Optional comma-separated environment names to target manually. |
+| `--workflow-runfile` | Optional runfile path to validate for CI invocations. |
+| `--workflow-env-file` | Env file path to validate for CI invocations. Use /dev/null to represent deterministic no-env-file mode. |
+| `--workflow-validation-report-format` | Validation report format value to validate for CI plan runs. |
+| `--format` | Output format for CI validation results. Choices: `table`, `json`. |
+
+<!-- END GENERATED CLI REFERENCE -->
+
+### Targeted execution
 
 `plan` already serves as the dry-run mode for targeted execution, so a separate target dry-run flag is not required.
 
@@ -602,7 +961,7 @@ Expression context includes `tags` (effective tag list), `tag` (boolean map by t
 
 Only dot-style tag access is supported for tag expressions, for example `tag.prod`. Bracket-style references such as `tag['prod']` are not accepted.
 
-Examples:
+Examples are as follows.
 
 ```shell
 stacksmith plan --tag prod --tag shared
@@ -825,3 +1184,8 @@ poe build-image \
 - Using a monorepo and concerned about who can edit what? Use GitHub's [CODEOWNERS](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners) file to restrict write access to certain stack files while allowing broader read access. Similarly, the managed config can be locked down to a small team of platform engineers, while the validation policies themselves can be tightly controlled by a security team.
 - Doing a lot of `get` calls on dictionaries in your validation scripts? Try using `jmespath` instead to query complex nested structures with ease. For example, `jmespath.search("components.*.properties.bucket", stack)` would return a list of all bucket properties across all components in the stack.
 - Want to take existing resources into consideration for validation rules? Import `boto3` and use it to query AWS directly from your validation scripts. Just be mindful of latency implications.
+
+## Roadmap
+
+- Switch CLI to `typer` for better argument parsing and help text generation.
+- Add support for more output formats for validation reports, such as YAML and CSV.
