@@ -22,6 +22,11 @@ on:
         required: false
         type: string
         default: .
+      config_ref:
+        description: Platform-managed Stacksmith config reference applied to every selected environment.
+        required: false
+        type: string
+        default: ""
       workdir:
         description: Working directory to run Stacksmith from.
         required: false
@@ -141,6 +146,7 @@ jobs:
       environment: ${{ matrix.environment }}
       runfile: ${{ matrix.runfile }}
       environment_runfile: ${{ matrix.environment_runfile }}
+      config_ref: ${{ inputs.config_ref || fromJson(toJson(vars)).STACKSMITH_CONFIG_REF || '' }}
       workdir: ${{ inputs.workdir }}
       env_file: ${{ fromJson(toJson(vars)).STACKSMITH_ENV_FILE || '/dev/null' }}
       stacksmith_args_json: ${{ inputs.stacksmith_args_json || fromJson(toJson(vars)).STACKSMITH_ARGS_JSON || '[]' }}
@@ -165,6 +171,7 @@ jobs:
       environment: ${{ matrix.environment }}
       runfile: ${{ matrix.runfile }}
       environment_runfile: ${{ matrix.environment_runfile }}
+      config_ref: ${{ inputs.config_ref || fromJson(toJson(vars)).STACKSMITH_CONFIG_REF || '' }}
       workdir: ${{ inputs.workdir }}
       env_file: ${{ fromJson(toJson(vars)).STACKSMITH_ENV_FILE || '/dev/null' }}
       stacksmith_args_json: ${{ inputs.stacksmith_args_json || fromJson(toJson(vars)).STACKSMITH_ARGS_JSON || '[]' }}

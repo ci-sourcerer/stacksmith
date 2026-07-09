@@ -6,7 +6,7 @@ boolean parseBoolean(value) {
     return value.toString().trim().toLowerCase() in ['1', 'true', 'yes', 'on']
 }
 
-String stacksmithImage() {
+String getStacksmithImage() {
     return env.STACKSMITH_IMAGE ?:
         "cisourcerer/stacksmith:${env.STACKSMITH_IMAGE_VERSION ?: 'latest'}"
 }
@@ -25,7 +25,7 @@ void withStacksmithAgent(Closure body) {
     }
 
     node {
-        docker.image(stacksmithImage())
+        docker.image(getStacksmithImage())
             .inside('--entrypoint ""') {
                 body()
             }
@@ -37,7 +37,7 @@ void withStacksmithKubernetesAgent(Closure body) {
         containers: [
             containerTemplate(
                 name: 'stacksmith',
-                image: stacksmithImage(),
+                image: getStacksmithImage(),
                 command: 'sleep',
                 args: '99d'
             )
@@ -110,18 +110,29 @@ int executeStacksmith() {
             [ -n "$ENVIRONMENT_RUNFILE" ] && runfiles+=(--runfile "$ENVIRONMENT_RUNFILE")
 
             extra_args_file="$ARTIFACT_DIR/extra-args.bin"
-            python3 -c 'import json, os, sys
+            python3 - <<'PY' > "$extra_args_file"
+import json, os, sys
 args = json.loads(os.environ.get("STACKSMITH_ARGS_JSON") or "[]")
 if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
     sys.exit("STACKSMITH_ARGS_JSON must be a JSON array of strings")
+for arg in args:
+    if arg in {"--config", "-c"} or arg.startswith("--config=") or arg.startswith("-c="):
+        sys.exit("STACKSMITH_ARGS_JSON cannot override the platform-managed config")
 if any("\0" in arg for arg in args):
     sys.exit("STACKSMITH_ARGS_JSON entries cannot contain NUL bytes")
-sys.stdout.buffer.write(b"".join(arg.encode() + b"\0" for arg in args))' > "$extra_args_file"
+sys.stdout.buffer.write(b"".join(arg.encode() + b"\0" for arg in args))
+PY
             mapfile -d '' -t extra_args < "$extra_args_file"
+
+            if [ -z "$STACKSMITH_CONFIG_REF" ]; then
+                echo "STACKSMITH_CONFIG_REF is required and must point to the platform-managed Stacksmith config." >&2
+                exit 1
+            fi
 
             set +e
             if [ "$OPERATION" = plan ]; then
                 stacksmith "$OPERATION" \
+                    --config "$STACKSMITH_CONFIG_REF" \
                     "${extra_args[@]}" $EXTRA_FLAGS \
                     --var "environment=$ENVIRONMENT" \
                     --env-file "$ENV_FILE" \
@@ -132,6 +143,7 @@ sys.stdout.buffer.write(b"".join(arg.encode() + b"\0" for arg in args))' > "$ext
                     >"$ARTIFACT_DIR/validation-report.$VALIDATION_REPORT_FORMAT"
             else
                 stacksmith "$OPERATION" \
+                    --config "$STACKSMITH_CONFIG_REF" \
                     "${extra_args[@]}" $EXTRA_FLAGS \
                     --var "environment=$ENVIRONMENT" \
                     --env-file "$ENV_FILE" \
@@ -152,7 +164,8 @@ withStacksmithAgent {
             properties([
                 parameters([
                     string(name: 'OPERATION', defaultValue: 'plan', description: 'plan or apply'),
-                    string(name: 'ENVIRONMENTS', defaultValue: '', description: 'comma-separated environments to target manually'),
+                    string(name: 'ENVIRONMENTS', description: 'comma-separated environments to target manually'),
+                    string(name: 'STACKSMITH_CONFIG_REF', description: 'platform-managed Stacksmith config reference'),
                     string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
                     booleanParam(name: 'FAIL_ON_CHANGES', defaultValue: false, description: 'fail if plan contains changes'),
                     booleanParam(name: 'STRICT_VALIDATION_WARNINGS', defaultValue: false, description: 'treat validation warnings as failures'),
@@ -271,6 +284,7 @@ withStacksmithAgent {
                                     "ENVIRONMENT_RUNFILE=${environmentRunfile}",
                                     "ENVIRONMENT=${environment}",
                                     "ENV_FILE=${env.STACKSMITH_ENV_FILE ?: '/dev/null'}",
+                                    "STACKSMITH_CONFIG_REF=${env.STACKSMITH_CONFIG_REF ?: params.STACKSMITH_CONFIG_REF ?: ''}",
                                     "STACKSMITH_ARGS_JSON=${env.STACKSMITH_ARGS_JSON ?: '[]'}",
                                     "EXTRA_FLAGS=${extraFlags}",
                                     "VALIDATION_REPORT_FORMAT=${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",

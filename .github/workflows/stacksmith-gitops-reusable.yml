@@ -15,6 +15,11 @@ on:
         description: Path or URL to the Stacksmith runfile for this environment.
         required: true
         type: string
+      config_ref:
+        description: Platform-managed Stacksmith config reference to enforce for this environment.
+        required: false
+        type: string
+        default: ""
       workdir:
         description: Working directory to run Stacksmith from.
         required: false
@@ -152,6 +157,7 @@ jobs:
           FAIL_ON_CHANGES: ${{ inputs.fail_on_changes }}
           STRICT_VALIDATION_WARNINGS: ${{ inputs.strict_validation_warnings }}
           STACKSMITH_ARGS_JSON: ${{ inputs.stacksmith_args_json }}
+          STACKSMITH_CONFIG_REF: ${{ inputs.config_ref }}
           TG_AUTH_PROVIDER_CMD: ${{ vars.TG_AUTH_PROVIDER_CMD || '' }}
           TG_IAM_ASSUME_ROLE: ${{ vars.TG_IAM_ASSUME_ROLE || '' }}
         run: |
@@ -166,14 +172,25 @@ jobs:
           [ "$FAIL_ON_CHANGES" = true ] && plan_flags+=(--fail-on-changes)
           [ "$STRICT_VALIDATION_WARNINGS" = true ] && plan_flags+=(--strict-validation-warnings)
           extra_args_file="$artifact_dir/extra-args.bin"
-          python3 -c 'import json, os, sys
+          python3 - <<'PY' > "$extra_args_file"
+          import json, os, sys
           args = json.loads(os.environ.get("STACKSMITH_ARGS_JSON") or "[]")
           if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
               sys.exit("stacksmith_args_json must be a JSON array of strings")
+          for arg in args:
+              if arg in {"--config", "-c"} or arg.startswith("--config=") or arg.startswith("-c="):
+                  sys.exit("stacksmith_args_json cannot override the platform-managed config")
           if any("\0" in arg for arg in args):
               sys.exit("stacksmith_args_json entries cannot contain NUL bytes")
-          sys.stdout.buffer.write(b"".join(arg.encode() + b"\0" for arg in args))' > "$extra_args_file"
+          sys.stdout.buffer.write(b"".join(arg.encode() + b"\0" for arg in args))
+          PY
           mapfile -d '' -t extra_args < "$extra_args_file"
+
+          if [ -z "${STACKSMITH_CONFIG_REF:-}" ]; then
+            echo "config_ref is required and must point to the platform-managed Stacksmith config." >&2
+            exit 1
+          fi
+          config_arg=(--config "$STACKSMITH_CONFIG_REF")
 
           if [ -n "${STACKSMITH_GIT_SSH_KEY_MATERIAL:-}" ]; then
             ssh_key_path="${RUNNER_TEMP:-/tmp}/stacksmith_git_ssh_key_${{ inputs.environment }}"
@@ -184,6 +201,7 @@ jobs:
 
           if [ -n "${{ inputs.environment_runfile }}" ]; then
             stacksmith plan \
+              "${config_arg[@]}" \
               "${extra_args[@]}" \
               --var "environment=${{ inputs.environment }}" \
               --env-file "${{ inputs.env_file }}" \
@@ -197,6 +215,7 @@ jobs:
               | tee "$artifact_dir/validation-report.${{ inputs.validation_report_format }}"
           else
             stacksmith plan \
+              "${config_arg[@]}" \
               "${extra_args[@]}" \
               --var "environment=${{ inputs.environment }}" \
               --env-file "${{ inputs.env_file }}" \
@@ -257,6 +276,7 @@ jobs:
           STACKSMITH_HTTP_PASSWORD: ${{ secrets.STACKSMITH_HTTP_PASSWORD }}
           STACKSMITH_NO_CAS: ${{ vars.STACKSMITH_NO_CAS || 'false' }}
           STACKSMITH_ARGS_JSON: ${{ inputs.stacksmith_args_json }}
+          STACKSMITH_CONFIG_REF: ${{ inputs.config_ref }}
           TG_AUTH_PROVIDER_CMD: ${{ vars.TG_AUTH_PROVIDER_CMD || '' }}
           TG_IAM_ASSUME_ROLE: ${{ vars.TG_IAM_ASSUME_ROLE || '' }}
         run: |
@@ -268,14 +288,25 @@ jobs:
             1|true|TRUE|yes|YES|on|ON) cas_flag="--no-cas" ;;
           esac
           extra_args_file="$artifact_dir/extra-args.bin"
-          python3 -c 'import json, os, sys
+          python3 - <<'PY' > "$extra_args_file"
+          import json, os, sys
           args = json.loads(os.environ.get("STACKSMITH_ARGS_JSON") or "[]")
           if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
               sys.exit("stacksmith_args_json must be a JSON array of strings")
+          for arg in args:
+              if arg in {"--config", "-c"} or arg.startswith("--config=") or arg.startswith("-c="):
+                  sys.exit("stacksmith_args_json cannot override the platform-managed config")
           if any("\0" in arg for arg in args):
               sys.exit("stacksmith_args_json entries cannot contain NUL bytes")
-          sys.stdout.buffer.write(b"".join(arg.encode() + b"\0" for arg in args))' > "$extra_args_file"
+          sys.stdout.buffer.write(b"".join(arg.encode() + b"\0" for arg in args))
+          PY
           mapfile -d '' -t extra_args < "$extra_args_file"
+
+          if [ -z "${STACKSMITH_CONFIG_REF:-}" ]; then
+            echo "config_ref is required and must point to the platform-managed Stacksmith config." >&2
+            exit 1
+          fi
+          config_arg=(--config "$STACKSMITH_CONFIG_REF")
 
           if [ -n "${STACKSMITH_GIT_SSH_KEY_MATERIAL:-}" ]; then
             ssh_key_path="${RUNNER_TEMP:-/tmp}/stacksmith_git_ssh_key_${{ inputs.environment }}"
@@ -286,6 +317,7 @@ jobs:
 
           if [ -n "${{ inputs.environment_runfile }}" ]; then
             stacksmith apply \
+              "${config_arg[@]}" \
               "${extra_args[@]}" \
               --var "environment=${{ inputs.environment }}" \
               --env-file "${{ inputs.env_file }}" \
@@ -296,6 +328,7 @@ jobs:
               $cas_flag
           else
             stacksmith apply \
+              "${config_arg[@]}" \
               "${extra_args[@]}" \
               --var "environment=${{ inputs.environment }}" \
               --env-file "${{ inputs.env_file }}" \

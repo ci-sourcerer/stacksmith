@@ -408,7 +408,8 @@ The wrappers pass reusable workflow inputs from repository variables when availa
 - `STACKSMITH_FAIL_ON_CHANGES` (default `false`, plan template)
 - `STACKSMITH_STRICT_VALIDATION_WARNINGS` (default `false`, plan template)
 - `STACKSMITH_NO_CAS` (default `false`)
-- `STACKSMITH_ARGS_JSON` (default `[]`; ordered JSON array of additional CLI arguments)
+- `STACKSMITH_ARGS_JSON` (default `[]`; ordered JSON array of additional CLI arguments; the workflow rejects `--config` and `-c` overrides)
+- `STACKSMITH_CONFIG_REF` (required for the workflow entrypoints; points to the platform-managed Stacksmith config)
 - `NO_VALIDATE_BRANCH_AND_OPERATION` (default `false`; bypasses the default-branch/PR operation guard)
 - `TG_AUTH_PROVIDER_CMD` (default empty)
 - `TG_IAM_ASSUME_ROLE` (default empty)
@@ -418,12 +419,22 @@ Credential values are inherited into the reusable workflows with standard GitHub
 Both CI implementations reserve the operation, runfiles, build directory, plan output, validation format, and apply approval flags because those values are part of the GitOps contract. Every other Stacksmith CLI option can be supplied, in order and without shell-quoting loss, through `STACKSMITH_ARGS_JSON`. For example:
 
 ```json
-["--config", "platform config.yaml", "--vars", "vars/common.yaml", "--var", "replicas=3", "--tag", "service", "--debug"]
+["--vars", "vars/common.yaml", "--var", "replicas=3", "--tag", "service", "--debug"]
 ```
 
-The GitHub workflows expose this as their `stacksmith_args_json` input. JSON arrays are used so repeated options, argument order, and values containing whitespace are preserved exactly.
+The GitHub workflows expose this as their `stacksmith_args_json` input. JSON arrays are used so repeated options, argument order, and values containing whitespace are preserved exactly. The workflow now also requires a platform-managed config reference via `config_ref` or `STACKSMITH_CONFIG_REF`, injects it as `--config <ref>` for every Stacksmith invocation, and rejects any attempt to override the config through `stacksmith_args_json`.
 
 The opinionated reusable workflow intentionally does not expose free-form extra CLI args for `plan` or `apply`. Execution behavior is defined by repository-controlled workflow configuration and variables.
+
+If you vendored the Jenkins wrapper or workflow assets into a consumer repository, put the vendored files under a platform-owned path or submodule and protect them with a CODEOWNERS file in that consumer repository so ordinary contributors cannot change the enforcement entrypoints. For example:
+
+```text
+.github/workflows/stacksmith-gitops-reusable.yml @platform-team
+.github/workflows/stacksmith-gitops-opinionated-reusable.yml @platform-team
+jenkins/Jenkinsfile @platform-team
+```
+
+The same pattern applies to any copied GitHub Actions workflow files that should remain platform-controlled.
 
 ### Consumer quickstart
 
