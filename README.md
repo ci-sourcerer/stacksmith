@@ -538,13 +538,12 @@ The opinionated workflow resolves `STACKSMITH_ENV_FILE` from repository variable
 ## CLI reference
 
 <!-- BEGIN GENERATED CLI REFERENCE -->
-
 Single-stack commands default to `stack.yaml` in the current directory, with fallback to `stack.yml` then `stack.json`, when neither `--stack`, `STACKSMITH_STACK`, nor `stacksmith.yaml` supplies stack refs.
 
 ### `stacksmith`
 
 ```text
-stacksmith [-h] [--version]
+usage: stacksmith [-h] [--version]
                   {validate,generate,run-all,init,plan,apply,destroy,info,ci} ...
 ```
 
@@ -571,7 +570,7 @@ YAML/JSON-driven Terragrunt wrapper
 ### `stacksmith validate`
 
 ```text
-stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE]
+usage: stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE]
                            [-c CONFIG] [--env-file ENV_FILE]
                            [--vars VARS_FILE] [--var VARS]
                            [--merge-mode {deep,override}]
@@ -597,7 +596,7 @@ stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE]
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
-| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. |
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
@@ -606,7 +605,7 @@ stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE]
 ### `stacksmith generate`
 
 ```text
-stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE]
+usage: stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE]
                            [-c CONFIG] [--env-file ENV_FILE]
                            [--vars VARS_FILE] [--var VARS]
                            [--merge-mode {deep,override}]
@@ -632,7 +631,7 @@ stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE]
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
-| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. |
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
@@ -640,7 +639,7 @@ stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE]
 ### `stacksmith run-all`
 
 ```text
-stacksmith run-all [-h] [--root ROOT] [--stack STACK]
+usage: stacksmith run-all [-h] [--root ROOT] [--stack STACK]
                           [--runfile RUNFILE] [-c CONFIG]
                           [--env-file ENV_FILE] [--vars VARS_FILE]
                           [--var VARS] [--merge-mode {deep,override}]
@@ -672,7 +671,7 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK]
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
-| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. |
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
@@ -690,7 +689,7 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK]
 ### `stacksmith init`
 
 ```text
-stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+usage: stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
                        [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
                        [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                        [--log LOG] [--no-cache] [--no-cas]
@@ -714,7 +713,7 @@ stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
-| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. |
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
@@ -722,7 +721,7 @@ stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith plan`
 
 ```text
-stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+usage: stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
                        [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
                        [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                        [--log LOG] [--no-cache] [--no-cas]
@@ -749,7 +748,7 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
-| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. |
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
@@ -763,7 +762,7 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith apply`
 
 ```text
-stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+usage: stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
                         [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
                         [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                         [--log LOG] [--no-cache] [--no-cas]
@@ -788,7 +787,7 @@ stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
-| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. |
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
@@ -799,7 +798,7 @@ stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith destroy`
 
 ```text
-stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+usage: stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
                           [--env-file ENV_FILE] [--vars VARS_FILE]
                           [--var VARS] [--merge-mode {deep,override}]
                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
@@ -825,7 +824,7 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
-| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. |
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
@@ -836,7 +835,7 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith info inspect`
 
 ```text
-stacksmith info inspect [-h] [--format {table,json}] [--basic]
+usage: stacksmith info inspect [-h] [--format {table,json}] [--basic]
                                [--runfile RUNFILE] [-c CONFIG]
                                [--env-file ENV_FILE] [--vars VARS_FILE]
                                [--var VARS] [--merge-mode {deep,override}]
@@ -864,7 +863,7 @@ stacksmith info inspect [-h] [--format {table,json}] [--basic]
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
-| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. |
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
@@ -872,7 +871,7 @@ stacksmith info inspect [-h] [--format {table,json}] [--basic]
 ### `stacksmith info diagnose`
 
 ```text
-stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}]
+usage: stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}]
                                 [--runfile RUNFILE] [-c CONFIG]
                                 [--env-file ENV_FILE] [--vars VARS_FILE]
                                 [--var VARS] [--merge-mode {deep,override}]
@@ -900,7 +899,7 @@ stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}]
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
-| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1.  |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. |
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
@@ -908,7 +907,7 @@ stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}]
 ### `stacksmith info environments`
 
 ```text
-stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
+usage: stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
                                     [--discovery-mode {folders,flat-files,env-files,env,auto}]
                                     [--environments ENVIRONMENTS]
                                     [--event-name EVENT_NAME]
@@ -932,7 +931,7 @@ stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
 ### `stacksmith ci validate`
 
 ```text
-stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
+usage: stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
                               [--discovery-mode {folders,flat-files,env-files,env,auto}]
                               [--environments ENVIRONMENTS]
                               [--workflow-runfile WORKFLOW_RUNFILE]

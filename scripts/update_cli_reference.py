@@ -1,5 +1,6 @@
 import argparse
 import difflib
+import re
 import sys
 from pathlib import Path
 
@@ -163,8 +164,14 @@ def _format_action_table(parser: argparse.ArgumentParser) -> str:
     return "\n".join(rows)
 
 
+def _strip_ansi_codes(text: str) -> str:
+    """Remove ANSI escape sequences from text."""
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
+
+
 def _normalize_usage(parser: argparse.ArgumentParser) -> str:
-    return parser.format_usage().removeprefix("usage: ").strip()
+    usage = parser.format_usage().removeprefix("usage: ").strip()
+    return _strip_ansi_codes(usage)
 
 
 def _iter_leaf_parsers(
@@ -233,7 +240,10 @@ def _format_choices(action: argparse.Action) -> str:
 
 
 def _escape_table_text(value: str) -> str:
-    return value.replace("\n", " ").replace("|", "\\|")
+    # Replace newlines with spaces, collapse multiple spaces, and strip whitespace
+    value = value.replace("\n", " ")
+    value = re.sub(r" +", " ", value)
+    return value.strip().replace("|", "\\|")
 
 
 if __name__ == "__main__":
