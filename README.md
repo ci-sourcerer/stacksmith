@@ -488,27 +488,9 @@ jobs:
 
 > ℹ️ **Tip:** Pin the `uses:` reference to a release tag for stable downstream usage.
 
-Example layout for the canonical GitOps example.
-
-```text
-examples/gitops-repo/
-  common/
-    stacksmith.yaml
-  environments/
-    dev.yaml
-    prod.yaml
-  manifests/
-    common/
-      platform.stack.yaml
-      service.stack.yaml
-  vars/
-    vars.dev.yaml
-    vars.prod.yaml
-```
-
 The reusable workflow also supports the `folders` and `flat-files` discovery modes for repositories that prefer those layouts.
 
-This example now also shows app deployment and command orchestration patterns alongside infrastructure stacks. The shared config can expose approved component types such as `helm_app`, `k8s_app`, and `command_runner` so teams can choose platform-supported deployment paths without inventing a generic `infra` fallback.
+This example now also shows app deployment and command orchestration patterns alongside infrastructure stacks. The shared config can expose approved component types such as `helm_app`, `k8s_app`, `command_runner`, and `jenkins_build` so teams can choose platform-supported deployment paths without inventing a generic `infra` fallback.
 
 In this pattern, the shared runfile references the platform and service stack layers first, then environment-specific vars and overlays are layered on top.
 

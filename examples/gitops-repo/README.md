@@ -8,31 +8,6 @@ The reusable workflow also supports the other two discovery styles:
 - `folders` for `environments/<env>/` directories
 - `flat-files` for root-level `stacksmith.<env>.yaml` files
 
-Example layout for the canonical hybrid sample:
-
-```text
-examples/gitops-repo/
-  common/
-    stacksmith.yaml
-  environments/
-    dev.yaml
-    prod.yaml
-  manifests/
-    common/
-      platform.stack.yaml
-      service.stack.yaml
-    environments/
-      dev/
-        app-config.yaml
-        frontend-values.yaml
-      prod/
-        app-config.yaml
-        frontend-values.yaml
-  vars/
-    vars.dev.yaml
-    vars.prod.yaml
-```
-
 The other two discovery styles look like this:
 
 ```text

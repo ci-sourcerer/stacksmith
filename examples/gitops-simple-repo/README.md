@@ -4,21 +4,6 @@ This example shows a minimal `env-files` GitOps layout that deploys a single IAM
 
 It uses a shared `common/stacksmith.yaml` runfile for the managed config and stack definition, plus an environment-specific overlay under `environments/dev.yaml`.
 
-## Layout
-
-```text
-examples/gitops-simple-repo/
-  common/
-    stacksmith.yaml
-  environments/
-    dev.yaml
-  manifests/
-    common/
-      iam.stack.yaml
-  vars/
-    vars.dev.yaml
-```
-
 ## Local reproduction
 
 Plan the `dev` environment from repository root:

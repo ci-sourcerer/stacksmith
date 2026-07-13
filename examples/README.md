@@ -5,63 +5,6 @@ This folder contains a realistic multi-repo-style example for Stacksmith.
 The example provisions a small EC2 writer workload and S3 buckets, then wires
 IAM and bucket policy so the EC2 role can write objects securely.
 
-## Folder layout
-
-The example is intentionally split into repository-style directories.
-
-```text
-examples/
-  github-actions/
-    stacksmith-plan.yml
-    stacksmith-apply.yml
-  modules/
-    README.md
-    command_runner/
-    helm_app/
-    kubernetes_app/
-  gitops-repo/
-    README.md
-    common/
-      stacksmith.yaml
-    environments/
-      dev.yaml
-      prod.yaml
-    manifests/
-      common/
-        platform.stack.yaml
-        service.stack.yaml
-        .stacksmith/
-          stacksmith.tf.json
-          terragrunt.hcl.json
-      environments/
-        dev/
-          app-config.yaml
-          frontend-values.yaml
-        prod/
-          app-config.yaml
-          frontend-values.yaml
-    vars/
-      vars.dev.yaml
-      vars.prod.yaml
-  stack-repo/
-    bucket-and-ec2/
-      stack.yaml
-      vars.dev.yaml
-      .stacksmith/
-        stacksmith.tf.json
-        terragrunt.hcl.json
-    .stacksmith/
-      bucket-and-ec2/
-  shared-config-repo/
-    stacksmith-config.yaml
-    scripts/
-      providers/
-        aws_identity.py
-        configure_aws_secondary_provider.py
-      transforms/
-      validations/
-```
-
 The `gitops-repo` example is the canonical GitOps sample. It uses the hybrid `env-files` discovery mode with `environments/<env>.yaml` files and a shared `common/stacksmith.yaml` runfile.
 
 The same workflow also supports the other two discovery styles:

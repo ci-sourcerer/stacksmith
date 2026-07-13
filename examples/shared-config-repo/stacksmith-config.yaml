@@ -254,3 +254,11 @@ module_mappings:
         mapped_to: env
       vars:
         mapped_to: vars
+
+  jenkins_build:
+    description: Parameterized Jenkins build trigger
+    source:
+      source: local
+      data:
+        path: ../modules/jenkins_build
+    auto_inject: true
