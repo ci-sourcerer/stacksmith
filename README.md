@@ -525,7 +525,7 @@ Single-stack commands default to `stack.yaml` in the current directory, with fal
 ### `stacksmith`
 
 ```text
-usage: stacksmith [-h] [--version]
+stacksmith [-h] [--version]
                   {validate,generate,run-all,init,plan,apply,destroy,info,ci} ...
 ```
 
@@ -552,7 +552,7 @@ YAML/JSON-driven Terragrunt wrapper
 ### `stacksmith validate`
 
 ```text
-usage: stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE]
+stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE]
                            [-c CONFIG] [--env-file ENV_FILE]
                            [--vars VARS_FILE] [--var VARS]
                            [--merge-mode {deep,override}]
@@ -587,7 +587,7 @@ usage: stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE]
 ### `stacksmith generate`
 
 ```text
-usage: stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE]
+stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE]
                            [-c CONFIG] [--env-file ENV_FILE]
                            [--vars VARS_FILE] [--var VARS]
                            [--merge-mode {deep,override}]
@@ -621,7 +621,7 @@ usage: stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE]
 ### `stacksmith run-all`
 
 ```text
-usage: stacksmith run-all [-h] [--root ROOT] [--stack STACK]
+stacksmith run-all [-h] [--root ROOT] [--stack STACK]
                           [--runfile RUNFILE] [-c CONFIG]
                           [--env-file ENV_FILE] [--vars VARS_FILE]
                           [--var VARS] [--merge-mode {deep,override}]
@@ -671,7 +671,7 @@ usage: stacksmith run-all [-h] [--root ROOT] [--stack STACK]
 ### `stacksmith init`
 
 ```text
-usage: stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
                        [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
                        [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                        [--log LOG] [--no-cache] [--no-cas]
@@ -703,7 +703,7 @@ usage: stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith plan`
 
 ```text
-usage: stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
                        [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
                        [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                        [--log LOG] [--no-cache] [--no-cas]
@@ -744,7 +744,7 @@ usage: stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith apply`
 
 ```text
-usage: stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
                         [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
                         [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                         [--log LOG] [--no-cache] [--no-cas]
@@ -780,7 +780,7 @@ usage: stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith destroy`
 
 ```text
-usage: stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
                           [--env-file ENV_FILE] [--vars VARS_FILE]
                           [--var VARS] [--merge-mode {deep,override}]
                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
@@ -817,7 +817,7 @@ usage: stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith info inspect`
 
 ```text
-usage: stacksmith info inspect [-h] [--format {table,json}] [--basic]
+stacksmith info inspect [-h] [--format {table,json}] [--basic]
                                [--runfile RUNFILE] [-c CONFIG]
                                [--env-file ENV_FILE] [--vars VARS_FILE]
                                [--var VARS] [--merge-mode {deep,override}]
@@ -853,7 +853,7 @@ usage: stacksmith info inspect [-h] [--format {table,json}] [--basic]
 ### `stacksmith info diagnose`
 
 ```text
-usage: stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}]
+stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}]
                                 [--runfile RUNFILE] [-c CONFIG]
                                 [--env-file ENV_FILE] [--vars VARS_FILE]
                                 [--var VARS] [--merge-mode {deep,override}]
@@ -889,7 +889,7 @@ usage: stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}]
 ### `stacksmith info environments`
 
 ```text
-usage: stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
+stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
                                     [--discovery-mode {folders,flat-files,env-files,env,auto}]
                                     [--environments ENVIRONMENTS]
                                     [--event-name EVENT_NAME]
@@ -913,7 +913,7 @@ usage: stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
 ### `stacksmith ci validate`
 
 ```text
-usage: stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
+stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
                               [--discovery-mode {folders,flat-files,env-files,env,auto}]
                               [--environments ENVIRONMENTS]
                               [--workflow-runfile WORKFLOW_RUNFILE]

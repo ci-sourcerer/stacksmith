@@ -25,6 +25,13 @@ variable "parameters" {
   description = "Parameters submitted to the Jenkins build. Marked sensitive because build parameters can contain secrets."
 }
 
+variable "job_has_parameters" {
+  type        = bool
+  default     = null
+  nullable    = true
+  description = "Whether the Jenkins job defines build parameters. Set false for non-parameterized jobs so Stacksmith uses `/build` instead of `/buildWithParameters`."
+}
+
 variable "rebuild_token" {
   type        = string
   default     = null

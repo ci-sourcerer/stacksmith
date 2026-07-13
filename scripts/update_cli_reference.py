@@ -170,8 +170,8 @@ def _strip_ansi_codes(text: str) -> str:
 
 
 def _normalize_usage(parser: argparse.ArgumentParser) -> str:
-    usage = parser.format_usage().removeprefix("usage: ").strip()
-    return _strip_ansi_codes(usage)
+    usage = _strip_ansi_codes(parser.format_usage())
+    return usage.removeprefix("usage: ").strip()
 
 
 def _iter_leaf_parsers(

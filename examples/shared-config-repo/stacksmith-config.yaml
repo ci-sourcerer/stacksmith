@@ -256,7 +256,7 @@ module_mappings:
         mapped_to: vars
 
   jenkins_build:
-    description: Parameterized Jenkins build trigger
+    description: Jenkins build trigger
     source:
       source: local
       data:
