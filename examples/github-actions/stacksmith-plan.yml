@@ -57,7 +57,7 @@ jobs:
   plan:
     uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main
     with:
-      operation: plan
+      command: plan
       environments: ${{ github.event.inputs.environments || '' }}
       config_ref: ${{ vars.STACKSMITH_CONFIG_REF || '' }}
       gitops_root: ${{ github.event.inputs.gitops_root || vars.STACKSMITH_GITOPS_ROOT || '.' }}

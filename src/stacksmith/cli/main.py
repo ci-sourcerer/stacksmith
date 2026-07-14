@@ -25,7 +25,7 @@ from stacksmith.enums import MergeMode
 from stacksmith.loader import load_runfiles
 from stacksmith.models import FileReference
 from stacksmith.remote import is_remote_url, resolve_if_remote
-from stacksmith.utils import stacksmith_env
+from stacksmith.utils import env_truthy, stacksmith_env
 
 from ..api import (
     generate_stack,
@@ -337,6 +337,8 @@ def _cmd_operation_run(args: argparse.Namespace) -> int:
         input_layers=_ordered_input_layers(args),
         build_dir=args.build_dir,
         no_cache=args.no_cache,
+        no_cas=args.no_cas,
+        force_rerun=args.force_rerun,
         merge_mode=_merge_mode_arg(args),
     )
     print(json.dumps(result, sort_keys=True))
@@ -714,6 +716,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "run", help="Run one approved operation declared by a stack"
     )
     p_operation_run.add_argument("operation_name", help="Stack-local operation name")
+    p_operation_run.add_argument(
+        "--force-rerun",
+        action="store_true",
+        default=env_truthy("FORCE_RERUN", prefix="STACKSMITH_"),
+        help=(
+            "Force the operation runner resource to be replaced even when its "
+            "execution identity has not changed. Can also be enabled with "
+            "STACKSMITH_FORCE_RERUN=1."
+        ),
+    )
     _add_stack_arg(p_operation_run)
     _add_common_args(p_operation_run)
 

@@ -44,7 +44,8 @@ These wrappers are references that call reusable workflows from this repository 
 
 - `examples/github-actions/stacksmith-plan.yml` triggers on pull requests to `main`, pushes to `main`, and manual dispatch.
 - `examples/github-actions/stacksmith-apply.yml` triggers on pushes to `main` and manual dispatch.
-- Both templates call `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main`.
+- `examples/github-actions/stacksmith-operation.yml` manually runs a stack-local native operation in the selected environments.
+- All templates call `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main`.
 
 You can call that reusable workflow directly from your own workflow and keep your trigger policy in your repository.
 

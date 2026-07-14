@@ -130,8 +130,8 @@ PY
             fi
 
             set +e
-            if [ "$OPERATION" = plan ]; then
-                stacksmith "$OPERATION" \
+            if [ "$COMMAND" = plan ]; then
+                stacksmith "$COMMAND" \
                     --config "$STACKSMITH_CONFIG_REF" \
                     "${extra_args[@]}" $EXTRA_FLAGS \
                     --var "environment=$ENVIRONMENT" \
@@ -141,8 +141,8 @@ PY
                     --save-plan-json "$ARTIFACT_DIR/plan.json" \
                     --validation-report-format "$VALIDATION_REPORT_FORMAT" \
                     >"$ARTIFACT_DIR/validation-report.$VALIDATION_REPORT_FORMAT"
-            else
-                stacksmith "$OPERATION" \
+            elif [ "$COMMAND" = apply ]; then
+                stacksmith "$COMMAND" \
                     --config "$STACKSMITH_CONFIG_REF" \
                     "${extra_args[@]}" $EXTRA_FLAGS \
                     --var "environment=$ENVIRONMENT" \
@@ -150,6 +150,14 @@ PY
                     "${runfiles[@]}" \
                     --build-dir "$ARTIFACT_DIR" \
                     --auto-approve
+            else
+                stacksmith operation run "$OPERATION_NAME" \
+                    --config "$STACKSMITH_CONFIG_REF" \
+                    "${extra_args[@]}" $EXTRA_FLAGS \
+                    --var "environment=$ENVIRONMENT" \
+                    --env-file "$ENV_FILE" \
+                    "${runfiles[@]}" \
+                    --build-dir "$ARTIFACT_DIR"
             fi
 
             exit $?
@@ -163,7 +171,8 @@ withStacksmithAgent {
         ansiColor('xterm') {
             properties([
                 parameters([
-                    string(name: 'OPERATION', defaultValue: 'plan', description: 'plan or apply'),
+                    string(name: 'COMMAND', defaultValue: 'plan', description: 'Stacksmith command: plan, apply, or operation'),
+                    string(name: 'OPERATION_NAME', description: 'stack-local operation name; required when COMMAND is operation'),
                     string(name: 'ENVIRONMENTS', description: 'comma-separated environments to target manually'),
                     string(name: 'STACKSMITH_CONFIG_REF', description: 'platform-managed Stacksmith config reference'),
                     string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
@@ -175,15 +184,19 @@ withStacksmithAgent {
             checkout(scm)
 
             withFolderProperties {
-                env.OPERATION = params.OPERATION.toString().trim().toLowerCase()
+                env.COMMAND = (params.COMMAND ?: 'plan').toString().trim().toLowerCase()
+                env.OPERATION_NAME = (params.OPERATION_NAME ?: '').toString().trim()
 
-                if (!(env.OPERATION in ['plan', 'apply'])) {
-                    error("Invalid operation '${params.OPERATION}'. Expected 'plan' or 'apply'.")
+                if (!(env.COMMAND in ['plan', 'apply', 'operation'])) {
+                    error("Invalid command '${params.COMMAND}'. Expected 'plan', 'apply', or 'operation'.")
+                }
+                if (env.COMMAND == 'operation' && !env.OPERATION_NAME) {
+                    error("OPERATION_NAME is required when COMMAND is 'operation'.")
                 }
 
                 if (!parseBoolean(env.NO_VALIDATE_BRANCH_AND_OPERATION)) {
-                    if (env.CHANGE_ID && env.OPERATION == 'apply') {
-                        error('\'apply\' operation is not allowed on pull requests. Use \'plan\' instead.')
+                    if (env.CHANGE_ID && env.COMMAND in ['apply', 'operation']) {
+                        error("'${env.COMMAND}' is not allowed on pull requests. Use 'plan' instead.")
                     }
                     if (!env.CHANGE_ID && !env.BRANCH_IS_PRIMARY) {
                         error("Operations are only allowed on main branch or pull requests to main. Current branch: ${env.BRANCH_NAME}")
@@ -217,7 +230,7 @@ withStacksmithAgent {
                     env.SELECTION_MATRIX = writeJSON(json: matrix, returnText: true)
 
                     if (!env.SELECTED_ENVIRONMENTS) {
-                        echo "No environments selected; skipping ${params.OPERATION}."
+                        echo "No environments selected; skipping ${params.COMMAND}."
                         currentBuild.result = 'SUCCESS'
                         return
                     }
@@ -227,11 +240,13 @@ withStacksmithAgent {
                 }
             }
 
-            stage('Approve apply') {
-                if (env.OPERATION == 'apply' && env.SELECTED_ENVIRONMENTS) {
+            stage('Approve execution') {
+                if (env.COMMAND in ['apply', 'operation'] && env.SELECTED_ENVIRONMENTS) {
                     input(
-                        message: "Apply Stacksmith changes to ${env.SELECTED_ENVIRONMENTS}?",
-                        ok: 'Apply'
+                        message: env.COMMAND == 'operation'
+                            ? "Run Stacksmith operation '${env.OPERATION_NAME}' in ${env.SELECTED_ENVIRONMENTS}?"
+                            : "Apply Stacksmith changes to ${env.SELECTED_ENVIRONMENTS}?",
+                        ok: 'Run'
                     )
                 }
             }
@@ -256,10 +271,10 @@ withStacksmithAgent {
                             dir(params.WORKDIR) {
 
                                 def extraFlags = ''
-                                if (env.OPERATION == 'plan' && params.FAIL_ON_CHANGES) {
+                                if (env.COMMAND == 'plan' && params.FAIL_ON_CHANGES) {
                                     extraFlags += ' --fail-on-changes'
                                 }
-                                if (env.OPERATION == 'plan' && params.STRICT_VALIDATION_WARNINGS) {
+                                if (env.COMMAND == 'plan' && params.STRICT_VALIDATION_WARNINGS) {
                                     extraFlags += ' --strict-validation-warnings'
                                 }
                                 if (parseBoolean(env.STACKSMITH_NO_CAS ?: 'false')) {
@@ -283,6 +298,7 @@ withStacksmithAgent {
                                     "RUNFILE=${runfile}",
                                     "ENVIRONMENT_RUNFILE=${environmentRunfile}",
                                     "ENVIRONMENT=${environment}",
+                                    "OPERATION_NAME=${env.OPERATION_NAME}",
                                     "ENV_FILE=${env.STACKSMITH_ENV_FILE ?: '/dev/null'}",
                                     "STACKSMITH_CONFIG_REF=${env.STACKSMITH_CONFIG_REF ?: params.STACKSMITH_CONFIG_REF ?: ''}",
                                     "STACKSMITH_ARGS_JSON=${env.STACKSMITH_ARGS_JSON ?: '[]'}",
@@ -295,7 +311,7 @@ withStacksmithAgent {
                                         ? withCredentials(credentialBindings) { executeStacksmith() }
                                         : executeStacksmith()
 
-                                    if (env.OPERATION == 'plan' && parseBoolean(env.STACKSMITH_UPLOAD_ARTIFACTS ?: 'true')) {
+                                    if (env.COMMAND == 'plan' && parseBoolean(env.STACKSMITH_UPLOAD_ARTIFACTS ?: 'true')) {
                                         archiveArtifacts(
                                             allowEmptyArchive: true,
                                             artifacts: "${artifactDir}/plan.json,${artifactDir}/validation-report.*"

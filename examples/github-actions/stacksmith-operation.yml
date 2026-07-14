@@ -1,27 +1,14 @@
-name: stacksmith-apply
+name: stacksmith-operation
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "**/stacksmith.yaml"
-      - "**/stacksmith.*.yaml"
-      - "**/stacksmith.*.yml"
-      - "**/stacksmith.*.json"
-      - "**/*.stack.yaml"
-      - "**/*.stack.yml"
-      - "**/environments/*.yaml"
-      - "**/environments/*.yml"
-      - "**/environments/*.json"
-      - "**/manifests/common/**"
-      - "**/manifests/environments/**"
-      - .github/workflows/stacksmith-plan.yml
-      - .github/workflows/stacksmith-apply.yml
   workflow_dispatch:
     inputs:
+      operation_name:
+        description: Stack-local native operation name.
+        required: true
+        type: string
       environments:
-        description: Comma-separated environment names. Leave empty for automatic selection.
+        description: Comma-separated environment names. Leave empty to run in all environments.
         required: false
         type: string
       gitops_root:
@@ -37,10 +24,11 @@ permissions:
   contents: read
 
 jobs:
-  apply:
+  operation:
     uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main
     with:
-      command: apply
+      command: operation
+      operation_name: ${{ github.event.inputs.operation_name }}
       environments: ${{ github.event.inputs.environments || '' }}
       config_ref: ${{ vars.STACKSMITH_CONFIG_REF || '' }}
       gitops_root: ${{ github.event.inputs.gitops_root || vars.STACKSMITH_GITOPS_ROOT || '.' }}

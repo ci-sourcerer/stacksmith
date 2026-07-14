@@ -3,10 +3,15 @@ name: stacksmith-gitops-opinionated-reusable
 on:
   workflow_call:
     inputs:
-      operation:
-        description: Plan or apply operation.
+      command:
+        description: Stacksmith command to run. Supported values are plan, apply, and operation.
         required: true
         type: string
+      operation_name:
+        description: Stack-local native operation name. Required when command is operation.
+        required: false
+        type: string
+        default: ""
       environments:
         description: Comma-separated environment names. Leave empty for automatic selection.
         required: false
@@ -46,10 +51,11 @@ jobs:
     name: validate-inputs
     runs-on: ubuntu-latest
     steps:
-      - name: Validate operation
+      - name: Validate command
         shell: bash
         env:
-          INPUT_OPERATION: ${{ inputs.operation }}
+          INPUT_COMMAND: ${{ inputs.command }}
+          INPUT_OPERATION_NAME: ${{ inputs.operation_name }}
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
           BASE_REF: ${{ github.base_ref }}
@@ -57,11 +63,16 @@ jobs:
           SKIP_BRANCH_VALIDATION: ${{ vars.NO_VALIDATE_BRANCH_AND_OPERATION || 'false' }}
         run: |
           set -euo pipefail
-          case "$INPUT_OPERATION" in
-            plan|apply)
+          case "$INPUT_COMMAND" in
+            plan|apply) ;;
+            operation)
+              if [ -z "$INPUT_OPERATION_NAME" ]; then
+                echo "operation_name is required when command is 'operation'." >&2
+                exit 1
+              fi
               ;;
             *)
-              echo "Invalid operation '$INPUT_OPERATION'. Expected 'plan' or 'apply'." >&2
+              echo "Invalid command '$INPUT_COMMAND'. Expected 'plan', 'apply', or 'operation'." >&2
               exit 1
               ;;
           esac
@@ -73,8 +84,8 @@ jobs:
           if [ -z "$DEFAULT_BRANCH" ]; then
             exit 0
           elif [ "$EVENT_NAME" = pull_request ]; then
-            if [ "$INPUT_OPERATION" = apply ]; then
-              echo "'apply' operation is not allowed on pull requests. Use 'plan' instead." >&2
+            if [ "$INPUT_COMMAND" = apply ] || [ "$INPUT_COMMAND" = operation ]; then
+              echo "'$INPUT_COMMAND' is not allowed on pull requests. Use 'plan' instead." >&2
               exit 1
             fi
             if [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
@@ -135,14 +146,14 @@ jobs:
   plan:
     name: plan
     needs: discover
-    if: ${{ inputs.operation == 'plan' && needs.discover.outputs.count != '0' }}
+    if: ${{ inputs.command == 'plan' && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.discover.outputs.matrix) }}
     uses: ./.github/workflows/stacksmith-gitops-reusable.yml
     with:
-      operation: plan
+      command: plan
       environment: ${{ matrix.environment }}
       runfile: ${{ matrix.runfile }}
       environment_runfile: ${{ matrix.environment_runfile }}
@@ -160,14 +171,36 @@ jobs:
   apply:
     name: apply
     needs: discover
-    if: ${{ inputs.operation == 'apply' && needs.discover.outputs.count != '0' }}
+    if: ${{ inputs.command == 'apply' && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.discover.outputs.matrix) }}
     uses: ./.github/workflows/stacksmith-gitops-reusable.yml
     with:
-      operation: apply
+      command: apply
+      environment: ${{ matrix.environment }}
+      runfile: ${{ matrix.runfile }}
+      environment_runfile: ${{ matrix.environment_runfile }}
+      config_ref: ${{ inputs.config_ref || fromJson(toJson(vars)).STACKSMITH_CONFIG_REF || '' }}
+      workdir: ${{ inputs.workdir }}
+      env_file: ${{ fromJson(toJson(vars)).STACKSMITH_ENV_FILE || '/dev/null' }}
+      stacksmith_args_json: ${{ inputs.stacksmith_args_json || fromJson(toJson(vars)).STACKSMITH_ARGS_JSON || '[]' }}
+      image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+    secrets: inherit
+
+  operation:
+    name: operation
+    needs: discover
+    if: ${{ inputs.command == 'operation' && needs.discover.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/stacksmith-gitops-reusable.yml
+    with:
+      command: operation
+      operation_name: ${{ inputs.operation_name }}
       environment: ${{ matrix.environment }}
       runfile: ${{ matrix.runfile }}
       environment_runfile: ${{ matrix.environment_runfile }}
@@ -187,9 +220,9 @@ jobs:
       - name: Summary
         run: |
           {
-              echo "## Stacksmith ${INPUT_OPERATION}"
+              echo "## Stacksmith ${INPUT_COMMAND}"
               echo ""
               echo "No environment manifests were selected for this event."
           } >> "$GITHUB_STEP_SUMMARY"
         env:
-          INPUT_OPERATION: ${{ inputs.operation }}
+          INPUT_COMMAND: ${{ inputs.command }}

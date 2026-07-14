@@ -40,7 +40,7 @@ The following overrides can technically be set, but it is unnecessary in most ca
 - Jenkins-specific context is normalized by the same installed Stacksmith code path used by GitHub Actions, so pull request and branch builds do not need a separate Jenkins-only selection code path.
 - Each environment run writes generated files, plan JSON output, and cache data to `.stacksmith-ci/<environment>` to avoid collisions during parallel execution.
 - If no environments are selected, the job prints a summary and exits successfully.
-- For `apply` operations, the pipeline will pause for manual approval before proceeding.
+- For `apply` and native `operation` modes, the pipeline will pause for manual approval before proceeding.
 - For `plan` operations, generated plan files and validation reports are archived as build artifacts.
 - The pipeline attempts to run all selected environments in parallel, even if one fails, and reports a summary of failures at the end.
 
@@ -48,7 +48,8 @@ The following overrides can technically be set, but it is unnecessary in most ca
 
 The Jenkins job accepts the following parameters:
 
-- `OPERATION`: `plan` or `apply`. Defaults to `plan`.
+- `COMMAND`: Stacksmith command to run: `plan`, `apply`, or `operation`. Defaults to `plan`.
+- `OPERATION_NAME`: Stack-local native operation name. Required when `COMMAND` is `operation`.
 - `ENVIRONMENTS`: Optional comma-separated list of environments to target manually.
 - `WORKDIR`: The working directory for `stacksmith` commands. Defaults to `.`.
 - `FAIL_ON_CHANGES`: If `true`, the `plan` operation will fail if it contains any resource changes. Defaults to `false`.
@@ -57,10 +58,11 @@ The Jenkins job accepts the following parameters:
 The following values are read from Jenkins folder properties (or the job environment) rather than job parameters:
 
 - `STACKSMITH_NO_CAS`: If `true`, the pipeline passes `--no-cas` to Stacksmith runtime commands.
+- `STACKSMITH_FORCE_RERUN`: If `true`, force replacement of the native operation runner.
 - `STACKSMITH_ENV_FILE`: Env file passed to Stacksmith. Defaults to `/dev/null` to prevent implicit `.env` loading in CI.
 - `STACKSMITH_VALIDATION_REPORT_FORMAT`: Validation report format for plans. Defaults to `json`.
 - `STACKSMITH_UPLOAD_ARTIFACTS`: Whether plan reports and plan JSON are archived. Defaults to `true`.
-- `STACKSMITH_ARGS_JSON`: Ordered JSON array of additional Stacksmith CLI arguments. This is the preferred escape hatch for CLI options that are not first-class pipeline parameters.
+- `STACKSMITH_ARGS_JSON`: Ordered JSON array of additional Stacksmith CLI arguments. This is the preferred escape hatch for CLI options that are not first-class pipeline parameters. It cannot override the managed config.
 - `STACKSMITH_CREDENTIALS_JSON`: Optional JSON object describing the credentials to bind. Each entry should include a `credentialId` value and an auth type such as `git_token`, `git_ssh_key`, `http_token`, or `http_basic`.
 - `TG_AUTH_PROVIDER_CMD`: Optional Terragrunt auth provider command read from the Jenkins environment/folder properties.
 - `TG_IAM_ASSUME_ROLE`: Optional IAM role ARN passed through to Terragrunt from the Jenkins environment/folder properties.
@@ -79,7 +81,7 @@ Example:
 For example, additional ordered CLI options can be configured without shell-quoting loss:
 
 ```json
-["--config", "platform config.yaml", "--vars", "vars/common.yaml", "--tag", "service"]
+["--vars", "vars/common.yaml", "--tag", "service"]
 ```
 
 Discovery mode is configured via the environment variable `STACKSMITH_DISCOVERY_MODE` rather than a job parameter.

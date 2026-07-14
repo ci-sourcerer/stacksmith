@@ -48,6 +48,19 @@ def _capture_run_stack_action_call(
     return calls
 
 
+def _capture_run_stack_operation_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, object]:
+    calls: dict[str, object] = {}
+
+    def _fake_run_stack_operation(stack_file, operation_name, **kwargs):
+        calls["run"] = (stack_file, operation_name, kwargs)
+        return {"operation": operation_name, "exit_code": 0}
+
+    monkeypatch.setattr(cli_main, "run_stack_operation", _fake_run_stack_operation)
+    return calls
+
+
 def _diagnostics_payload(
     *,
     remote_cache_entries: list[dict[str, str]] | None = None,
@@ -646,6 +659,43 @@ def test_cmd_terragrunt_action_plan_destroy(monkeypatch, parser):
     assert exit_code == 0
     assert calls["run"][0] == "plan"
     assert calls["run"][2]["destroy"] is True
+
+
+def test_cmd_operation_run_passes_runtime_flags(monkeypatch, parser, capsys):
+    calls = _capture_run_stack_operation_call(monkeypatch)
+    args = parser.parse_args(
+        [
+            "operation",
+            "run",
+            "deploy_app",
+            "stack.yaml",
+            "--no-cas",
+            "--force-rerun",
+        ]
+    )
+
+    exit_code = cli_main._cmd_operation_run(args)
+
+    assert exit_code == 0
+    stack_file, operation_name, kwargs = calls["run"]
+    assert stack_file == Path("stack.yaml")
+    assert operation_name == "deploy_app"
+    assert kwargs["no_cas"] is True
+    assert kwargs["force_rerun"] is True
+    assert json.loads(capsys.readouterr().out) == {
+        "exit_code": 0,
+        "operation": "deploy_app",
+    }
+
+
+def test_operation_force_rerun_reads_environment(monkeypatch):
+    monkeypatch.setenv("STACKSMITH_FORCE_RERUN", "1")
+
+    args = stacksmith.cli.main._build_parser().parse_args(
+        ["operation", "run", "deploy_app", "stack.yaml"]
+    )
+
+    assert args.force_rerun is True
 
 
 def test_cmd_terragrunt_action_passes_tag_expr(monkeypatch, parser):

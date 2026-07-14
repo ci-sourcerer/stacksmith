@@ -3,10 +3,15 @@ name: stacksmith-gitops-reusable
 on:
   workflow_call:
     inputs:
-      operation:
-        description: Plan or apply operation.
+      command:
+        description: Stacksmith command to run. Supported values are plan, apply, and operation.
         required: true
         type: string
+      operation_name:
+        description: Stack-local native operation name. Required when command is operation.
+        required: false
+        type: string
+        default: ""
       environment:
         description: Deployment environment name.
         required: true
@@ -51,7 +56,7 @@ on:
         type: string
         default: json
       upload_artifacts:
-        description: Upload plan artifacts when operation is plan.
+        description: Upload plan artifacts when command is plan.
         required: false
         type: boolean
         default: true
@@ -90,10 +95,11 @@ jobs:
     name: validate-inputs
     runs-on: ubuntu-latest
     steps:
-      - name: Validate operation
+      - name: Validate command
         shell: bash
         env:
-          INPUT_OPERATION: ${{ inputs.operation }}
+          INPUT_COMMAND: ${{ inputs.command }}
+          INPUT_OPERATION_NAME: ${{ inputs.operation_name }}
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
           BASE_REF: ${{ github.base_ref }}
@@ -101,10 +107,16 @@ jobs:
           SKIP_BRANCH_VALIDATION: ${{ vars.NO_VALIDATE_BRANCH_AND_OPERATION || 'false' }}
         run: |
           set -euo pipefail
-          case "$INPUT_OPERATION" in
+          case "$INPUT_COMMAND" in
             plan|apply) ;;
+            operation)
+              if [ -z "$INPUT_OPERATION_NAME" ]; then
+                echo "operation_name is required when command is 'operation'." >&2
+                exit 1
+              fi
+              ;;
             *)
-              echo "Invalid operation '$INPUT_OPERATION'. Expected 'plan' or 'apply'." >&2
+              echo "Invalid command '$INPUT_COMMAND'. Expected 'plan', 'apply', or 'operation'." >&2
               exit 1
               ;;
           esac
@@ -116,8 +128,8 @@ jobs:
           if [ -z "$DEFAULT_BRANCH" ]; then
             exit 0
           elif [ "$EVENT_NAME" = pull_request ]; then
-            if [ "$INPUT_OPERATION" = apply ]; then
-              echo "'apply' operation is not allowed on pull requests. Use 'plan' instead." >&2
+            if [ "$INPUT_COMMAND" = apply ] || [ "$INPUT_COMMAND" = operation ]; then
+              echo "'$INPUT_COMMAND' is not allowed on pull requests. Use 'plan' instead." >&2
               exit 1
             fi
             if [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
@@ -131,7 +143,7 @@ jobs:
 
   plan:
     needs: validate-inputs
-    if: ${{ inputs.operation == 'plan' }}
+    if: ${{ inputs.command == 'plan' }}
     name: stacksmith-plan-${{ inputs.environment }}
     runs-on: ubuntu-latest
     container:
@@ -239,19 +251,23 @@ jobs:
 
       - name: Summarize plan
         if: ${{ success() || failure() }}
+        env:
+          SUMMARY_ENVIRONMENT: ${{ inputs.environment }}
+          SUMMARY_RUNFILE: ${{ inputs.runfile }}
+          SUMMARY_REPORT: .stacksmith-ci/${{ inputs.environment }}/validation-report.${{ inputs.validation_report_format }}
         run: |
           {
               echo "## Stacksmith Plan"
               echo ""
-              echo "- Environment: `${{ inputs.environment }}`"
-              echo "- Runfile: `${{ inputs.runfile }}`"
-              echo "- Operation: `plan`"
-              echo "- Report: `.stacksmith-ci/${{ inputs.environment }}/validation-report.${{ inputs.validation_report_format }}`"
+              printf -- '- Environment: `%s`\n' "$SUMMARY_ENVIRONMENT"
+              printf -- '- Runfile: `%s`\n' "$SUMMARY_RUNFILE"
+              echo '- Operation: `plan`'
+              printf -- '- Report: `%s`\n' "$SUMMARY_REPORT"
           } >> "$GITHUB_STEP_SUMMARY"
 
   apply:
     needs: validate-inputs
-    if: ${{ inputs.operation == 'apply' }}
+    if: ${{ inputs.command == 'apply' }}
     name: stacksmith-apply-${{ inputs.environment }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
@@ -339,11 +355,114 @@ jobs:
           fi
 
       - name: Summarize apply
+        env:
+          SUMMARY_ENVIRONMENT: ${{ inputs.environment }}
+          SUMMARY_RUNFILE: ${{ inputs.runfile }}
         run: |
           {
               echo "## Stacksmith Apply"
               echo ""
-              echo "- Environment: `${{ inputs.environment }}`"
-              echo "- Runfile: `${{ inputs.runfile }}`"
-              echo "- Operation: `apply`"
+              printf -- '- Environment: `%s`\n' "$SUMMARY_ENVIRONMENT"
+              printf -- '- Runfile: `%s`\n' "$SUMMARY_RUNFILE"
+              echo '- Operation: `apply`'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  operation:
+    needs: validate-inputs
+    if: ${{ inputs.command == 'operation' }}
+    name: stacksmith-operation-${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    container:
+      image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.workdir }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run Stacksmith operation
+        env:
+          STACKSMITH_GIT_TOKEN: ${{ secrets.STACKSMITH_GIT_TOKEN }}
+          STACKSMITH_GIT_SSH_KEY_MATERIAL: ${{ secrets.STACKSMITH_GIT_SSH_KEY }}
+          STACKSMITH_HTTP_TOKEN: ${{ secrets.STACKSMITH_HTTP_TOKEN }}
+          STACKSMITH_HTTP_USERNAME: ${{ secrets.STACKSMITH_HTTP_USERNAME }}
+          STACKSMITH_HTTP_PASSWORD: ${{ secrets.STACKSMITH_HTTP_PASSWORD }}
+          STACKSMITH_NO_CAS: ${{ vars.STACKSMITH_NO_CAS || 'false' }}
+          STACKSMITH_ARGS_JSON: ${{ inputs.stacksmith_args_json }}
+          STACKSMITH_CONFIG_REF: ${{ inputs.config_ref }}
+          STACKSMITH_ENVIRONMENT: ${{ inputs.environment }}
+          STACKSMITH_ENVIRONMENT_RUNFILE: ${{ inputs.environment_runfile }}
+          STACKSMITH_ENV_FILE: ${{ inputs.env_file }}
+          STACKSMITH_FORCE_RERUN: ${{ vars.STACKSMITH_FORCE_RERUN || 'false' }}
+          STACKSMITH_OPERATION_NAME: ${{ inputs.operation_name }}
+          STACKSMITH_RUNFILE: ${{ inputs.runfile }}
+          TG_AUTH_PROVIDER_CMD: ${{ vars.TG_AUTH_PROVIDER_CMD || '' }}
+          TG_IAM_ASSUME_ROLE: ${{ vars.TG_IAM_ASSUME_ROLE || '' }}
+        run: |
+          set -euo pipefail
+          artifact_dir=".stacksmith-ci/$STACKSMITH_ENVIRONMENT"
+          mkdir -p "$artifact_dir"
+          cas_flag=""
+          case "${STACKSMITH_NO_CAS:-false}" in
+            1|true|TRUE|yes|YES|on|ON) cas_flag="--no-cas" ;;
+          esac
+          extra_args_file="$artifact_dir/extra-args.bin"
+          python3 - <<'PY' > "$extra_args_file"
+          import json, os, sys
+          args = json.loads(os.environ.get("STACKSMITH_ARGS_JSON") or "[]")
+          if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+              sys.exit("stacksmith_args_json must be a JSON array of strings")
+          for arg in args:
+              if arg in {"--config", "-c"} or arg.startswith("--config=") or arg.startswith("-c="):
+                  sys.exit("stacksmith_args_json cannot override the platform-managed config")
+          if any("\0" in arg for arg in args):
+              sys.exit("stacksmith_args_json entries cannot contain NUL bytes")
+          sys.stdout.buffer.write(b"".join(arg.encode() + b"\0" for arg in args))
+          PY
+          mapfile -d '' -t extra_args < "$extra_args_file"
+
+          if [ -z "${STACKSMITH_CONFIG_REF:-}" ]; then
+            echo "config_ref is required and must point to the platform-managed Stacksmith config." >&2
+            exit 1
+          fi
+          config_arg=(--config "$STACKSMITH_CONFIG_REF")
+
+          if [ -n "${STACKSMITH_GIT_SSH_KEY_MATERIAL:-}" ]; then
+            ssh_key_path="${RUNNER_TEMP:-/tmp}/stacksmith_git_ssh_key_$STACKSMITH_ENVIRONMENT"
+            umask 077
+            printf '%s\n' "$STACKSMITH_GIT_SSH_KEY_MATERIAL" > "$ssh_key_path"
+            export STACKSMITH_GIT_SSH_KEY="$ssh_key_path"
+          fi
+
+          runfiles=(--runfile "$STACKSMITH_RUNFILE")
+          if [ -n "$STACKSMITH_ENVIRONMENT_RUNFILE" ]; then
+            runfiles+=(--runfile "$STACKSMITH_ENVIRONMENT_RUNFILE")
+          fi
+
+          stacksmith operation run "$STACKSMITH_OPERATION_NAME" \
+            "${config_arg[@]}" \
+            "${extra_args[@]}" \
+            --var "environment=$STACKSMITH_ENVIRONMENT" \
+            --env-file "$STACKSMITH_ENV_FILE" \
+            "${runfiles[@]}" \
+            --build-dir "$artifact_dir" \
+            $cas_flag
+
+      - name: Summarize operation
+        env:
+          SUMMARY_ENVIRONMENT: ${{ inputs.environment }}
+          SUMMARY_OPERATION_NAME: ${{ inputs.operation_name }}
+          SUMMARY_RUNFILE: ${{ inputs.runfile }}
+        run: |
+          {
+              echo "## Stacksmith Operation"
+              echo ""
+              printf -- '- Environment: `%s`\n' "$SUMMARY_ENVIRONMENT"
+              printf -- '- Runfile: `%s`\n' "$SUMMARY_RUNFILE"
+              printf -- '- Operation: `%s`\n' "$SUMMARY_OPERATION_NAME"
           } >> "$GITHUB_STEP_SUMMARY"

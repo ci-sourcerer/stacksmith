@@ -2,26 +2,27 @@
 
 set -e
 
+# Print usage instructions and exit.
 usage() {
-  cat <<EOF
-Usage: $0 <operation> <environment> [image_version]
+    cat <<EOF
+Usage: $0 <command> <environment> [image_version]
 Example: $0 plan dev
          $0 apply dev latest
 EOF
-  exit 1
+    exit 1
 }
 
 if [ "$#" -lt 2 ]; then
-  usage
+    usage
 fi
 
-operation=$1
+stacksmith_command=$1
 environment=$2
 image_version=${3:-latest}
 
-if [ "$operation" != "plan" ] && [ "$operation" != "apply" ]; then
-  echo "Invalid operation: $operation" >&2
-  usage
+if [ "$stacksmith_command" != "plan" ] && [ "$stacksmith_command" != "apply" ]; then
+    echo "Invalid command: $stacksmith_command" >&2
+    usage
 fi
 
 if ! docker pull docker.io/cisourcerer/stacksmith:"$image_version"; then
@@ -34,7 +35,7 @@ trap 'rm -f "$tmpfile"' EXIT
 cat >"$tmpfile" <<EOF
 {
   "inputs": {
-    "operation": "$operation",
+    "command": "$stacksmith_command",
     "environment": "$environment",
     "runfile": "examples/gitops-repo/common/stacksmith.yaml",
     "environment_runfile": "examples/gitops-repo/environments/$environment.yaml",

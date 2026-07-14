@@ -398,9 +398,9 @@ If `--runfile` is omitted, Stacksmith checks `STACKSMITH_RUN_FILE` and then auto
 
 This repository hosts reusable workflows and opinionated wrapper templates.
 
-- `.github/workflows/stacksmith-gitops-reusable.yml` executes one environment in `plan` or `apply` mode.
+- `.github/workflows/stacksmith-gitops-reusable.yml` executes one environment in `plan`, `apply`, or native `operation` mode.
 - `.github/workflows/stacksmith-gitops-opinionated-reusable.yml` discovers environments and fans out to the single-environment reusable workflow.
-- `examples/github-actions/stacksmith-plan.yml` and `examples/github-actions/stacksmith-apply.yml` are trigger wrappers that call the opinionated reusable workflow using `uses`.
+- `examples/github-actions/stacksmith-plan.yml`, `examples/github-actions/stacksmith-apply.yml`, and `examples/github-actions/stacksmith-operation.yml` are trigger wrappers that call the opinionated reusable workflow using `uses`.
 - `jenkins/Jenkinsfile` is the opinionated Jenkins GitOps wrapper and is best used as a Multibranch Pipeline.
 
 The wrappers under `examples/` do not execute in this repository because they are outside `.github/workflows`.
@@ -411,7 +411,10 @@ In your own repository, you can either:
 
 The opinionated reusable workflow discovers target environments and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment.
 
+The CI selector is named `command` in GitHub Actions and `COMMAND` in Jenkins. Callers using the former `operation` or `OPERATION` selector must update to the new name.
+
 - `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.
+- Native operation mode requires `operation_name`, the stack-local name passed to `stacksmith operation run` in each selected environment. Set `STACKSMITH_FORCE_RERUN=1` in the CI environment to force replacement of the operation runner resource when its execution identity has not changed.
 - `discovery_mode` selects how environments are discovered. Use `folders` for `environments/<env>/` directories, `flat-files` for root-level `stacksmith.<env>.yaml|yml|json` files, or `env-files` for the hybrid `environments/<env>.yaml` layout. The aliases `env` and `env-files` both map to the hybrid env-file discovery path.
 - `STACKSMITH_GITOPS_ROOT` defaults to `.` and can be overridden per run with `gitops_root`.
 - Changes under `<gitops_root>/common` and `<gitops_root>/manifests/common` fan out to all environments.
@@ -431,7 +434,7 @@ The wrappers pass reusable workflow inputs from repository variables when availa
 - `STACKSMITH_FAIL_ON_CHANGES` (default `false`, plan template)
 - `STACKSMITH_STRICT_VALIDATION_WARNINGS` (default `false`, plan template)
 - `STACKSMITH_NO_CAS` (default `false`)
-- `STACKSMITH_ARGS_JSON` (default `[]`; ordered JSON array of additional CLI arguments; the workflow rejects `--config` and `-c` overrides)
+- `STACKSMITH_ARGS_JSON` (default `[]`; ordered JSON array of additional CLI arguments; the workflow rejects managed `--config` and `-c` overrides)
 - `STACKSMITH_CONFIG_REF` (required for the workflow entrypoints; points to the platform-managed Stacksmith config)
 - `NO_VALIDATE_BRANCH_AND_OPERATION` (default `false`; bypasses the default-branch/PR operation guard)
 - `TG_AUTH_PROVIDER_CMD` (default empty)
@@ -439,13 +442,13 @@ The wrappers pass reusable workflow inputs from repository variables when availa
 
 Credential values are inherited into the reusable workflows with standard GitHub Actions `secrets: inherit`. The supported secret names are `STACKSMITH_GIT_TOKEN`, `STACKSMITH_GIT_SSH_KEY`, `STACKSMITH_HTTP_TOKEN`, `STACKSMITH_HTTP_USERNAME`, and `STACKSMITH_HTTP_PASSWORD`. Jenkins provides the same runtime variables through native Jenkins credential bindings configured by `STACKSMITH_CREDENTIALS_JSON`.
 
-Both CI implementations reserve the operation, runfiles, build directory, plan output, validation format, and apply approval flags because those values are part of the GitOps contract. Every other Stacksmith CLI option can be supplied, in order and without shell-quoting loss, through `STACKSMITH_ARGS_JSON`. For example:
+Both CI implementations reserve the command selector, operation name, runfiles, build directory, plan output, validation format, and apply approval flags because those values are part of the GitOps contract. Every other Stacksmith CLI option can be supplied, in order and without shell-quoting loss, through `STACKSMITH_ARGS_JSON`. For example:
 
 ```json
 ["--vars", "vars/common.yaml", "--var", "replicas=3", "--tag", "service", "--debug"]
 ```
 
-The GitHub workflows expose this as their `stacksmith_args_json` input. JSON arrays are used so repeated options, argument order, and values containing whitespace are preserved exactly. The workflow now also requires a platform-managed config reference via `config_ref` or `STACKSMITH_CONFIG_REF`, injects it as `--config <ref>` for every Stacksmith invocation, and rejects any attempt to override the config through `stacksmith_args_json`.
+The GitHub workflows expose this as their `stacksmith_args_json` input. JSON arrays are used so repeated options, argument order, and values containing whitespace are preserved exactly. The workflow also requires a platform-managed config reference via `config_ref` or `STACKSMITH_CONFIG_REF`, injects it as `--config <ref>` for every Stacksmith invocation, and rejects attempts to override the config through `stacksmith_args_json`.
 
 The opinionated reusable workflow intentionally does not expose free-form extra CLI args for `plan` or `apply`. Execution behavior is defined by repository-controlled workflow configuration and variables.
 
@@ -479,7 +482,7 @@ jobs:
   run-plan:
     uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@<version>
     with:
-      operation: plan
+      command: plan
       gitops_root: ${{ vars.STACKSMITH_GITOPS_ROOT || '.' }}
       environments: ${{ github.event.inputs.environments || '' }}
       discovery_mode: ${{ vars.STACKSMITH_DISCOVERY_MODE || 'auto' }}
@@ -501,10 +504,34 @@ jobs:
   run-apply:
     uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@<version>
     with:
-      operation: apply
+      command: apply
       gitops_root: ${{ vars.STACKSMITH_GITOPS_ROOT || '.' }}
       environments: ${{ github.event.inputs.environments || '' }}
       discovery_mode: ${{ vars.STACKSMITH_DISCOVERY_MODE || 'auto' }}
+      workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
+    secrets: inherit
+```
+
+Run a native operation manually with this minimal example.
+
+```yaml
+name: stacksmith-operation
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation_name:
+        description: Stack-local native operation name.
+        required: true
+        type: string
+
+jobs:
+  run-operation:
+    uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@<version>
+    with:
+      command: operation
+      operation_name: ${{ inputs.operation_name }}
+      gitops_root: ${{ vars.STACKSMITH_GITOPS_ROOT || '.' }}
       workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
     secrets: inherit
 ```
@@ -558,7 +585,15 @@ Run a manual operation by its stack-local name.
 stacksmith operation run deploy_app --stack stack.yaml --config stacksmith-config.yaml
 ```
 
-Change `rerun_token` in the stack definition for an intentional repeat of the same operation identity. `operation run` performs a targeted OpenTofu apply of that operation's private module. Operations with the `after_apply` trigger run in stack dependency order during `stacksmith apply` and `stacksmith run-all apply`; stack-local `depends_on` can order multiple operations within a stack.
+For a one-time definite dispatch without changing the stack definition, add `--force-rerun` or set `STACKSMITH_FORCE_RERUN=1`. This passes `-replace=module.<operation_module>.terraform_data.operation` to the underlying apply while retaining the operation module target.
+
+```shell
+stacksmith operation run deploy_app --force-rerun --stack stack.yaml --config stacksmith-config.yaml
+```
+
+Alternatively, change `rerun_token` in the stack definition when the rerun request should remain declarative and reviewable. `operation run` performs a targeted OpenTofu apply of that operation's private module. Operations with the `after_apply` trigger run in stack dependency order during `stacksmith apply` and `stacksmith run-all apply`; stack-local `depends_on` can order multiple operations within a stack.
+
+The Jenkins and GitHub Actions GitOps entrypoints also support native operation mode. Provide the stack-local operation name through Jenkins `OPERATION_NAME` with `COMMAND=operation`, or through the reusable workflow's `operation_name` input with `command: operation`. Set `STACKSMITH_FORCE_RERUN=1` in Jenkins folder properties or GitHub repository variables for a definite dispatch. Native operations use the same environment discovery, runfile layering, credentials, branch protections, and deployment approvals as infrastructure applies.
 
 In this pattern, the shared runfile references the platform and service stack layers first, then environment-specific vars and overlays are layered on top.
 
@@ -886,10 +921,10 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith operation run`
 
 ```text
-stacksmith operation run [-h] [--stack STACK] [--runfile RUNFILE]
-                                [-c CONFIG] [--env-file ENV_FILE]
-                                [--vars VARS_FILE] [--var VARS]
-                                [--merge-mode {deep,override}]
+stacksmith operation run [-h] [--force-rerun] [--stack STACK]
+                                [--runfile RUNFILE] [-c CONFIG]
+                                [--env-file ENV_FILE] [--vars VARS_FILE]
+                                [--var VARS] [--merge-mode {deep,override}]
                                 [--build-dir BUILD_DIR] [--log LOG]
                                 [--no-cache] [--no-cas]
                                 [--strict-validation-warnings]
@@ -901,6 +936,7 @@ stacksmith operation run [-h] [--stack STACK] [--runfile RUNFILE]
 | Argument | Description |
 | - | - |
 | `operation_name` | Stack-local operation name |
+| `--force-rerun` | Force the operation runner resource to be replaced even when its execution identity has not changed. Can also be enabled with STACKSMITH_FORCE_RERUN=1. |
 | `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
 | `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
 | `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |

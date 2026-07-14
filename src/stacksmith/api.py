@@ -1230,6 +1230,8 @@ def run_stack_operation(
     input_layers: Sequence[InputLayer] | None = None,
     build_dir: Path | None = None,
     no_cache: bool = False,
+    no_cas: bool = False,
+    force_rerun: bool = False,
     merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> dict[str, Any]:
     """Run one approved native operation declared by a stack.
@@ -1242,6 +1244,9 @@ def run_stack_operation(
         input_layers: Optional ordered CLI input layers merged in call order.
         build_dir: Optional directory for generated operation files.
         no_cache: When `True`, clear the Stacksmith remote cache first.
+        no_cas: When `True`, disable Terragrunt CAS during this run.
+        force_rerun: When `True`, replace the operation runner resource even if
+            its execution identity is unchanged.
         merge_mode: Merge strategy for layered configuration and inputs.
 
     Returns:
@@ -1273,15 +1278,27 @@ def run_stack_operation(
     return {
         "operation": operation_name,
         "exit_code": run_terragrunt(
-            ["apply", f"-target=module.{operation_module_name(operation_name)}"],
+            _operation_terragrunt_args(operation_name, force_rerun),
             output_dir,
             auto_approve=True,
             config=loaded_config,
             stack_name=stack.name,
             cache_dir=cache_dir,
             auth_config=loaded_config.remote_auth or None,
+            no_cas=no_cas or no_cache,
         ),
     }
+
+
+def _operation_terragrunt_args(
+    operation_name: str,
+    force_rerun: bool,
+) -> list[str]:
+    module_address = f"module.{operation_module_name(operation_name)}"
+    args = ["apply", f"-target={module_address}"]
+    if force_rerun:
+        args.append(f"-replace={module_address}.terraform_data.operation")
+    return args
 
 
 def run_stack_action(
