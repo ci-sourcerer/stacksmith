@@ -481,6 +481,21 @@ class TestGenerateTfJson:
 
         assert result["module"]["my-bucket"]["bucket"] == "my-bucket-jinja"
 
+    def test_component_property_preserves_other_component_output_reference(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+        stack.components["my-instance"].properties[
+            "bucket_id"
+        ] = "${module.my-bucket.s3_bucket_id}"
+
+        result = generate_tf_json(stack, config, {"bucket_name": "my-bucket"})
+
+        assert result["module"]["my-instance"]["bucket_id"] == (
+            "${module.my-bucket.s3_bucket_id}"
+        )
+
     def test_jinja2_has_stack_context(
         self, sample_stack_yaml: Path, sample_config_yaml: Path
     ):

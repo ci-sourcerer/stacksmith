@@ -310,6 +310,15 @@ class ComponentDefinition(BaseModel):
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
+class OperationInvocation(BaseModel):
+    """A stack's request to run an operation approved in managed config."""
+
+    use: str
+    with_: dict[str, Any] = Field(default_factory=dict, alias="with")
+    rerun_token: str | None = None
+    depends_on: list[str] = Field(default_factory=list)
+
+
 class StackDefinition(BaseModel):
     """Complete parsed stack definition from a YAML or JSON file."""
 
@@ -317,7 +326,8 @@ class StackDefinition(BaseModel):
     tags: set[str] = Field(default_factory=set)
     depends_on: list[str] = Field(default_factory=list)
     mock_outputs: dict[str, Any] = Field(default_factory=dict)
-    components: dict[str, ComponentDefinition]
+    components: dict[str, ComponentDefinition] = Field(default_factory=dict)
+    operations: dict[str, OperationInvocation] = Field(default_factory=dict)
     source_path: Path | None = Field(default=None, exclude=True)
 
 
@@ -479,6 +489,73 @@ class ModuleMapping(BaseModel):
     providers: dict[str, str] = Field(default_factory=dict)
 
 
+class OperationInputSpec(BaseModel):
+    """Input contract for a native Stacksmith operation."""
+
+    required: bool = False
+    secret: bool = False
+
+
+class LocalOperationDefinition(BaseModel):
+    """Config-owned local process operation."""
+
+    runner: Literal["local"]
+    description: str | None = None
+    trigger: Literal["manual", "after_apply"] = "manual"
+    command: list[str]
+    working_directory: str | None = None
+    environment: dict[str, str] = Field(default_factory=dict)
+    inputs: dict[str, OperationInputSpec] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_command(self) -> "LocalOperationDefinition":
+        if not self.command or any(not argument.strip() for argument in self.command):
+            raise ValueError("Operation command must contain non-empty arguments")
+        unknown_inputs = sorted(set(self.environment.values()) - set(self.inputs))
+        if unknown_inputs:
+            raise ValueError(
+                "Operation environment references undeclared inputs: "
+                f"{', '.join(unknown_inputs)}"
+            )
+        return self
+
+
+class JenkinsOperationDefinition(BaseModel):
+    """Config-owned Jenkins build operation."""
+
+    runner: Literal["jenkins"]
+    description: str | None = None
+    trigger: Literal["manual", "after_apply"] = "manual"
+    url: str
+    job_name: str
+    username_env: str
+    api_token_env: str
+    parameters: dict[str, str] = Field(default_factory=dict)
+    inputs: dict[str, OperationInputSpec] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_fields(self) -> "JenkinsOperationDefinition":
+        if not self.url.startswith(("http://", "https://")):
+            raise ValueError(
+                "Jenkins operation url must start with http:// or https://"
+            )
+        if not self.job_name.strip():
+            raise ValueError("Jenkins operation job_name must be non-empty")
+        unknown_inputs = sorted(set(self.parameters.values()) - set(self.inputs))
+        if unknown_inputs:
+            raise ValueError(
+                "Jenkins operation parameters reference undeclared inputs: "
+                f"{', '.join(unknown_inputs)}"
+            )
+        return self
+
+
+OperationDefinition: TypeAlias = Annotated[
+    LocalOperationDefinition | JenkinsOperationDefinition,
+    Field(discriminator="runner"),
+]
+
+
 class PlanValidation(BaseModel):
     """Reserved future post-plan validation rule."""
 
@@ -529,6 +606,7 @@ class ToolConfig(BaseModel):
     tools: ToolsConfig
     provider_mappings: dict[str, ProviderFamily]
     module_mappings: dict[str, ModuleMapping]
+    operations: dict[str, OperationDefinition] = Field(default_factory=dict)
     var_validations: dict[str, ValidationSpec] = Field(default_factory=dict)
     plan_validations: dict[str, PlanValidation] = Field(default_factory=dict)
     remote_auth: dict[str, RemoteAuthEntry] = Field(default_factory=dict)

@@ -227,38 +227,41 @@ module_mappings:
         path: ../modules/kubernetes_app
     auto_inject: true
 
-  command_runner:
-    description: Approved command execution
-    source:
-      source: local
-      data:
-        path: ../modules/command_runner
-    properties:
-      command_name:
-        mapped_to: command_name
-        validation:
-          inline: |
-            def validate(value, **context):
-                approved = {"deploy", "migrate", "prune"}
-                if not isinstance(value, str):
-                    return {"status": "fail", "message": "command_name must be a string"}
-                if value not in approved:
-                    return {
-                        "status": "fail",
-                        "message": f"command_name must be one of {sorted(approved)}",
-                    }
-                return "pass"
-      cwd:
-        mapped_to: cwd
-      env:
-        mapped_to: env
-      vars:
-        mapped_to: vars
+operations:
+  deploy:
+    description: Run the platform-approved deployment command
+    runner: local
+    trigger: after_apply
+    command:
+      - echo
+      - "approved command: deploy"
+    environment:
+      APP_ENV: environment
+      RELEASE_TAG: release_tag
+      DEPLOYMENT_TAGS: deployment_tags
+      LOGS_BUCKET_ID: logs_bucket_id
+    inputs:
+      environment:
+        required: true
+      release_tag:
+        required: true
+      deployment_tags: {}
+      logs_bucket_id:
+        required: true
 
-  jenkins_build:
-    description: Jenkins build trigger
-    source:
-      source: local
-      data:
-        path: ../modules/jenkins_build
-    auto_inject: true
+  jenkins_deploy:
+    description: Trigger the platform-approved Jenkins deployment job
+    runner: jenkins
+    trigger: after_apply
+    url: https://jenkins.example.com
+    job_name: deployments/application
+    username_env: JENKINS_USERNAME
+    api_token_env: JENKINS_API_TOKEN
+    parameters:
+      ENVIRONMENT: environment
+      RELEASE_TAG: release_tag
+    inputs:
+      environment:
+        required: true
+      release_tag:
+        required: true

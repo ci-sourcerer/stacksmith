@@ -87,7 +87,7 @@ def replace_generated_block(content: str, generated_block: str) -> str:
 
 def main() -> None:
     """Run the CLI reference updater."""
-    raise SystemExit(update_readme(check="--check" in sys.argv[1:]))
+    sys.exit(update_readme(check="--check" in sys.argv[1:]))
 
 
 def _insert_generated_block(content: str, generated_block: str) -> str:

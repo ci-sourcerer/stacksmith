@@ -1,12 +1,3 @@
-terraform {
-  required_providers {
-    helm = {
-      source  = "hashicorp/helm"
-      version = "~> 3.1"
-    }
-  }
-}
-
 locals {
   derived_release_name = replace(var.chart, "/", "-")
   release_name         = coalesce(var.name, "${var.namespace}-${local.derived_release_name}")

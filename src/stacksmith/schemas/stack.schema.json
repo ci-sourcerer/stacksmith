@@ -61,7 +61,7 @@
           "properties": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Properties passed as inputs to the module. Values may contain Jinja2 expressions."
+            "description": "Properties passed as inputs to the module. Values may contain Jinja2 expressions and Terraform references to other component module outputs."
           }
         },
         "required": [
@@ -69,6 +69,42 @@
         ]
       },
       "description": "Component definitions. Keys are component names, values specify type and properties."
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "use"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "use": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of an operation approved in the tool configuration."
+          },
+          "with": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Declared operation inputs. Values may contain Jinja2 expressions and Terraform references to component module outputs."
+          },
+          "rerun_token": {
+            "type": "string",
+            "description": "Optional value that deliberately creates a new operation execution identity."
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true,
+            "description": "Stack-local operations that must succeed before this operation runs."
+          }
+        }
+      },
+      "description": "Native operational actions requested by this stack."
     }
   }
 }

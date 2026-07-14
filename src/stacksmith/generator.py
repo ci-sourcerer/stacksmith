@@ -1,5 +1,7 @@
 import json
+import re
 from collections.abc import Mapping
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,7 @@ from .models import (
     ToolConfig,
     render_module_source_identity,
 )
+from .operations import build_operation_module_spec
 from .utils import derive_stack_state_key, render_jinja_template_values
 from .validation import InputValidationOutcome, apply_transform, validate_value
 from .vendor import get_vendor_dir, resolve_module_source
@@ -35,6 +38,40 @@ _JINJA_ENV = SandboxedEnvironment()
 
 def _render_property_value(value: Any, context: dict[str, Any]) -> Any:
     return render_jinja_template_values(value, context, jinja_env=_JINJA_ENV)
+
+
+def operation_module_name(name: str) -> str:
+    return f"stacksmith_operation_{re.sub(r'[^A-Za-z0-9_]', '_', name)}"
+
+
+def _generate_operation_blocks(
+    stack: StackDefinition,
+    config: ToolConfig,
+    resolved_inputs: dict[str, Any],
+    operation_names: set[str] | None = None,
+) -> dict[str, Any]:
+    modules = {}
+    for name, invocation in stack.operations.items():
+        definition = config.operations.get(invocation.use)
+        if definition is None or (
+            operation_names is None and definition.trigger != "after_apply"
+        ):
+            continue
+        if operation_names is not None and name not in operation_names:
+            continue
+        dependencies = [
+            f"${{module.{component_name}}}" for component_name in stack.components
+        ]
+        dependencies.extend(
+            f"${{module.{operation_module_name(dependency)}}}"
+            for dependency in invocation.depends_on
+        )
+        modules[operation_module_name(name)] = {
+            "source": "./.stacksmith-operation-runner",
+            "spec": build_operation_module_spec(stack, config, resolved_inputs, name),
+            **({"depends_on": dependencies} if dependencies else {}),
+        }
+    return modules
 
 
 def _looks_like_module_path_input(name: str) -> bool:
@@ -459,6 +496,7 @@ def generate_tf_json(
     vendor_dir: Path | None = None,
     root: Path | None = None,
     formatter_options: Mapping[str, Mapping[str, Any]] | None = None,
+    operation_names: set[str] | None = None,
 ) -> dict[str, Any]:
     """Generate the complete `.tf.json` structure for a stack.
 
@@ -482,6 +520,20 @@ def generate_tf_json(
         module_source_options = formatter_options.get("module_source")
         provider_source_options = formatter_options.get("provider_source")
 
+    modules = _generate_module_blocks(
+        stack,
+        config,
+        resolved_inputs,
+        cache_dir=cache_dir,
+        auth_config=auth_config,
+        use_local_modules=use_local_modules,
+        vendor_dir=vendor_dir,
+        module_source_formatter_options=module_source_options,
+    )
+    modules.update(
+        _generate_operation_blocks(stack, config, resolved_inputs, operation_names)
+    )
+
     return {
         "terraform": _generate_terraform_block(
             config,
@@ -498,16 +550,7 @@ def generate_tf_json(
             cache_dir=cache_dir,
             auth_config=auth_config,
         ),
-        "module": _generate_module_blocks(
-            stack,
-            config,
-            resolved_inputs,
-            cache_dir=cache_dir,
-            auth_config=auth_config,
-            use_local_modules=use_local_modules,
-            vendor_dir=vendor_dir,
-            module_source_formatter_options=module_source_options,
-        ),
+        "module": modules,
     }
 
 
@@ -522,6 +565,7 @@ def write_tf_json(
     vendor_dir: Path | None = None,
     root: Path | None = None,
     formatter_options: Mapping[str, Mapping[str, Any]] | None = None,
+    operation_names: set[str] | None = None,
 ) -> Path:
     """Generate and write `stacksmith.tf.json` to the output directory.
 
@@ -541,6 +585,14 @@ def write_tf_json(
         Path to the written `stacksmith.tf.json` file.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
+    operation_runner_dir = output_dir / ".stacksmith-operation-runner"
+    operation_runner_dir.mkdir(exist_ok=True)
+    runner_assets = files("stacksmith.assets").joinpath("operation_runner")
+    for asset_name in ("main.tf", "local.py", "jenkins.py"):
+        (operation_runner_dir / asset_name).write_text(
+            runner_assets.joinpath(asset_name).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
     tf_json = generate_tf_json(
         stack,
         config,
@@ -551,6 +603,7 @@ def write_tf_json(
         vendor_dir=vendor_dir,
         root=root,
         formatter_options=formatter_options,
+        operation_names=operation_names,
     )
     output_path = output_dir / "stacksmith.tf.json"
     output_path.write_text(json.dumps(tf_json, indent=2) + "\n", encoding="utf-8")

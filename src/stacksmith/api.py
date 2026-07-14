@@ -24,7 +24,7 @@ from .enums import (
     ValidationReportFormat,
 )
 from .exceptions import StacksmithConfigError, StacksmithError
-from .generator import write_tf_json
+from .generator import operation_module_name, write_tf_json
 from .gitops import evaluate_environment_selection
 from .inspector import (
     ComponentTypeInfo,
@@ -736,6 +736,7 @@ def _generate_single_stack(
     cache_dir: Path | None = None,
     use_local_modules: bool = False,
     merge_mode: str | MergeMode = MergeMode.DEEP,
+    operation_names: set[str] | None = None,
 ) -> Path:
     resolved = _resolve_stack_inputs(
         stack,
@@ -758,6 +759,7 @@ def _generate_single_stack(
         cache_dir=cache_dir,
         auth_config=config.remote_auth or None,
         use_local_modules=use_local_modules,
+        operation_names=operation_names,
     )
     write_terragrunt_json(stack, config, resolved, output_dir)
 
@@ -1158,6 +1160,63 @@ def generate_stack(
         use_local_modules=use_local_modules,
         merge_mode=merge_mode,
     )
+
+
+def run_stack_operation(
+    stack_file: Path | str | Sequence[Path | str],
+    operation_name: str,
+    *,
+    config: list[str] | None = None,
+    vars_file: str | Sequence[str] | None = None,
+    input_layers: Sequence[InputLayer] | None = None,
+    build_dir: Path | None = None,
+    no_cache: bool = False,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
+) -> dict[str, Any]:
+    """Run one approved native operation declared by a stack.
+
+    Args:
+        stack_file: Path, URL, or ordered sequence of stack definition files.
+        operation_name: Stack-local operation name to execute.
+        config: Optional managed config paths or URLs.
+        vars_file: Optional vars file paths or URLs.
+        input_layers: Optional ordered CLI input layers merged in call order.
+        build_dir: Optional directory for generated operation files.
+        no_cache: When `True`, clear the Stacksmith remote cache first.
+        merge_mode: Merge strategy for layered configuration and inputs.
+
+    Returns:
+        OpenTofu execution metadata.
+    """
+    cache_dir, _, loaded_config = _load_runtime_config(
+        config, build_dir, no_cache=no_cache, merge_mode=merge_mode
+    )
+    stack = _load_stack_definition(stack_file, cache_dir, merge_mode=merge_mode)
+    if stack.source_path is None:
+        raise RuntimeError("Loaded stack is missing a source path")
+    output_dir = _generate_single_stack(
+        stack,
+        loaded_config,
+        vars_file,
+        input_layers,
+        build_dir,
+        silent=True,
+        cache_dir=cache_dir,
+        merge_mode=merge_mode,
+        operation_names={operation_name},
+    )
+    return {
+        "operation": operation_name,
+        "exit_code": run_terragrunt(
+            ["apply", f"-target=module.{operation_module_name(operation_name)}"],
+            output_dir,
+            auto_approve=True,
+            config=loaded_config,
+            stack_name=stack.name,
+            cache_dir=cache_dir,
+            auth_config=loaded_config.remote_auth or None,
+        ),
+    }
 
 
 def run_stack_action(

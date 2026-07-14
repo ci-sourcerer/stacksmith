@@ -171,6 +171,8 @@ components:
 Stacksmith property templates can also access stack metadata via `stack.name` and `stack.tags`.
 For example, you can compute values from the stack name like `{{ stack.name }}-{{ inputs.bucket_name }}`.
 
+Components in the same stack can consume each other's OpenTofu module outputs with native Terraform references. The component name becomes the module name, so `${module.app_server.private_ip}` passes the `private_ip` output from `app_server` to another component property. OpenTofu infers the dependency from the reference.
+
 The S3 state key is derived automatically from the stack file's path relative to the repo root. For example `networking/vpc/stack.yaml` produces key `networking/vpc/terraform.tfstate`. For standalone stacks (single-stack commands without a `--root`), the key is simply `<name>/terraform.tfstate`.
 
 Concept-level details for tags, input resolution, validations, plan validations, and transforms are documented in [Concepts](#concepts). This section intentionally focuses on stack authoring shape and examples.
@@ -490,7 +492,52 @@ jobs:
 
 The reusable workflow also supports the `folders` and `flat-files` discovery modes for repositories that prefer those layouts.
 
-This example now also shows app deployment and command orchestration patterns alongside infrastructure stacks. The shared config can expose approved component types such as `helm_app`, `k8s_app`, `command_runner`, and `jenkins_build` so teams can choose platform-supported deployment paths without inventing a generic `infra` fallback.
+This example now also shows app deployment and native operation patterns alongside infrastructure stacks. The shared config can expose approved Terraform component types such as `helm_app` and `k8s_app`, plus approved operations for local commands and Jenkins builds.
+
+## Native operations
+
+Operations are config-owned imperative actions. Stacksmith compiles them into private first-party Terraform modules, so their execution identity and locking use the same configured OpenTofu backend as the stack.
+
+The managed config fixes the runner details, including the local command argument vector or Jenkins job and credentials. A stack can only select an approved operation and supply declared inputs. Operation inputs support the same Jinja templates and native Terraform references as component properties, so an operation can consume an output such as `${module.app.release_name}`. Operations use the `manual` trigger by default; set `trigger: after_apply` in managed config to run them after a successful apply.
+
+```yaml
+# stacksmith-config.yaml
+operations:
+  deploy:
+    runner: local
+    trigger: after_apply
+    command: [./bin/deploy]
+    environment:
+      APP_ENV: environment
+      RELEASE_NAME: release_name
+    inputs:
+      environment:
+        required: true
+      release_name:
+        required: true
+```
+
+```yaml
+# stack.yaml
+components:
+  app:
+    type: application
+
+operations:
+  deploy_app:
+    use: deploy
+    with:
+      environment: "{{ inputs.environment }}"
+      release_name: "${module.app.release_name}"
+```
+
+Run a manual operation by its stack-local name.
+
+```shell
+stacksmith operation run deploy_app --stack stack.yaml --config stacksmith-config.yaml
+```
+
+Change `rerun_token` in the stack definition for an intentional repeat of the same operation identity. `operation run` performs a targeted OpenTofu apply of that operation's private module. Operations with the `after_apply` trigger run in stack dependency order during `stacksmith apply` and `stacksmith run-all apply`; stack-local `depends_on` can order multiple operations within a stack.
 
 In this pattern, the shared runfile references the platform and service stack layers first, then environment-specific vars and overlays are layered on top.
 
@@ -526,7 +573,7 @@ Single-stack commands default to `stack.yaml` in the current directory, with fal
 
 ```text
 stacksmith [-h] [--version]
-                  {validate,generate,run-all,init,plan,apply,destroy,info,ci} ...
+                  {validate,generate,run-all,init,plan,apply,destroy,operation,info,ci} ...
 ```
 
 YAML/JSON-driven Terragrunt wrapper
@@ -546,6 +593,7 @@ YAML/JSON-driven Terragrunt wrapper
 | `plan` | Generate + terragrunt plan |
 | `apply` | Generate + terragrunt apply |
 | `destroy` | Generate + terragrunt destroy |
+| `operation` | Run native operations approved by managed configuration |
 | `info` | Show stacksmith inspection and diagnostics commands |
 | `ci` | CI-focused validation and diagnostics commands |
 
@@ -813,6 +861,42 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 | `--tag` | Select components by tag. Repeat to require multiple tags. |
 | `--tag-expr` | JMESPath expression used to select resource targets. |
 | `--auto-approve` | Skip interactive approval |
+
+### `stacksmith operation run`
+
+```text
+stacksmith operation run [-h] [--stack STACK] [--runfile RUNFILE]
+                                [-c CONFIG] [--env-file ENV_FILE]
+                                [--vars VARS_FILE] [--var VARS]
+                                [--merge-mode {deep,override}]
+                                [--build-dir BUILD_DIR] [--log LOG]
+                                [--no-cache] [--no-cas]
+                                [--strict-validation-warnings]
+                                [--use-local-modules | --no-local-modules]
+                                [--debug | -q]
+                                operation_name [stack_file]
+```
+
+| Argument | Description |
+| - | - |
+| `operation_name` | Stack-local operation name |
+| `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
+| `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. |
+| `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 
 ### `stacksmith info inspect`
 

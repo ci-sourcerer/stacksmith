@@ -43,6 +43,7 @@ def test_stack_definition_fields_match_stack_schema():
         "depends_on",
         "mock_outputs",
         "components",
+        "operations",
     }
     assert schema_props == {
         "name",
@@ -50,6 +51,7 @@ def test_stack_definition_fields_match_stack_schema():
         "depends_on",
         "mock_outputs",
         "components",
+        "operations",
     }
 
     assert _field_names(StackMeta) == {"name"}
@@ -74,6 +76,7 @@ def test_tool_config_fields_match_config_schema():
         "tools",
         "provider_mappings",
         "module_mappings",
+        "operations",
         "var_validations",
         "plan_validations",
         "remote_auth",
@@ -83,6 +86,7 @@ def test_tool_config_fields_match_config_schema():
         "tools",
         "provider_mappings",
         "module_mappings",
+        "operations",
         "var_validations",
         "plan_validations",
         "remote_auth",
@@ -197,6 +201,7 @@ def test_runfile_fields_match_runfile_schema():
                 "tools",
                 "provider_mappings",
                 "module_mappings",
+                "operations",
                 "var_validations",
                 "plan_validations",
                 "remote_auth",
@@ -205,7 +210,14 @@ def test_runfile_fields_match_runfile_schema():
         (
             "stack.schema.json",
             StackDefinition,
-            {"name", "tags", "depends_on", "mock_outputs", "components"},
+            {
+                "name",
+                "tags",
+                "depends_on",
+                "mock_outputs",
+                "components",
+                "operations",
+            },
         ),
         (
             "runfile.schema.json",

@@ -1,12 +1,3 @@
-terraform {
-  required_providers {
-    kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = "~> 3.2"
-    }
-  }
-}
-
 locals {
   manifests = [for path in var.manifest_files : yamldecode(file(abspath(path)))]
   manifests_with_namespace = [

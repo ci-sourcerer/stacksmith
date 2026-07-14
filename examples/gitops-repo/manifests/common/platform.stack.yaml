@@ -42,13 +42,6 @@ components:
       - config
     properties:
       namespace: "{{ inputs.environment }}"
-  deploy_command:
-    type: command_runner
-    tags:
-      - maintenance
-    properties:
-      command_name: deploy
-      cwd: /tmp
   logs_bucket:
     type: aws_s3_bucket
     tags:
@@ -62,3 +55,11 @@ components:
       control_object_ownership: true
       object_ownership: BucketOwnerEnforced
       attach_deny_insecure_transport_policy: true
+
+operations:
+  deploy_platform:
+    use: deploy
+    with:
+      environment: "{{ inputs.environment }}"
+      release_tag: platform
+      logs_bucket_id: "${module.logs_bucket.s3_bucket_id}"

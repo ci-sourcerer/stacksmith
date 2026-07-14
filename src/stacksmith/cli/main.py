@@ -34,6 +34,7 @@ from ..api import (
     inspect_modules,
     run_all_stacks,
     run_stack_action,
+    run_stack_operation,
     validate_ci_inputs,
     validate_stack,
 )
@@ -323,6 +324,23 @@ def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
         merge_mode=_merge_mode_arg(args),
         validation_report_format=_validation_report_format(args),
     )
+
+
+def _cmd_operation_run(args: argparse.Namespace) -> int:
+    """Run one approved native operation from the selected stack."""
+    _apply_runfile(args)
+    result = run_stack_operation(
+        _stack_arg(args),
+        args.operation_name,
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        merge_mode=_merge_mode_arg(args),
+    )
+    print(json.dumps(result, sort_keys=True))
+    return 0
 
 
 def _render_environment_preview_table(payload: dict[str, object]) -> None:
@@ -686,6 +704,19 @@ def _build_parser() -> argparse.ArgumentParser:
                     include_auto_approve=True,
                 )
 
+    p_operation = subparsers.add_parser(
+        "operation", help="Run native operations approved by managed configuration"
+    )
+    operation_subparsers = p_operation.add_subparsers(
+        dest="operation_command", required=True
+    )
+    p_operation_run = operation_subparsers.add_parser(
+        "run", help="Run one approved operation declared by a stack"
+    )
+    p_operation_run.add_argument("operation_name", help="Stack-local operation name")
+    _add_stack_arg(p_operation_run)
+    _add_common_args(p_operation_run)
+
     # info group
     p_info = subparsers.add_parser(
         "info",
@@ -810,6 +841,13 @@ def main() -> None:
                 match args.ci_command:
                     case "validate":
                         exit_code = _cmd_ci_validate(args)
+                    case _:
+                        parser.print_help(sys.stderr)
+                        exit_code = 1
+            case "operation":
+                match args.operation_command:
+                    case "run":
+                        exit_code = _cmd_operation_run(args)
                     case _:
                         parser.print_help(sys.stderr)
                         exit_code = 1
