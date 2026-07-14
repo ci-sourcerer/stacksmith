@@ -5,8 +5,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from jinja2.sandbox import SandboxedEnvironment
-
 from .exceptions import StacksmithConfigError
 from .models import (
     LocalOperationDefinition,
@@ -15,9 +13,6 @@ from .models import (
     StackDefinition,
     ToolConfig,
 )
-from .utils import render_jinja_template_values
-
-_JINJA_ENV = SandboxedEnvironment()
 
 
 def _validate_invocation(
@@ -38,21 +33,6 @@ def _validate_invocation(
         raise StacksmithConfigError(
             f"Operation is missing required inputs: {', '.join(missing)}"
         )
-
-
-def _resolve_invocation_inputs(
-    stack: StackDefinition,
-    invocation: OperationInvocation,
-    resolved_inputs: dict[str, Any],
-) -> dict[str, Any]:
-    return render_jinja_template_values(
-        invocation.with_,
-        {
-            "inputs": resolved_inputs,
-            "stack": {"name": stack.name, "tags": sorted(stack.tags)},
-        },
-        jinja_env=_JINJA_ENV,
-    )
 
 
 def _execution_identity(
@@ -80,7 +60,6 @@ def _execution_identity(
 def build_operation_module_spec(
     stack: StackDefinition,
     config: ToolConfig,
-    resolved_inputs: dict[str, Any],
     operation_instance_name: str,
 ) -> dict[str, Any]:
     """Build a structured, approved runner specification for one operation module."""
@@ -95,7 +74,7 @@ def build_operation_module_spec(
             f"Operation '{invocation.use}' is not defined in the tool configuration"
         )
     _validate_invocation(definition, invocation)
-    values = _resolve_invocation_inputs(stack, invocation, resolved_inputs)
+    values = invocation.with_
     spec: dict[str, Any] = {
         "identity": _execution_identity(
             stack, invocation.use, definition, values, invocation.rerun_token

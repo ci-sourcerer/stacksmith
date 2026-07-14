@@ -409,7 +409,13 @@ class TestGenerateTfJson:
         )
 
     def test_module_blocks(self, sample_stack_yaml: Path, sample_config_yaml: Path):
-        stack = load_stack(sample_stack_yaml)
+        stack = load_stack(
+            sample_stack_yaml,
+            template_context={
+                "inputs": {"bucket_name": "my-bucket-gen"},
+                "stack": {"name": "my-stack", "tags": ["networking", "storage"]},
+            },
+        )
         config = load_config(sample_config_yaml)
         result = generate_tf_json(stack, config, {"bucket_name": "my-bucket-gen"})
 
@@ -475,7 +481,13 @@ class TestGenerateTfJson:
     def test_jinja2_in_properties_rendered(
         self, sample_stack_yaml: Path, sample_config_yaml: Path
     ):
-        stack = load_stack(sample_stack_yaml)
+        stack = load_stack(
+            sample_stack_yaml,
+            template_context={
+                "inputs": {"bucket_name": "my-bucket-jinja"},
+                "stack": {"name": "my-stack", "tags": ["networking", "storage"]},
+            },
+        )
         config = load_config(sample_config_yaml)
         result = generate_tf_json(stack, config, {"bucket_name": "my-bucket-jinja"})
 
@@ -495,22 +507,6 @@ class TestGenerateTfJson:
         assert result["module"]["my-instance"]["bucket_id"] == (
             "${module.my-bucket.s3_bucket_id}"
         )
-
-    def test_jinja2_has_stack_context(
-        self, sample_stack_yaml: Path, sample_config_yaml: Path
-    ):
-        """Templates should be able to access `stack.name` and `stack.tags`."""
-        stack = load_stack(sample_stack_yaml)
-        config = load_config(sample_config_yaml)
-
-        # Use stack metadata in a property template
-        stack.components["my-bucket"].properties[
-            "bucket"
-        ] = "{{ stack.name }}-{{ inputs.bucket_name }}"
-
-        result = generate_tf_json(stack, config, {"bucket_name": "ctx"})
-
-        assert result["module"]["my-bucket"]["bucket"] == "my-stack-ctx"
 
     def test_jinja2_transform_has_stack_context(
         self, sample_stack_yaml: Path, sample_config_yaml: Path
@@ -1036,7 +1032,13 @@ class TestAutoInjectVars:
         self, sample_stack_yaml: Path, sample_config_yaml: Path
     ):
         """Always-on injection adds platform-declared properties from resolved inputs."""
-        stack = load_stack(sample_stack_yaml)
+        stack = load_stack(
+            sample_stack_yaml,
+            template_context={
+                "inputs": {"bucket_name": "my-bucket"},
+                "stack": {"name": "my-stack", "tags": ["networking", "storage"]},
+            },
+        )
         config = load_config(sample_config_yaml)
         config.module_mappings["aws_s3_bucket"].auto_inject = True
         config.module_mappings["aws_s3_bucket"].properties["bucket_name"] = (

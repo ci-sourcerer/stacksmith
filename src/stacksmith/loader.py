@@ -2,10 +2,11 @@ import json
 from copy import deepcopy
 from importlib.resources import files
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import yaml
 from deepmerge import Merger
+from jinja2 import ChainableUndefined, StrictUndefined, TemplateError
 from jinja2.sandbox import SandboxedEnvironment
 from jsonschema import validate
 
@@ -141,8 +142,37 @@ def _parse_object_file(path: Path, suffix: str, text: str) -> dict[str, Any]:
             )
 
 
-def _load_file(path: Path) -> dict[str, Any]:
+def _render_stack_template(
+    text: str,
+    path: Path,
+    context: Mapping[str, Any],
+    *,
+    strict: bool,
+) -> str:
+    undefined = StrictUndefined if strict else ChainableUndefined
+    environment = SandboxedEnvironment(undefined=undefined)
+    try:
+        return environment.from_string(text).render(context)
+    except TemplateError as exc:
+        raise StacksmithConfigError(
+            f"Could not render stack template '{path}': {exc}"
+        ) from exc
+
+
+def _load_file(
+    path: Path,
+    *,
+    template_context: Mapping[str, Any] | None = None,
+    strict_template_context: bool = False,
+) -> dict[str, Any]:
     suffix, text = _read_file_text(path)
+    if template_context is not None:
+        text = _render_stack_template(
+            text,
+            path,
+            template_context,
+            strict=strict_template_context,
+        )
     return _parse_object_file(path, suffix, text)
 
 
@@ -372,11 +402,17 @@ def _merge_stack_layers(
     stack_paths: list[Path],
     *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
+    template_context: Mapping[str, Any] | None = None,
+    strict_template_context: bool = False,
 ) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     for stack_path in stack_paths:
         resolved_path = stack_path.resolve()
-        layer = _load_file(resolved_path)
+        layer = _load_file(
+            resolved_path,
+            template_context=template_context,
+            strict_template_context=strict_template_context,
+        )
         merged = _merge_layer(
             merged,
             layer,
@@ -397,11 +433,16 @@ def load_stack(
     path: Path,
     *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
+    template_context: Mapping[str, Any] | None = None,
+    strict_template_context: bool = True,
 ) -> StackDefinition:
     """Load and validate a stack definition file.
 
     Args:
         path: Path to a stack.yaml, stack.yml, or stack.json file.
+        merge_mode: Merge strategy used for layered stack files.
+        template_context: Optional values available while rendering the stack source.
+        strict_template_context: Whether undefined template values raise an error.
 
     Returns:
         Validated StackDefinition model.
@@ -409,13 +450,20 @@ def load_stack(
     Raises:
         jsonschema.ValidationError: If the file does not match the stack schema.
     """
-    return load_stacks(path, merge_mode=merge_mode)
+    return load_stacks(
+        path,
+        merge_mode=merge_mode,
+        template_context=template_context,
+        strict_template_context=strict_template_context,
+    )
 
 
 def load_stacks(
     path: Path | list[Path],
     *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
+    template_context: Mapping[str, Any] | None = None,
+    strict_template_context: bool = True,
 ) -> StackDefinition:
     """Load and deep-merge one or more stack definition files.
 
@@ -424,6 +472,9 @@ def load_stacks(
             When a list is provided, files are deep-merged in order where later
             files override earlier scalar values, dicts merge recursively, and
             lists append.
+        merge_mode: Merge strategy used for layered stack files.
+        template_context: Optional values available while rendering each stack source.
+        strict_template_context: Whether undefined template values raise an error.
 
     Returns:
         Validated merged stack model.
@@ -436,9 +487,56 @@ def load_stacks(
         path,
         empty_error="At least one stack file path must be provided",
     )
-    data = _merge_stack_layers(stack_paths, merge_mode=merge_mode)
+    data = _merge_stack_layers(
+        stack_paths,
+        merge_mode=merge_mode,
+        template_context=template_context,
+        strict_template_context=strict_template_context,
+    )
     data = _dedupe_unique_stack_fields(data)
     return _build_stack(data, stack_paths)
+
+
+def load_stack_metadata(
+    path: Path | list[Path],
+    *,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
+) -> StackDefinition:
+    """Load stack metadata without requiring template inputs.
+
+    This permissive render lets discovery determine a stack's name and tags before
+    its input-dependent component template is rendered for generation.
+
+    Args:
+        path: One or more stack YAML/JSON files.
+        merge_mode: Merge strategy used for layered stack files.
+
+    Returns:
+        Parsed stack definition used only to resolve template inputs.
+    """
+    stack_paths = normalize_path_input(
+        path,
+        empty_error="At least one stack file path must be provided",
+    )
+    data = _merge_stack_layers(
+        stack_paths,
+        merge_mode=merge_mode,
+        template_context={"inputs": {}, "stack": {"name": "", "tags": []}},
+        strict_template_context=False,
+    )
+    for field_name, default in {
+        "tags": [],
+        "depends_on": [],
+        "mock_outputs": {},
+        "components": {},
+        "operations": {},
+    }.items():
+        if data.get(field_name) is None:
+            data[field_name] = default
+    data = _dedupe_unique_stack_fields(data)
+    stack = StackDefinition.model_validate(data)
+    stack.source_path = stack_paths[-1].resolve()
+    return stack
 
 
 def load_config(

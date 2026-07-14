@@ -351,6 +351,49 @@ def test_generate_stack_returns_output_path(
     assert calls == {"stack": stack, "config": config}
 
 
+def test_generate_stack_renders_component_template_before_generation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    stack_file = tmp_path / "stack.yaml"
+    stack_file.write_text(
+        "name: workers\n"
+        "components:\n"
+        "{% for name in inputs.workers %}\n"
+        "  '{{ name }}':\n"
+        "    type: aws_s3_bucket\n"
+        "    properties:\n"
+        "      bucket: {{ name | tojson }}\n"
+        "{% endfor %}\n",
+        encoding="utf-8",
+    )
+    config = load_config(sample_config_yaml)
+    generated = {}
+
+    monkeypatch.setattr(
+        api,
+        "_load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(
+        api,
+        "resolve_inputs",
+        lambda *args, **kwargs: {"workers": ["blue", "green"]},
+    )
+
+    def _fake_generate_single_stack(stack, *_args, **_kwargs):
+        generated["stack"] = stack
+        return tmp_path / ".stacksmith"
+
+    monkeypatch.setattr(api, "_generate_single_stack", _fake_generate_single_stack)
+
+    api.generate_stack(stack_file)
+
+    assert set(generated["stack"].components) == {"blue", "green"}
+    assert generated["stack"].components["blue"].properties["bucket"] == "blue"
+
+
 def test_run_all_stacks_uses_stack_specific_target_args(
     monkeypatch,
     tmp_path: Path,
@@ -511,6 +554,7 @@ def test_validate_stack_emits_single_json_report_block(
     )
     monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
     monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
+    monkeypatch.setattr(api, "load_stack_metadata", lambda *args, **kwargs: stack)
     monkeypatch.setattr(api, "resolve_inputs", lambda *args, **kwargs: {"ok": True})
 
     report = api.validate_stack(tmp_path / "stack.yaml")
@@ -539,6 +583,7 @@ def test_validate_stack_emits_json_report_block_when_requested(
     )
     monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
     monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
+    monkeypatch.setattr(api, "load_stack_metadata", lambda *args, **kwargs: stack)
     monkeypatch.setattr(api, "resolve_inputs", lambda *args, **kwargs: {"ok": True})
 
     report = api.validate_stack(
@@ -569,6 +614,7 @@ def test_validate_stack_var_validation_failure_emits_json_report(
     )
     monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
     monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
+    monkeypatch.setattr(api, "load_stack_metadata", lambda *args, **kwargs: stack)
     monkeypatch.setattr(
         api,
         "resolve_inputs",
@@ -829,6 +875,7 @@ def test_diagnose_cache_writes_human_output_to_stderr(
     )
     monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
     monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
+    monkeypatch.setattr(api, "load_stack_metadata", lambda *args, **kwargs: stack)
     monkeypatch.setattr(api, "get_vendor_dir", lambda: tmp_path / "vendor")
 
     exit_code = api.diagnose_cache(tmp_path / "stack.yaml")

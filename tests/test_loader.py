@@ -7,6 +7,7 @@ from stacksmith.loader import (
     load_runfile,
     load_runfiles,
     load_stack,
+    load_stack_metadata,
     load_stacks,
 )
 
@@ -149,6 +150,86 @@ class TestLoadStack:
         stack = load_stack(stack_file)
 
         assert stack.components["bucket"].tags == {"prod", "data"}
+
+    def test_stack_template_can_generate_components(self, tmp_path: Path):
+        stack_file = tmp_path / "stack.yaml"
+        stack_file.write_text(
+            "name: workers\n"
+            "components:\n"
+            "{% for name, worker in inputs.workers.items() %}\n"
+            "  '{{ name }}':\n"
+            "    type: aws_ec2_instance\n"
+            "    properties:\n"
+            "      ami: {{ worker.ami | tojson }}\n"
+            "      instance_type: {{ worker.instance_type | tojson }}\n"
+            "{% endfor %}\n",
+            encoding="utf-8",
+        )
+
+        stack = load_stack(
+            stack_file,
+            template_context={
+                "inputs": {
+                    "workers": {
+                        "blue": {
+                            "ami": "ami-blue",
+                            "instance_type": "t3.small",
+                        },
+                        "green": {
+                            "ami": "ami-green",
+                            "instance_type": "t3.medium",
+                        },
+                    }
+                }
+            },
+        )
+
+        assert set(stack.components) == {"blue", "green"}
+        assert stack.components["blue"].properties == {
+            "ami": "ami-blue",
+            "instance_type": "t3.small",
+        }
+
+    def test_stack_template_preserves_stack_metadata_context(self, tmp_path: Path):
+        stack_file = tmp_path / "stack.yaml"
+        stack_file.write_text(
+            "name: payments\n"
+            "tags:\n"
+            "  - applications\n"
+            "components:\n"
+            "  bucket:\n"
+            "    type: aws_s3_bucket\n"
+            "    properties:\n"
+            "      name: '{{ stack.name }}-{{ inputs.bucket_name }}'\n",
+            encoding="utf-8",
+        )
+
+        stack = load_stack(
+            stack_file,
+            template_context={
+                "inputs": {"bucket_name": "assets"},
+                "stack": {"name": "payments", "tags": ["applications"]},
+            },
+        )
+
+        assert stack.components["bucket"].properties["name"] == "payments-assets"
+
+    def test_stack_metadata_loads_template_without_inputs(self, tmp_path: Path):
+        stack_file = tmp_path / "stack.yaml"
+        stack_file.write_text(
+            "name: workers\n"
+            "components:\n"
+            "{% for worker in inputs.workers %}\n"
+            "  '{{ worker }}':\n"
+            "    type: aws_ec2_instance\n"
+            "{% endfor %}\n",
+            encoding="utf-8",
+        )
+
+        stack = load_stack_metadata(stack_file)
+
+        assert stack.name == "workers"
+        assert stack.components == {}
 
     def test_yaml_and_json_produce_same_model(
         self, sample_stack_yaml: Path, sample_stack_json: Path

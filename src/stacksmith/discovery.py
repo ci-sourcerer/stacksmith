@@ -2,7 +2,7 @@ from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
 from .exceptions import StacksmithConfigError
-from .loader import load_stack
+from .loader import load_stack_metadata
 from .models import StackDefinition
 
 _STACK_FILENAMES = {
@@ -41,7 +41,7 @@ def discover_stacks(root: Path) -> dict[str, StackDefinition]:
             if any(part in _EXCLUDED_DIRS for part in relative.parts[:-1]):
                 continue
 
-            stack = load_stack(path)
+            stack = load_stack_metadata(path)
             name = stack.name
             if name in stacks:
                 duplicates.append(

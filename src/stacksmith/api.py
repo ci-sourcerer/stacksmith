@@ -32,7 +32,13 @@ from .inspector import (
     inspect_all,
     inspect_plan_policies,
 )
-from .loader import load_config, load_config_with_locations, load_stack, load_stacks
+from .loader import (
+    load_config,
+    load_config_with_locations,
+    load_stack,
+    load_stack_metadata,
+    load_stacks,
+)
 from .models import (
     FileReference,
     StackDefinition,
@@ -343,16 +349,63 @@ def _load_stack_definition(
     stack_file: Path | str | FileReference | Sequence[Path | str | FileReference],
     cache_dir: Path | None = None,
     merge_mode: str | MergeMode = MergeMode.DEEP,
+    template_context: dict[str, Any] | None = None,
 ) -> StackDefinition:
     stack_paths = _resolve_stack_paths(stack_file, cache_dir)
-    stack = (
-        load_stack(stack_paths[0], merge_mode=merge_mode)
-        if len(stack_paths) == 1
-        else load_stacks(stack_paths, merge_mode=merge_mode)
-    )
+    if template_context is None:
+        stack = (
+            load_stack_metadata(stack_paths[0], merge_mode=merge_mode)
+            if len(stack_paths) == 1
+            else load_stack_metadata(stack_paths, merge_mode=merge_mode)
+        )
+    else:
+        stack = (
+            load_stack(
+                stack_paths[0],
+                merge_mode=merge_mode,
+                template_context=template_context,
+            )
+            if len(stack_paths) == 1
+            else load_stacks(
+                stack_paths,
+                merge_mode=merge_mode,
+                template_context=template_context,
+            )
+        )
     if stack.source_path is None:
         stack.source_path = stack_paths[-1].resolve()
     return stack
+
+
+def _prepare_stack_definition(
+    stack_file: Path | str | FileReference | Sequence[Path | str | FileReference],
+    config: ToolConfig,
+    vars_path: str | Sequence[str] | None,
+    input_layers: Sequence[InputLayer] | None,
+    cache_dir: Path | None = None,
+    merge_mode: str | MergeMode = MergeMode.DEEP,
+) -> tuple[StackDefinition, dict[str, Any]]:
+    """Resolve stack inputs and render a stack template before validation."""
+    metadata = _load_stack_definition(stack_file, cache_dir, merge_mode=merge_mode)
+    resolved_inputs = _resolve_stack_inputs(
+        metadata,
+        config,
+        vars_path,
+        input_layers,
+        cache_dir,
+        merge_mode,
+    )
+    template_context = {
+        "inputs": resolved_inputs,
+        "stack": {"name": metadata.name, "tags": sorted(metadata.tags)},
+    }
+    stack = _load_stack_definition(
+        stack_file,
+        cache_dir,
+        merge_mode=merge_mode,
+        template_context=template_context,
+    )
+    return stack, resolved_inputs
 
 
 def _resolve_build_dir(stack_path: Path, build_dir: Path | None) -> Path:
@@ -624,7 +677,7 @@ def _resolve_stacks_for_generation(
         stacks = {}
         duplicates = []
         for stack_path in _resolve_stack_paths(stack_refs, cache_dir):
-            stack = load_stack(stack_path, merge_mode=merge_mode)
+            stack = load_stack_metadata(stack_path, merge_mode=merge_mode)
             if stack.name in stacks:
                 duplicates.append(
                     f"  '{stack.name}' defined in both {stacks[stack.name].source_path} and {stack_path}"
@@ -729,8 +782,7 @@ def _resolve_stack_inputs(
 def _generate_single_stack(
     stack: StackDefinition,
     config: ToolConfig,
-    vars_path: str | Sequence[str] | None,
-    input_layers: Sequence[InputLayer] | None,
+    resolved_inputs: dict[str, Any],
     build_dir: Path | None,
     silent: bool = False,
     cache_dir: Path | None = None,
@@ -738,15 +790,10 @@ def _generate_single_stack(
     merge_mode: str | MergeMode = MergeMode.DEEP,
     operation_names: set[str] | None = None,
 ) -> Path:
-    resolved = _resolve_stack_inputs(
-        stack,
-        config,
-        vars_path,
-        input_layers,
-        cache_dir,
-        merge_mode,
+    LOGGER.debug(
+        "Resolved variable keys: {keys}",
+        keys=sorted(resolved_inputs.keys()),
     )
-    LOGGER.debug("Resolved variable keys: {keys}", keys=sorted(resolved.keys()))
     if stack.source_path is None:
         raise RuntimeError("Loaded stack is missing a source path")
     output_dir = _resolve_build_dir(stack.source_path, build_dir)
@@ -754,14 +801,14 @@ def _generate_single_stack(
     write_tf_json(
         stack,
         config,
-        resolved,
+        resolved_inputs,
         output_dir,
         cache_dir=cache_dir,
         auth_config=config.remote_auth or None,
         use_local_modules=use_local_modules,
         operation_names=operation_names,
     )
-    write_terragrunt_json(stack, config, resolved, output_dir)
+    write_terragrunt_json(stack, config, resolved_inputs, output_dir)
 
     if not silent:
         LOGGER.info("Generated files in {output_dir}", output_dir=output_dir)
@@ -782,12 +829,31 @@ def _generate_all_stacks(
     stack_refs: Sequence[Path | str] | None = None,
     merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> tuple[Path, dict[str, Path], dict[str, StackDefinition]]:
-    stacks = _resolve_stacks_for_generation(
+    discovered_stacks = _resolve_stacks_for_generation(
         root,
         stack_refs,
         cache_dir=cache_dir,
         merge_mode=merge_mode,
     )
+    stacks = {}
+    resolved_inputs_by_stack = {}
+    for metadata in discovered_stacks.values():
+        if metadata.source_path is None:
+            raise RuntimeError(f"Stack '{metadata.name}' is missing a source path")
+        stack, resolved_inputs = _prepare_stack_definition(
+            metadata.source_path,
+            config,
+            vars_path,
+            input_layers,
+            cache_dir,
+            merge_mode,
+        )
+        if stack.name in stacks:
+            raise StacksmithConfigError(
+                f"Duplicate stack name after template rendering: '{stack.name}'"
+            )
+        stacks[stack.name] = stack
+        resolved_inputs_by_stack[stack.name] = resolved_inputs
     LOGGER.debug(
         "Discovered stack names: {stack_names}", stack_names=sorted(stacks.keys())
     )
@@ -844,14 +910,7 @@ def _generate_all_stacks(
         else:
             relative_path = stack.source_path.parent.relative_to(root.resolve())
             stack_out = root_build_dir / relative_path
-        resolved = _resolve_stack_inputs(
-            stack,
-            config,
-            vars_path,
-            input_layers,
-            cache_dir,
-            merge_mode,
-        )
+        resolved = resolved_inputs_by_stack[name]
 
         dep_stacks = {dep: stacks[dep] for dep in stack.depends_on}
         dep_dirs = {
@@ -932,24 +991,18 @@ def validate_stack(
             no_cache=no_cache,
             merge_mode=merge_mode,
         )
-        _load_stack_definition(stack_file, cache_dir, merge_mode=merge_mode)
+        _prepare_stack_definition(
+            stack_file,
+            loaded_config,
+            vars_file,
+            input_layers,
+            cache_dir,
+            merge_mode,
+        )
         LOGGER.debug(
             "Validating stack {stack_file} using config paths: {config_paths}",
             stack_file=stack_file,
             config_paths=config_paths,
-        )
-        resolve_inputs(
-            vars_file=vars_file,
-            input_layers=input_layers,
-            config_validations=loaded_config.var_validations or None,
-            config_validation_base_path=(
-                loaded_config.source_path.parent
-                if loaded_config.source_path is not None
-                else None
-            ),
-            cache_dir=cache_dir,
-            auth_config=loaded_config.remote_auth or None,
-            merge_mode=merge_mode,
         )
         report = _build_validate_report(exit_code=0, message="Validation passed")
     except (
@@ -1149,12 +1202,18 @@ def generate_stack(
         stack_file=stack_file,
         config_paths=config_paths,
     )
-    stack = _load_stack_definition(stack_file, cache_dir, merge_mode=merge_mode)
-    return _generate_single_stack(
-        stack,
+    stack, resolved_inputs = _prepare_stack_definition(
+        stack_file,
         loaded_config,
         vars_file,
         input_layers,
+        cache_dir,
+        merge_mode,
+    )
+    return _generate_single_stack(
+        stack,
+        loaded_config,
+        resolved_inputs,
         build_dir,
         cache_dir=cache_dir,
         use_local_modules=use_local_modules,
@@ -1191,14 +1250,20 @@ def run_stack_operation(
     cache_dir, _, loaded_config = _load_runtime_config(
         config, build_dir, no_cache=no_cache, merge_mode=merge_mode
     )
-    stack = _load_stack_definition(stack_file, cache_dir, merge_mode=merge_mode)
+    stack, resolved_inputs = _prepare_stack_definition(
+        stack_file,
+        loaded_config,
+        vars_file,
+        input_layers,
+        cache_dir,
+        merge_mode,
+    )
     if stack.source_path is None:
         raise RuntimeError("Loaded stack is missing a source path")
     output_dir = _generate_single_stack(
         stack,
         loaded_config,
-        vars_file,
-        input_layers,
+        resolved_inputs,
         build_dir,
         silent=True,
         cache_dir=cache_dir,
@@ -1301,7 +1366,14 @@ def run_stack_action(
         stack_file=stack_file,
         config_paths=config_paths,
     )
-    stack = _load_stack_definition(stack_file, cache_dir, merge_mode=merge_mode)
+    stack, resolved_inputs = _prepare_stack_definition(
+        stack_file,
+        loaded_config,
+        vars_file,
+        input_layers,
+        cache_dir,
+        merge_mode,
+    )
     plan_validation_results: list[PlanValidationResult] = []
     targets = None
     if tags or tag_expr:
@@ -1333,8 +1405,7 @@ def run_stack_action(
     output_dir = _generate_single_stack(
         stack,
         loaded_config,
-        vars_file,
-        input_layers,
+        resolved_inputs,
         build_dir,
         silent=True,
         cache_dir=cache_dir,

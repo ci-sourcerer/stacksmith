@@ -1057,7 +1057,7 @@ def test_validate_stack_is_reusable_without_namespace(monkeypatch, tmp_path):
 
     def _fake_load_stack(stack_file, **kwargs):
         calls["stack_file"] = stack_file
-        return SimpleNamespace(source_path=stack_path)
+        return SimpleNamespace(source_path=stack_path, name="example", tags=set())
 
     def _fake_resolve_inputs(*args, **kwargs):
         calls["resolve_inputs"] = kwargs
@@ -1066,6 +1066,7 @@ def test_validate_stack_is_reusable_without_namespace(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "_resolve_config_paths", _fake_resolve_config_paths)
     monkeypatch.setattr(api, "load_config", _fake_load_config)
     monkeypatch.setattr(api, "load_stack", _fake_load_stack)
+    monkeypatch.setattr(api, "load_stack_metadata", _fake_load_stack)
     monkeypatch.setattr(
         api, "_resolve_stack_paths", lambda path, cache_dir=None: [path]
     )
@@ -1093,6 +1094,7 @@ def test_validate_stack_is_reusable_without_namespace(monkeypatch, tmp_path):
         "cache_dir": tmp_path / ".stacksmith" / ".cache",
         "auth_config": None,
         "merge_mode": "deep",
+        "context": {"stack": {"name": "example", "tags": []}},
     }
 
 

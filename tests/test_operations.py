@@ -34,7 +34,7 @@ def test_generates_after_apply_operation_module():
             "operations": {
                 "deploy_app": {
                     "use": "deploy",
-                    "with": {"release_tag": "{{ inputs.release_tag }}"},
+                    "with": {"release_tag": "1.2.3"},
                 }
             },
         }
@@ -56,11 +56,7 @@ def test_operation_input_preserves_component_output_reference():
             "operations": {
                 "deploy_app": {
                     "use": "deploy",
-                    "with": {
-                        "release_tag": (
-                            "{{ inputs.environment }}-" "${module.app.release_name}"
-                        )
-                    },
+                    "with": {"release_tag": "production-${module.app.release_name}"},
                 }
             },
         }

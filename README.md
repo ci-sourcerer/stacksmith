@@ -173,6 +173,27 @@ For example, you can compute values from the stack name like `{{ stack.name }}-{
 
 Components in the same stack can consume each other's OpenTofu module outputs with native Terraform references. The component name becomes the module name, so `${module.app_server.private_ip}` passes the `private_ip` output from `app_server` to another component property. OpenTofu infers the dependency from the reference.
 
+### Generating components with Jinja
+
+Stacksmith renders the complete stack source with the resolved `inputs` map before it parses and validates YAML or JSON. This lets a stack template generate any number of explicit components while keeping each generated component independently named, tagged, targeted, and referenced.
+
+```yaml
+components:
+{% for worker_name, worker in inputs.workers.items() %}
+  "{{ worker_name }}":
+    type: aws_ec2_instance
+    properties:
+      ami: {{ worker.ami | tojson }}
+      instance_type: {{ worker.instance_type | tojson }}
+      tags:
+        worker: {{ worker_name | tojson }}
+{% endfor %}
+```
+
+The same rendering pass handles ordinary values, so existing property expressions such as `bucket: "{{ inputs.bucket_name }}"` remain supported. Use the Jinja `tojson` filter for an unquoted dynamic YAML value when it might contain characters that need escaping.
+
+### State backend
+
 The S3 state key is derived automatically from the stack file's path relative to the repo root. For example `networking/vpc/stack.yaml` produces key `networking/vpc/terraform.tfstate`. For standalone stacks (single-stack commands without a `--root`), the key is simply `<name>/terraform.tfstate`.
 
 Concept-level details for tags, input resolution, validations, plan validations, and transforms are documented in [Concepts](#concepts). This section intentionally focuses on stack authoring shape and examples.
