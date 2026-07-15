@@ -13,7 +13,9 @@ String getStacksmithImage() {
 
 void withStacksmithAgent(Closure body) {
     if (parseBoolean(env.STACKSMITH_USE_K8S)) {
-        withStacksmithKubernetesAgent(body)
+        withStacksmithKubernetesAgent {
+            body()
+        }
         return
     }
 
@@ -24,11 +26,10 @@ void withStacksmithAgent(Closure body) {
         return
     }
 
-    node {
-        docker.image(getStacksmithImage())
-            .inside('--entrypoint ""') {
-                body()
-            }
+    (env.STACKSMITH_DOCKER_NODE ? ({ b -> node(env.STACKSMITH_DOCKER_NODE) { b() } }) : (b -> node { b() })) {
+        docker.image(getStacksmithImage()).inside('--entrypoint ""') {
+            body()
+        }
     }
 }
 
