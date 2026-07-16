@@ -2,6 +2,8 @@
 
 **HEADS UP:** This project is absolutely a work in progress, there is no warranty, I have no idea what I am doing, etc. The current state is a proof-of-concept and its git history may be wiped at any moment. Use at your own risk/feel free to ask what's going on. Also, the license is no joke. This project is open source and how I contribute to it is going to stay that way.
 
+**Definitely untested things:** CI stuff.
+
 ## Overview
 
 Stacksmith is a CLI tool that lets teams define infrastructure stacks in a simple YAML (or JSON) format and deploy them via [OpenTofu](https://opentofu.org) and [Terragrunt](https://terragrunt.gruntwork.io). It bridges the gap between a developer writing a plain resource list and the OpenTofu ecosystem by abstracting module wiring, backend configuration, variable resolution, policy checks, and monorepo orchestration.
