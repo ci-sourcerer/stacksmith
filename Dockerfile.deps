@@ -100,7 +100,7 @@ RUN TOFU_MODULE_SPEC="${TOFU_MODULE_SPEC// /}" && \
                 git_source="$source" && \
                 case "$git_source" in git::*) ;; *) git_source="git::$git_source" ;; esac && \
                 if [ -n "$version" ]; then \
-                    case "$git_source" in *\?*) module_source="$git_source&ref=v$version" ;; *) module_source="$git_source?ref=v$version" ;; esac; \
+                    case "$git_source" in *\?*) module_source="$git_source&ref=$version" ;; *) module_source="$git_source?ref=$version" ;; esac; \
                 else \
                     module_source="$git_source"; \
                 fi && \

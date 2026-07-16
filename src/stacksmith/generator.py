@@ -296,25 +296,11 @@ def _generate_module_blocks(
                 )
             )
         elif use_local_modules:
-            try:
-                module_block["source"] = resolve_module_source(
-                    mapping_source,
-                    mapping_version,
-                    vendor_dir=vendor_dir,
-                )
-            except FileNotFoundError:
-                LOGGER.debug(
-                    "Vendored module not found for %s@%s; falling back to remote source",
-                    mapping_source,
-                    mapping_version,
-                )
-                module_block.update(
-                    render_module_source_for(
-                        "terraform",
-                        mapping.source,
-                        options=source_options,
-                    )
-                )
+            module_block["source"] = resolve_module_source(
+                mapping_source,
+                mapping_version,
+                vendor_dir=vendor_dir,
+            )
         else:
             module_block.update(
                 render_module_source_for(

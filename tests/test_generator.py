@@ -1228,6 +1228,12 @@ class TestLocalModuleVendoring:
         config.module_mappings["aws_s3_bucket"] = ModuleMapping.model_validate(
             mapping_data
         )
+        vendor_path(
+            *render_module_source_identity(
+                config.module_mappings["aws_ec2_instance"].source
+            ),
+            tmp_path,
+        ).mkdir(parents=True)
 
         result = generate_tf_json(
             stack,
@@ -1323,24 +1329,21 @@ class TestLocalModuleVendoring:
         bucket_mod = result["module"]["my-bucket"]
         assert bucket_mod["source"].startswith("git::")
 
-    def test_vendor_rewrite_falls_back_to_remote_on_missing_dir(
+    def test_vendor_rewrite_fails_when_directory_is_missing(
         self, sample_stack_yaml: Path, sample_config_yaml: Path, tmp_path: Path
     ):
-        """When use_local_modules=True but vendored dir is absent, remote source is used."""
+        """Local-only generation fails instead of fetching a missing module."""
         stack = load_stack(sample_stack_yaml)
         config = load_config(sample_config_yaml)
 
-        result = generate_tf_json(
-            stack,
-            config,
-            {"bucket_name": "test-bucket"},
-            use_local_modules=True,
-            vendor_dir=tmp_path,
-        )
-
-        bucket_mod = result["module"]["my-bucket"]
-        assert bucket_mod["source"].startswith("git::")
-        assert "version" not in bucket_mod
+        with pytest.raises(FileNotFoundError, match="Vendored module not found"):
+            generate_tf_json(
+                stack,
+                config,
+                {"bucket_name": "test-bucket"},
+                use_local_modules=True,
+                vendor_dir=tmp_path,
+            )
 
     def test_vendor_rewrite_deterministic(
         self, sample_stack_yaml: Path, sample_config_yaml: Path, tmp_path: Path

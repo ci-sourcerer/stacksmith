@@ -1268,10 +1268,10 @@ As this project is reliant on [Common Python Tasks](https://github.com/ci-source
 
 ### Pre-installing modules
 
-Similarly to providers, you can pre-install OpenTofu modules into the image using the `TOFU_MODULE_SPEC` build arg. This is a colon-separated list of `source=version` pairs that match the sources and versions in your managed config.
+Similarly to providers, you can pre-install OpenTofu modules into the image using the `TOFU_MODULE_SPEC` build arg. This is a colon-separated list of `source=version-or-ref` pairs that match the sources and exact versions or Git refs in your managed config.
 
 ```shell
-poe build-image --build-args TOFU_MODULE_SPEC="https://github.com/org/terraform-aws-s3.git=3.2.1:https://github.com/org/terraform-aws-ec2.git=5.0.0"
+poe build-image --build-args TOFU_MODULE_SPEC="https://github.com/org/terraform-aws-s3.git=v3.2.1:https://github.com/org/terraform-aws-ec2.git=v5.0.0"
 ```
 
 When modules are vendored in the image, Stacksmith automatically rewrites module sources in the generated `stacksmith.tf.json` to point to the local vendored copies instead of remote URLs. This eliminates network fetches during `tofu init` and ensures immutable, reproducible builds.
@@ -1293,14 +1293,35 @@ If a vendored module directory is missing at generation time, Stacksmith fails f
 
 ### Extracting the module and provider specs from config
 
-The following recipes use `yq` to extract module and provider specs from a managed config file and pass them directly to `poe build-image`. `TOFU_PROVIDER_SPEC` and `TOFU_MODULE_SPEC` are parsed as colon-separated (`:`) lists of `source=version` items in `Dockerfile.deps`. Provider version ranges that include commas, such as `>= 6.39, < 7.0`, are supported.
+The following recipe uses `yq` to extract module and provider specs from a managed config file and pass them directly to `poe build-image`. `TOFU_PROVIDER_SPEC` uses colon-separated (`:`) `source=version` items, while `TOFU_MODULE_SPEC` uses `source=version-or-ref` items. Provider version ranges that include commas, such as `>= 6.39, < 7.0`, are supported. Local module mappings are excluded because they are already filesystem paths rather than dependencies that OpenTofu can pre-fetch.
 
 ```shell
 stacksmithConfigPath=<path to stacksmith-config.yaml>
 poe build-image \
   --build-args \
-    "TOFU_MODULE_SPEC=$(yq -r '.modules | to_entries | map("\(.value.source)=\(.value.version)") | join(":")' "$stacksmithConfigPath")" \
-    "TOFU_PROVIDER_SPEC=$(yq -r '.providers | to_entries | map("\(.value.source)=\(.value.version)") | join(":")' "$stacksmithConfigPath")"
+    "TOFU_MODULE_SPEC=$(yq -r '
+      .module_mappings
+      | to_entries
+      | map(
+          (
+            select(.value.source.source == "git")
+            | .value.source.data.repo
+              + ((.value.source.data.path | select(. != null) | "//" + .) // "")
+              + "=" + .value.source.data.ref
+          ),
+          (
+            select(.value.source.source == "registry")
+            | .value.source.data.address + "=" + .value.source.data.version
+          )
+        )
+      | join(":")
+    ' "$stacksmithConfigPath")" \
+    "TOFU_PROVIDER_SPEC=$(yq -r '
+      .provider_mappings
+      | to_entries
+      | map("\(.value.source.data.address)=\(.value.source.data.version)")
+      | join(":")
+    ' "$stacksmithConfigPath")"
 ```
 
 ## Tips
@@ -1311,5 +1332,54 @@ poe build-image \
 
 ## Roadmap
 
-- Switch CLI to `typer` for better argument parsing and help text generation.
-- Add support for more output formats for validation reports, such as YAML and CSV.
+The roadmap is ordered roughly by expected impact. Reproducibility and deployment safety come first, followed by operability and developer-experience improvements.
+
+### Reproducible source locking and offline execution
+
+Add a `stacksmith lock` command that resolves every remote input into an immutable identity and records the result in a lockfile. The lockfile should include Git commit SHAs, HTTP content hashes, module and provider versions, tool versions and checksums, and hashes for remotely loaded validation, transform, and provider configuration scripts.
+
+Runtime commands should support `--locked` to reject inputs that disagree with the lockfile and `--offline` to prohibit network access and require every locked artifact to be available locally. This would make a runfile reproducible across machines even when its authored references use mutable branches, tags, or HTTP URLs. The lock data should be deterministic so that teams can review and commit it alongside their runfiles.
+
+### Reviewed plan bundles and exact-plan application
+
+Allow `plan` and `run-all plan` to save an applyable plan bundle rather than only rendered plan JSON. A bundle should contain the binary OpenTofu plan, its human- and machine-readable JSON, the generated Stacksmith files, target selection, relevant tool versions, and digests of every stack, config, variable layer, and remote source used to create it.
+
+Add an apply mode that accepts only such a bundle and verifies its digests before applying the saved binary plan. This would let CI planning, policy evaluation, human approval, and deployment happen in separate jobs without silently recalculating a different plan between review and apply. Bundles containing sensitive plan data must be clearly marked and stored with appropriately restricted permissions.
+
+### Resolution provenance and effective configuration inspection
+
+Add an `info explain` command that shows how a final input or component property was produced. Its output should identify each contributing vars file, environment variable, runfile value, and command-line override in precedence order, along with deep-merge decisions, templates, transforms, managed defaults, property renames, and automatic injection.
+
+The command should support table and JSON output, direct queries such as `inputs.region` or `components.api.properties.instance_type`, and redaction of sensitive values. A related effective-configuration view could render the fully merged stack, managed config, and resolved inputs without running OpenTofu, making configuration reviews and CI diagnostics substantially easier.
+
+### Secret-aware inputs and operation parameters
+
+Complete the existing `secret` operation input metadata and extend the concept to ordinary Stacksmith inputs. Secret declarations should support environment-backed and file-backed values initially, with a pluggable interface for external secret managers later. Diagnostics, provenance output, validation errors, and normal logs must redact these values.
+
+Where the OpenTofu and Terragrunt execution models permit it, secrets should be passed through the process environment or temporary permission-restricted files instead of being serialized into generated configuration. Stacksmith should warn when a workflow necessarily places a secret in a plan or state file, and secret changes should still be able to affect operation execution identity without exposing the original value.
+
+### Dependency graph and execution previews
+
+Expose the existing monorepo dependency graph through an `info graph` command with table, JSON, DOT, and Mermaid output. The view should include stack paths, dependencies, state keys, selected components, mock-output usage, build directories, and the computed plan/apply or destroy order.
+
+Add a `--dry-run` option to `run-all` that performs discovery, filtering, validation, targeting, and command construction without invoking Terragrunt. This would let users verify broad tag expressions and dependency changes before starting a long or destructive operation.
+
+### Dependency-aware parallel `run-all`
+
+Add `--jobs N` to execute independent stacks concurrently while continuing to respect dependency order. The scheduler should release a stack only after all of its required predecessors have succeeded, reverse the graph correctly for destruction, and keep serial execution as the default.
+
+Parallel mode should provide grouped or prefixed logs, deterministic result summaries, and explicit fail-fast and continue-on-error policies. Plan JSON and validation results must remain isolated per stack so parallel workers cannot overwrite one another's artifacts.
+
+### Trusted execution controls for Python hooks
+
+Add a trust policy for Python validation, transform, and provider configuration hooks, especially remotely fetched scripts. The policy should support allowed hosts, required content hashes or lockfile entries, and a CI mode that rejects unpinned executable code. An optional isolated subprocess runner could add timeouts, a restricted environment, captured output, and resource limits while preserving an explicitly enabled in-process mode for compatibility.
+
+This work should share source verification with the lockfile rather than inventing a separate integrity mechanism. Documentation should make clear that managed Python hooks are executable code and define which repository owners are expected to approve them.
+
+### Additional validation report formats
+
+Add YAML and CSV output for validation reports while retaining JSON as the stable machine-oriented default. YAML should preserve the complete nested report structure, while CSV should use one row per validation outcome with consistent columns for stack, rule, status, message, and origin.
+
+### Typer-based CLI
+
+Consider migrating the CLI from `argparse` to `typer` after the command and option model has stabilized. The migration should preserve current environment-variable behavior, generated CLI documentation, reusable Python API boundaries, exit codes, and stdout-versus-stderr guarantees. Its main goals would be clearer command composition, shell completion, and more maintainable help text rather than changing runtime semantics.
