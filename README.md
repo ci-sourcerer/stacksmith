@@ -1378,7 +1378,7 @@ This work should share source verification with the lockfile rather than inventi
 
 ### Additional validation report formats
 
-Add YAML and CSV output for validation reports while retaining JSON as the stable machine-oriented default. YAML should preserve the complete nested report structure, while CSV should use one row per validation outcome with consistent columns for stack, rule, status, message, and origin.
+Add CSV output for validation reports while retaining JSON as the stable machine-oriented default. It should use one row per validation outcome with consistent columns for stack, rule, status, message, and origin.
 
 ### Typer-based CLI
 
