@@ -181,7 +181,6 @@ ModuleSourceReference: TypeAlias = Annotated[
 
 def render_module_source_identity(
     source: ModuleSourceReference,
-    *,
     options: Mapping[str, Any] | None = None,
 ) -> tuple[str, str]:
     """Return canonical (source, version/ref) tuple for cache and vendoring keys."""
@@ -204,7 +203,6 @@ def render_module_source_identity(
 
 def render_module_source_fields(
     source: ModuleSourceReference,
-    *,
     options: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
     """Render Terraform module source fields from structured source data."""
@@ -242,7 +240,6 @@ class ProviderSourceReference(BaseModel):
 
 def render_provider_source_fields(
     source: ProviderSourceReference,
-    *,
     options: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
     """Render provider source/version fields for required_providers blocks."""

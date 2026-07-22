@@ -68,7 +68,6 @@ def _resolve_merge_mode(merge_mode: str | MergeMode) -> MergeMode:
 def _merge_layer(
     merged: dict[str, Any],
     layer: dict[str, Any],
-    *,
     merge_mode: str | MergeMode,
     merger: Merger,
 ) -> dict[str, Any]:
@@ -146,7 +145,6 @@ def _render_stack_template(
     text: str,
     path: Path,
     context: Mapping[str, Any],
-    *,
     strict: bool,
 ) -> str:
     undefined = StrictUndefined if strict else ChainableUndefined
@@ -161,7 +159,6 @@ def _render_stack_template(
 
 def _load_file(
     path: Path,
-    *,
     template_context: Mapping[str, Any] | None = None,
     strict_template_context: bool = False,
 ) -> dict[str, Any]:
@@ -229,7 +226,6 @@ def _load_file_with_locations(
 
 def _merge_config_layers_with_locations(
     config_paths: list[Path],
-    *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> tuple[dict[str, Any], dict[tuple[str, ...], str]]:
     merged: dict[str, Any] = {}
@@ -346,7 +342,6 @@ def _resolve_config_script_paths(
 
 def _merge_config_layers(
     config_paths: list[Path],
-    *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> dict[str, Any]:
     merged: dict[str, Any] = {}
@@ -400,7 +395,6 @@ def _build_stack(data: dict[str, Any], stack_paths: list[Path]) -> StackDefiniti
 
 def _merge_stack_layers(
     stack_paths: list[Path],
-    *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
     template_context: Mapping[str, Any] | None = None,
     strict_template_context: bool = False,
@@ -431,7 +425,6 @@ def _build_config(data: dict[str, Any], config_paths: list[Path]) -> ToolConfig:
 
 def load_stack(
     path: Path,
-    *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
     template_context: Mapping[str, Any] | None = None,
     strict_template_context: bool = True,
@@ -460,7 +453,6 @@ def load_stack(
 
 def load_stacks(
     path: Path | list[Path],
-    *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
     template_context: Mapping[str, Any] | None = None,
     strict_template_context: bool = True,
@@ -499,7 +491,6 @@ def load_stacks(
 
 def load_stack_metadata(
     path: Path | list[Path],
-    *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> StackDefinition:
     """Load stack metadata without requiring template inputs.
@@ -541,7 +532,6 @@ def load_stack_metadata(
 
 def load_config(
     path: Path | list[Path],
-    *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> ToolConfig:
     """Load, deep-merge, and validate one or more tool configuration files.
@@ -568,7 +558,6 @@ def load_config(
 
 def load_config_with_locations(
     path: Path | list[Path],
-    *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> tuple[ToolConfig, dict[tuple[str, ...], str]]:
     """Load config and collect source locations for inline validation specs.
@@ -597,7 +586,6 @@ def load_config_with_locations(
 
 def _merge_runfile_layers(
     runfile_paths: list[Path],
-    *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> dict[str, Any]:
     merged: dict[str, Any] = {}
@@ -635,7 +623,6 @@ def load_runfile(path: Path) -> RunFile:
 
 def load_runfiles(
     path: Path | list[Path],
-    *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> RunFile:
     """Load and deep-merge one or more Stacksmith runfiles.

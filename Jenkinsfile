@@ -105,63 +105,8 @@ List buildCredentialBindings(Map credentials) {
 int executeStacksmith() {
     return sh(
         script: '''#!/usr/bin/env bash
-            mkdir -p "$ARTIFACT_DIR"
-
-            runfiles=(--runfile "$RUNFILE")
-            [ -n "$ENVIRONMENT_RUNFILE" ] && runfiles+=(--runfile "$ENVIRONMENT_RUNFILE")
-
-            extra_args_file="$ARTIFACT_DIR/extra-args.bin"
-            python3 - <<'PY' > "$extra_args_file"
-import json, os, sys
-args = json.loads(os.environ.get("STACKSMITH_ARGS_JSON") or "[]")
-if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
-    sys.exit("STACKSMITH_ARGS_JSON must be a JSON array of strings")
-for arg in args:
-    if arg in {"--config", "-c"} or arg.startswith("--config=") or arg.startswith("-c="):
-        sys.exit("STACKSMITH_ARGS_JSON cannot override the platform-managed config")
-if any("\0" in arg for arg in args):
-    sys.exit("STACKSMITH_ARGS_JSON entries cannot contain NUL bytes")
-sys.stdout.buffer.write(b"".join(arg.encode() + b"\0" for arg in args))
-PY
-            mapfile -d '' -t extra_args < "$extra_args_file"
-
-            if [ -z "$STACKSMITH_CONFIG_REF" ]; then
-                echo "STACKSMITH_CONFIG_REF is required and must point to the platform-managed Stacksmith config." >&2
-                exit 1
-            fi
-
-            set +e
-            if [ "$COMMAND" = plan ]; then
-                stacksmith "$COMMAND" \
-                    --config "$STACKSMITH_CONFIG_REF" \
-                    "${extra_args[@]}" $EXTRA_FLAGS \
-                    --var "environment=$ENVIRONMENT" \
-                    --env-file "$ENV_FILE" \
-                    "${runfiles[@]}" \
-                    --build-dir "$ARTIFACT_DIR" \
-                    --save-plan-json "$ARTIFACT_DIR/plan.json" \
-                    --validation-report-format "$VALIDATION_REPORT_FORMAT" \
-                    >"$ARTIFACT_DIR/validation-report.$VALIDATION_REPORT_FORMAT"
-            elif [ "$COMMAND" = apply ]; then
-                stacksmith "$COMMAND" \
-                    --config "$STACKSMITH_CONFIG_REF" \
-                    "${extra_args[@]}" $EXTRA_FLAGS \
-                    --var "environment=$ENVIRONMENT" \
-                    --env-file "$ENV_FILE" \
-                    "${runfiles[@]}" \
-                    --build-dir "$ARTIFACT_DIR" \
-                    --auto-approve
-            else
-                stacksmith operation run "$OPERATION_NAME" \
-                    --config "$STACKSMITH_CONFIG_REF" \
-                    "${extra_args[@]}" $EXTRA_FLAGS \
-                    --var "environment=$ENVIRONMENT" \
-                    --env-file "$ENV_FILE" \
-                    "${runfiles[@]}" \
-                    --build-dir "$ARTIFACT_DIR"
-            fi
-
-            exit $?
+            set -euo pipefail
+            stacksmith ci execute-from-env --provider jenkins
         ''',
         returnStatus: true
     )
@@ -187,48 +132,53 @@ withStacksmithAgent {
             withFolderProperties {
                 env.COMMAND = (params.COMMAND ?: 'plan').toString().trim().toLowerCase()
                 env.OPERATION_NAME = (params.OPERATION_NAME ?: '').toString().trim()
-
-                if (!(env.COMMAND in ['plan', 'apply', 'operation'])) {
-                    error("Invalid command '${params.COMMAND}'. Expected 'plan', 'apply', or 'operation'.")
-                }
-                if (env.COMMAND == 'operation' && !env.OPERATION_NAME) {
-                    error("OPERATION_NAME is required when COMMAND is 'operation'.")
-                }
-
-                if (!parseBoolean(env.NO_VALIDATE_BRANCH_AND_OPERATION)) {
-                    if (env.CHANGE_ID && env.COMMAND in ['apply', 'operation']) {
-                        error("'${env.COMMAND}' is not allowed on pull requests. Use 'plan' instead.")
-                    }
-                    if (!env.CHANGE_ID && !env.BRANCH_IS_PRIMARY) {
-                        error("Operations are only allowed on main branch or pull requests to main. Current branch: ${env.BRANCH_NAME}")
-                    }
-                }
             }
 
             stage('Init pipeline') {
                 withFolderProperties {
-                    def selectionOutput = withEnv([
-                        "INPUT_GITOPS_ROOT=${env.STACKSMITH_GITOPS_ROOT ?: env.STACKSMITH_GITSOPS_ROOT ?: params.WORKDIR}",
+                    def manifestFile = '.stacksmith-ci/ci-execution-manifest.json'
+                    def manifestOutput = withEnv([
+                        "INPUT_COMMAND=${env.COMMAND}",
+                        "INPUT_OPERATION_NAME=${env.OPERATION_NAME}",
+                        "INPUT_CONFIG_REF=${env.STACKSMITH_CONFIG_REF ?: params.STACKSMITH_CONFIG_REF ?: ''}",
+                        "INPUT_WORKDIR=${params.WORKDIR}",
+                        "INPUT_ENV_FILE=${env.STACKSMITH_ENV_FILE ?: '/dev/null'}",
+                        "INPUT_STACKSMITH_ARGS_JSON=${env.STACKSMITH_ARGS_JSON ?: '[]'}",
+                        "INPUT_NO_CAS=${env.STACKSMITH_NO_CAS ?: 'false'}",
+                        "INPUT_FORCE_RERUN=${env.STACKSMITH_FORCE_RERUN ?: 'false'}",
+                        "INPUT_VALIDATION_REPORT_FORMAT=${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
+                        "INPUT_FAIL_ON_CHANGES=${params.FAIL_ON_CHANGES}",
+                        "INPUT_STRICT_VALIDATION_WARNINGS=${params.STRICT_VALIDATION_WARNINGS}",
+                        "INPUT_GITOPS_ROOT=${env.STACKSMITH_GITOPS_ROOT ?: params.WORKDIR}",
                         "INPUT_DISCOVERY_MODE=${env.STACKSMITH_DISCOVERY_MODE ?: 'auto'}",
                         "INPUT_ENVIRONMENTS=${params.ENVIRONMENTS}",
+                        "CALLER_EVENT_NAME=${env.CHANGE_ID ? 'pull_request' : 'push'}",
+                        "CALLER_BASE_REF=${env.CHANGE_TARGET ?: ''}",
+                        "CALLER_EVENT_BEFORE=${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: env.GIT_PREVIOUS_COMMIT ?: ''}",
+                        "CALLER_SHA=${env.GIT_COMMIT ?: ''}",
+                        "CALLER_REF_NAME=${env.BRANCH_NAME ?: ''}",
+                        "CALLER_DEFAULT_BRANCH=${env.STACKSMITH_DEFAULT_BRANCH ?: ''}",
+                        "CALLER_IS_PRIMARY_BRANCH=${parseBoolean(env.BRANCH_IS_PRIMARY) ? 'true' : 'false'}",
+                        "SKIP_BRANCH_VALIDATION=${env.NO_VALIDATE_BRANCH_AND_OPERATION ?: 'false'}",
+                        "CI_MANIFEST_FILE=${manifestFile}",
                     ]) {
                         sh(
                             script: '''#!/usr/bin/env bash
-                                stacksmith info environments \
-                                    --gitops-root "$INPUT_GITOPS_ROOT" \
-                                    --discovery-mode "$INPUT_DISCOVERY_MODE" \
-                                    --environments "$INPUT_ENVIRONMENTS" \
-                                    --format json
+                                set -euo pipefail
+                                mkdir -p "$(dirname \"$CI_MANIFEST_FILE\")"
+                                stacksmith ci prepare-from-env \
+                                    --provider jenkins \
+                                    --manifest-file "$CI_MANIFEST_FILE"
                             ''',
                             returnStdout: true
                         )
                     }
 
-                    def selection = readJSON(text: selectionOutput)
-                    def matrix = selection.matrix
+                    def manifest = readJSON(text: manifestOutput)
+                    def matrix = manifest.matrix
                     env.SELECTED_ENVIRONMENTS = matrix.collect { it.environment }.join(',')
-                    env.COMMON_RUNFILE = matrix.collect { it.runfile }.find { it }
                     env.SELECTION_MATRIX = writeJSON(json: matrix, returnText: true)
+                    env.CI_MANIFEST_FILE = "${env.WORKSPACE}/${manifestFile}"
 
                     if (!env.SELECTED_ENVIRONMENTS) {
                         echo "No environments selected; skipping ${params.COMMAND}."
@@ -237,7 +187,6 @@ withStacksmithAgent {
                     }
 
                     echo("Selected environments: ${env.SELECTED_ENVIRONMENTS}")
-                    echo("Common runfile: ${env.COMMON_RUNFILE}")
                 }
             }
 
@@ -255,7 +204,7 @@ withStacksmithAgent {
             stage('Run Stacksmith') {
                 withFolderProperties {
                     if (!env.SELECTED_ENVIRONMENTS) {
-                        echo('No selected environments to run.')
+                        echo('No selected environments to run')
                         return
                     }
 
@@ -264,24 +213,9 @@ withStacksmithAgent {
 
                     for (row in matrix) {
                         def environment = row.environment
-                        def runfile = row.runfile
-                        def environmentRunfile = row.environment_runfile ?: ''
-                        def artifactDir = ".stacksmith-ci/${environment}"
+                        def artifactDir = "${params.WORKDIR}/.stacksmith-ci/${environment}"
 
                         branches[environment] = {
-                            dir(params.WORKDIR) {
-
-                                def extraFlags = ''
-                                if (env.COMMAND == 'plan' && params.FAIL_ON_CHANGES) {
-                                    extraFlags += ' --fail-on-changes'
-                                }
-                                if (env.COMMAND == 'plan' && params.STRICT_VALIDATION_WARNINGS) {
-                                    extraFlags += ' --strict-validation-warnings'
-                                }
-                                if (parseBoolean(env.STACKSMITH_NO_CAS ?: 'false')) {
-                                    extraFlags += ' --no-cas'
-                                }
-
                                 def credentialsJson = (env.STACKSMITH_CREDENTIALS_JSON ?: '').toString().trim()
                                 def parsedCredentials = [:]
                                 if (credentialsJson) {
@@ -295,16 +229,8 @@ withStacksmithAgent {
                                 def credentialBindings = buildCredentialBindings(parsedCredentials)
 
                                 withEnv([
-                                    "ARTIFACT_DIR=${artifactDir}",
-                                    "RUNFILE=${runfile}",
-                                    "ENVIRONMENT_RUNFILE=${environmentRunfile}",
                                     "ENVIRONMENT=${environment}",
-                                    "OPERATION_NAME=${env.OPERATION_NAME}",
-                                    "ENV_FILE=${env.STACKSMITH_ENV_FILE ?: '/dev/null'}",
-                                    "STACKSMITH_CONFIG_REF=${env.STACKSMITH_CONFIG_REF ?: params.STACKSMITH_CONFIG_REF ?: ''}",
-                                    "STACKSMITH_ARGS_JSON=${env.STACKSMITH_ARGS_JSON ?: '[]'}",
-                                    "EXTRA_FLAGS=${extraFlags}",
-                                    "VALIDATION_REPORT_FORMAT=${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
+                                    "VALIDATION_REPORT_PATH=${artifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
                                     "TG_AUTH_PROVIDER_CMD=${env.TG_AUTH_PROVIDER_CMD ?: ''}",
                                     "TG_IAM_ASSUME_ROLE=${env.TG_IAM_ASSUME_ROLE ?: ''}",
                                 ]) {
@@ -321,7 +247,6 @@ withStacksmithAgent {
 
                                     return status
                                 }
-                            }
                         }
                     }
 

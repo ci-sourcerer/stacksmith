@@ -20,7 +20,6 @@ def parser():
 
 def _capture_run_all_stacks_call(
     monkeypatch: pytest.MonkeyPatch,
-    *,
     return_code: int = 0,
 ) -> dict[str, object]:
     calls: dict[str, object] = {}
@@ -35,7 +34,6 @@ def _capture_run_all_stacks_call(
 
 def _capture_run_stack_action_call(
     monkeypatch: pytest.MonkeyPatch,
-    *,
     return_code: int = 0,
 ) -> dict[str, object]:
     calls: dict[str, object] = {}
@@ -62,7 +60,6 @@ def _capture_run_stack_operation_call(
 
 
 def _diagnostics_payload(
-    *,
     remote_cache_entries: list[dict[str, str]] | None = None,
 ) -> dict[str, object]:
     return {
@@ -1374,6 +1371,242 @@ def test_cmd_ci_validate_table_emits_stderr(monkeypatch, parser, capsys):
     assert exit_code == 0
     assert captured.out == ""
     assert "CI Validation" in captured.err
+
+
+def test_ci_prepare_has_manifest_inputs(parser):
+    args = parser.parse_args(
+        [
+            "ci",
+            "prepare",
+            "--command",
+            "plan",
+            "--config-ref",
+            "platform/stacksmith-config.yaml",
+            "--default-branch",
+            "main",
+        ]
+    )
+
+    assert args.ci_command == "prepare"
+    assert args.config_ref == "platform/stacksmith-config.yaml"
+
+
+def test_ci_prepare_from_env_has_adapter_inputs(parser):
+    args = parser.parse_args(
+        [
+            "ci",
+            "prepare-from-env",
+            "--provider",
+            "github-actions",
+            "--manifest-file",
+            "manifest.json",
+            "--github-output",
+            "github-output.txt",
+        ]
+    )
+
+    assert args.ci_command == "prepare-from-env"
+    assert args.provider == "github-actions"
+    assert args.manifest_file == Path("manifest.json")
+    assert args.github_output == Path("github-output.txt")
+
+
+def test_ci_execute_from_env_has_adapter_inputs(parser):
+    args = parser.parse_args(
+        [
+            "ci",
+            "execute-from-env",
+            "--provider",
+            "jenkins",
+            "--manifest-file",
+            "manifest.json",
+            "--environment",
+            "dev",
+            "--validation-report-output",
+            "report.json",
+        ]
+    )
+
+    assert args.ci_command == "execute-from-env"
+    assert args.provider == "jenkins"
+    assert args.manifest_file == Path("manifest.json")
+    assert args.environment == "dev"
+    assert args.validation_report_output == Path("report.json")
+
+
+def test_cmd_ci_prepare_emits_manifest(monkeypatch, parser, capsys):
+    from stacksmith.gitops.contracts import CiExecutionManifest, CiExecutionRow
+
+    monkeypatch.setattr(
+        cli_main,
+        "prepare_ci_execution",
+        lambda **kwargs: CiExecutionManifest(
+            command="plan",
+            config_ref="platform/stacksmith-config.yaml",
+            matrix=[
+                CiExecutionRow(
+                    environment="dev",
+                    runfile="common/stacksmith.yaml",
+                    environment_runfile="environments/dev.yaml",
+                )
+            ],
+        ),
+    )
+    args = parser.parse_args(
+        [
+            "ci",
+            "prepare",
+            "--command",
+            "plan",
+            "--config-ref",
+            "platform/stacksmith-config.yaml",
+        ]
+    )
+
+    exit_code = cli_main._cmd_ci_prepare(args)
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out)["matrix"][0]["environment"] == "dev"
+
+
+def test_cmd_ci_prepare_from_env_emits_manifest(monkeypatch, parser, capsys):
+    from stacksmith.gitops.contracts import CiExecutionManifest, CiExecutionRow
+
+    monkeypatch.setattr(
+        cli_main,
+        "prepare_ci_execution",
+        lambda **kwargs: CiExecutionManifest(
+            command="plan",
+            config_ref="platform/stacksmith-config.yaml",
+            matrix=[
+                CiExecutionRow(
+                    environment="dev",
+                    runfile="common/stacksmith.yaml",
+                    environment_runfile="environments/dev.yaml",
+                )
+            ],
+        ),
+    )
+    monkeypatch.setenv("INPUT_COMMAND", "plan")
+    monkeypatch.setenv("INPUT_CONFIG_REF", "platform/stacksmith-config.yaml")
+    args = parser.parse_args(["ci", "prepare-from-env", "--provider", "jenkins"])
+
+    exit_code = cli_main._cmd_ci_prepare_from_env(args)
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out)["matrix"][0]["environment"] == "dev"
+
+
+def test_cmd_ci_prepare_from_env_writes_github_outputs(monkeypatch, parser, tmp_path):
+    from stacksmith.gitops.contracts import CiExecutionManifest, CiExecutionRow
+
+    monkeypatch.setattr(
+        cli_main,
+        "prepare_ci_execution",
+        lambda **kwargs: CiExecutionManifest(
+            command="plan",
+            config_ref="platform/stacksmith-config.yaml",
+            matrix=[
+                CiExecutionRow(
+                    environment="dev",
+                    runfile="common/stacksmith.yaml",
+                    environment_runfile="environments/dev.yaml",
+                )
+            ],
+        ),
+    )
+    monkeypatch.setenv("INPUT_COMMAND", "plan")
+    monkeypatch.setenv("INPUT_CONFIG_REF", "platform/stacksmith-config.yaml")
+    github_output = tmp_path / "github-output.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+    args = parser.parse_args(["ci", "prepare-from-env", "--provider", "github-actions"])
+
+    exit_code = cli_main._cmd_ci_prepare_from_env(args)
+
+    assert exit_code == 0
+    output_lines = github_output.read_text(encoding="utf-8").splitlines()
+    assert any(line.startswith("manifest=") for line in output_lines)
+    assert any(line.startswith("matrix=") for line in output_lines)
+    assert "count=1" in output_lines
+
+
+def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path):
+    from stacksmith.gitops.contracts import CiExecutionManifest, CiExecutionRow
+
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        CiExecutionManifest(
+            command="plan",
+            config_ref="platform/stacksmith-config.yaml",
+            matrix=[
+                CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")
+            ],
+            no_cas=True,
+            fail_on_changes=True,
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+    calls: dict[str, object] = {}
+
+    def _fake_plan_handler(args, command):
+        calls["command"] = command
+        calls["args"] = args
+        return 0
+
+    monkeypatch.setattr(cli_main, "_cmd_terragrunt_action", _fake_plan_handler)
+    args = parser.parse_args(
+        ["ci", "execute", "--manifest", str(manifest_path), "--environment", "dev"]
+    )
+
+    assert cli_main._cmd_ci_execute(args) == 0
+    assert calls["command"] == "plan"
+    assert calls["args"].config == ["platform/stacksmith-config.yaml"]
+    assert calls["args"].no_cas is True
+    assert calls["args"].fail_on_changes is True
+
+
+def test_cmd_ci_execute_from_env_uses_manifest_env(monkeypatch, parser, tmp_path: Path):
+    from stacksmith.gitops.contracts import CiExecutionManifest, CiExecutionRow
+
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        CiExecutionManifest(
+            command="plan",
+            config_ref="platform/stacksmith-config.yaml",
+            matrix=[
+                CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")
+            ],
+            validation_report_format="json",
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+    calls: dict[str, object] = {}
+
+    def _fake_run_ci_execute(manifest, environment, validation_report_output):
+        calls["manifest"] = manifest
+        calls["environment"] = environment
+        calls["validation_report_output"] = validation_report_output
+        return 0
+
+    monkeypatch.setattr(cli_main, "_run_ci_execute", _fake_run_ci_execute)
+    monkeypatch.setenv("CI_MANIFEST_FILE", str(manifest_path))
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    args = parser.parse_args(
+        [
+            "ci",
+            "execute-from-env",
+            "--provider",
+            "jenkins",
+        ]
+    )
+
+    exit_code = cli_main._cmd_ci_execute_from_env(args)
+
+    assert exit_code == 0
+    assert calls["environment"] == "dev"
+    assert calls["validation_report_output"] == Path(
+        ".stacksmith-ci/dev/validation-report.json"
+    )
 
 
 def test_cmd_inspect_json_emits_stdout(monkeypatch, parser, capsys):

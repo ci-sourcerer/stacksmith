@@ -129,7 +129,6 @@ def _generate_terraform_block(
     config: ToolConfig,
     stack: StackDefinition,
     root: Path | None = None,
-    *,
     provider_source_formatter_options: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     state_key = derive_stack_state_key(stack.name, stack.source_path, root)
@@ -150,7 +149,6 @@ def _apply_property_spec(
     property_spec: ModulePropertySpec | None,
     property_context: dict[str, Any],
     config: ToolConfig,
-    *,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
 ) -> Any:
@@ -206,7 +204,6 @@ def _apply_property_spec(
 
 
 def _build_property_context(
-    *,
     name: str,
     kind: str,
     component_name: str,
@@ -237,7 +234,6 @@ def _generate_module_blocks(
     auth_config: RemoteAuthConfig | None = None,
     use_local_modules: bool = False,
     vendor_dir: Path | None = None,
-    *,
     module_source_formatter_options: Mapping[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
     modules = {}

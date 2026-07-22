@@ -1,5 +1,6 @@
 from .api import (
     generate_stack,
+    prepare_ci_execution,
     run_all_stacks,
     run_stack_action,
     validate_stack,
@@ -12,9 +13,28 @@ from .exceptions import (
     StacksmithTransformError,
     StacksmithValidationError,
 )
+from .gitops.changes import (
+    CommitPushResult,
+    DocumentChange,
+    OperationRerunResult,
+    RepositoryStatus,
+    commit_and_push,
+    repository_status,
+    request_operation_rerun,
+    set_operation_inputs,
+    update_component_properties,
+    update_operation_rerun_token,
+    validate_stack_document,
+)
 
 __all__ = [
+    "CommitPushResult",
+    "DocumentChange",
+    "OperationRerunResult",
+    "RepositoryStatus",
+    "commit_and_push",
     "generate_stack",
+    "prepare_ci_execution",
     "run_all_stacks",
     "run_stack_action",
     "StacksmithConfigError",
@@ -23,5 +43,11 @@ __all__ = [
     "StacksmithRemoteError",
     "StacksmithTransformError",
     "StacksmithValidationError",
+    "repository_status",
+    "request_operation_rerun",
+    "set_operation_inputs",
+    "update_component_properties",
+    "update_operation_rerun_token",
+    "validate_stack_document",
     "validate_stack",
 ]

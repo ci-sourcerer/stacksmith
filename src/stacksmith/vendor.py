@@ -55,7 +55,7 @@ def vendor_path(source: str, version: str, vendor_dir: Path | None = None) -> Pa
 
 
 def resolve_module_source(
-    source: str, version: str, *, vendor_dir: Path | None = None
+    source: str, version: str, vendor_dir: Path | None = None
 ) -> str:
     """Resolve a module source to a local vendored path if available.
 

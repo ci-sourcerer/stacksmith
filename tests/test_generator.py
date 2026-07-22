@@ -27,7 +27,6 @@ from stacksmith.vendor import vendor_path
 
 def _install_fake_boto3(
     monkeypatch: pytest.MonkeyPatch,
-    *,
     arn: str = "arn:aws:iam::123456789012:user/example",
     raise_error: bool = False,
 ) -> None:
@@ -85,11 +84,11 @@ class TestGenerateTfJson:
         module_options_calls: list[dict[str, object] | None] = []
         provider_options_calls: list[dict[str, object] | None] = []
 
-        def _module_formatter(target, source, *, options=None):
+        def _module_formatter(target, source, options=None):
             module_options_calls.append(options)
             return render_module_source_fields(source)
 
-        def _provider_formatter(target, source, *, options=None):
+        def _provider_formatter(target, source, options=None):
             provider_options_calls.append(options)
             return render_provider_source_fields(source)
 

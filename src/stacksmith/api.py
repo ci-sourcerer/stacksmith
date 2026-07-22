@@ -26,6 +26,12 @@ from .enums import (
 from .exceptions import StacksmithConfigError, StacksmithError
 from .generator import operation_module_name, write_tf_json
 from .gitops import evaluate_environment_selection
+from .gitops.contracts import (
+    CiExecutionManifest,
+    CiExecutionRow,
+    parse_ci_stacksmith_args,
+    validate_ci_policy,
+)
 from .inspector import (
     ComponentTypeInfo,
     PlanPolicyInfo,
@@ -85,7 +91,6 @@ def _file_exists(path: str | None) -> bool:
 
 
 def inspect_environments(
-    *,
     gitops_root: str = ".",
     discovery_mode: str = "auto",
     environments: str = "",
@@ -158,8 +163,102 @@ def inspect_environments(
     }
 
 
-def validate_ci_inputs(
+def prepare_ci_execution(
     *,
+    command: str,
+    operation_name: str = "",
+    config_ref: str,
+    workdir: str = ".",
+    env_file: str = "/dev/null",
+    stacksmith_args_json: str = "[]",
+    no_cas: bool = False,
+    force_rerun: bool = False,
+    validation_report_format: str = ValidationReportFormat.JSON.value,
+    fail_on_changes: bool = False,
+    strict_validation_warnings: bool = False,
+    gitops_root: str = ".",
+    discovery_mode: str = "auto",
+    environments: str = "",
+    event_name: str = "",
+    changed_paths: Sequence[str] | None = None,
+    base_ref: str = "",
+    before: str = "",
+    after: str = "",
+    ref_name: str = "",
+    default_branch: str = "",
+    is_primary_branch: bool | None = None,
+    skip_branch_validation: bool = False,
+) -> CiExecutionManifest:
+    """Prepare one versioned, provider-neutral GitOps CI execution manifest.
+
+    Args:
+        command: Stacksmith command to execute.
+        operation_name: Stack-local operation name for native operation runs.
+        config_ref: Platform-managed Stacksmith config reference.
+        workdir: Working directory relative to the checked-out repository.
+        env_file: Environment file path, or `/dev/null` to disable implicit loading.
+        stacksmith_args_json: JSON array of additional safe Stacksmith arguments.
+        no_cas: Whether to disable content-addressable caching.
+        force_rerun: Whether operations must force execution.
+        validation_report_format: Plan validation report format.
+        fail_on_changes: Whether plans fail when changes are detected.
+        strict_validation_warnings: Whether plan validation warnings fail a plan.
+        gitops_root: Relative GitOps root path.
+        discovery_mode: Environment discovery mode.
+        environments: Optional comma-separated manual environment targets.
+        event_name: Normalized provider event name.
+        changed_paths: Optional explicit changed paths for selection simulation.
+        base_ref: Pull-request target branch name.
+        before: Previous push commit SHA.
+        after: Current push commit SHA.
+        ref_name: Branch name for non-pull-request policy validation.
+        default_branch: Repository default branch name.
+        is_primary_branch: Provider primary-branch indicator when available.
+        skip_branch_validation: Whether branch policy should be skipped.
+
+    Returns:
+        A validated manifest that both CI providers can execute.
+
+    Raises:
+        StacksmithConfigError: If inputs or policy are invalid.
+    """
+    validate_ci_policy(
+        command=command,
+        operation_name=operation_name,
+        event_name=event_name,
+        ref_name=ref_name,
+        base_ref=base_ref,
+        default_branch=default_branch,
+        is_primary_branch=is_primary_branch,
+        skip_branch_validation=skip_branch_validation,
+    )
+    selection = inspect_environments(
+        gitops_root=gitops_root,
+        discovery_mode=discovery_mode,
+        environments=environments,
+        event_name=event_name,
+        changed_paths=changed_paths,
+        base_ref=base_ref,
+        before=before,
+        after=after,
+    )
+    return CiExecutionManifest(
+        command=command,
+        operation_name=operation_name,
+        config_ref=config_ref,
+        workdir=workdir,
+        env_file=env_file,
+        stacksmith_args=parse_ci_stacksmith_args(stacksmith_args_json),
+        no_cas=no_cas,
+        force_rerun=force_rerun,
+        validation_report_format=validation_report_format,
+        fail_on_changes=fail_on_changes,
+        strict_validation_warnings=strict_validation_warnings,
+        matrix=[CiExecutionRow.model_validate(row) for row in selection["matrix"]],
+    )
+
+
+def validate_ci_inputs(
     gitops_root: str = ".",
     discovery_mode: str = "auto",
     runfile: str | None = None,
@@ -451,7 +550,6 @@ def _clean_cache(cache_dir: Path) -> None:
 
 def _emit_validation_report(
     report: dict[str, Any],
-    *,
     report_format: str | ValidationReportFormat = ValidationReportFormat.JSON,
 ) -> None:
     ValidationReportFormat(report_format)
@@ -468,7 +566,6 @@ def _summarize_plan_validation_results(
 
 
 def _build_plan_validation_report(
-    *,
     command: str,
     exit_code: int,
     strict_validation_warnings: bool,
@@ -533,7 +630,6 @@ def _build_validate_report(exit_code: int, message: str) -> dict[str, Any]:
 def _load_runtime_config(
     config: list[str] | None,
     build_dir: Path | None,
-    *,
     base_dir: Path | None = None,
     no_cache: bool = False,
     merge_mode: str | MergeMode = MergeMode.DEEP,
@@ -606,7 +702,7 @@ def _build_component_tag_context(
 
 
 def _evaluate_tag_expression(
-    expression, context: dict[str, Any], *, component_name: str
+    expression, context: dict[str, Any], component_name: str
 ) -> bool:
     result = expression.search(context)
     if not isinstance(result, bool):
@@ -696,7 +792,6 @@ def _resolve_stacks_for_generation(
 
 def _validate_action_options(
     action: str | TerragruntAction,
-    *,
     tags: list[str] | None,
     tag_expr: str | None,
     save_plan_json: Path | None,
@@ -722,7 +817,6 @@ def _validate_action_options(
 def _resolve_tag_targets(
     stack: StackDefinition,
     config: ToolConfig,
-    *,
     tags: list[str] | None,
     tag_expr: str | None,
 ) -> tuple[None | object, set[str], list[str]]:
@@ -956,7 +1050,6 @@ def _generate_all_stacks(
 
 def validate_stack(
     stack_file: Path | str | Sequence[Path | str],
-    *,
     config: list[str] | None = None,
     vars_file: str | Sequence[str] | None = None,
     input_layers: Sequence[InputLayer] | None = None,
@@ -1026,7 +1119,6 @@ def validate_stack(
 
 def diagnose_cache(
     stack_file: Path | str | Sequence[Path | str],
-    *,
     config: list[str] | None = None,
     build_dir: Path | None = None,
     no_cache: bool = False,
@@ -1046,7 +1138,6 @@ def diagnose_cache(
 
 def inspect_cache_diagnostics(
     stack_file: Path | str | Sequence[Path | str],
-    *,
     config: list[str] | None = None,
     build_dir: Path | None = None,
     no_cache: bool = False,
@@ -1166,7 +1257,6 @@ def _render_cache_diagnostics_to_stderr(payload: dict[str, Any]) -> None:
 
 def generate_stack(
     stack_file: Path | str | Sequence[Path | str],
-    *,
     config: list[str] | None = None,
     vars_file: str | Sequence[str] | None = None,
     input_layers: Sequence[InputLayer] | None = None,
@@ -1224,7 +1314,6 @@ def generate_stack(
 def run_stack_operation(
     stack_file: Path | str | Sequence[Path | str],
     operation_name: str,
-    *,
     config: list[str] | None = None,
     vars_file: str | Sequence[str] | None = None,
     input_layers: Sequence[InputLayer] | None = None,
@@ -1304,7 +1393,6 @@ def _operation_terragrunt_args(
 def run_stack_action(
     action: str | TerragruntAction,
     stack_file: Path | str | Sequence[Path | str],
-    *,
     config: list[str] | None = None,
     vars_file: str | Sequence[str] | None = None,
     input_layers: Sequence[InputLayer] | None = None,
@@ -1463,7 +1551,6 @@ def run_stack_action(
 def run_all_stacks(
     action: str | TerragruntAction,
     root: Path,
-    *,
     config: list[str] | None = None,
     vars_file: str | Sequence[str] | None = None,
     input_layers: Sequence[InputLayer] | None = None,
@@ -1642,7 +1729,6 @@ def run_all_stacks(
 
 
 def inspect_modules(
-    *,
     config: list[str] | None = None,
     component_types: list[str] | None = None,
     build_dir: Path | None = None,

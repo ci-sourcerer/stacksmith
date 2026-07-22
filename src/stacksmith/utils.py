@@ -22,7 +22,6 @@ def _load_dotenv_values(path: Path) -> dict[str, str | None]:
 def render_jinja_template_values(
     value: Any,
     context: Mapping[str, Any],
-    *,
     jinja_env: Any,
 ) -> Any:
     """Render Jinja templates recursively in dict/list structures.
@@ -52,7 +51,6 @@ def render_jinja_template_values(
 
 def normalize_path_input(
     path: Path | Sequence[Path],
-    *,
     empty_error: str,
 ) -> list[Path]:
     """Normalize one or many paths into a non-empty list.
@@ -236,7 +234,6 @@ def derive_stack_state_key(
 def clone_git_repo(
     repo_url: str,
     dest: Path,
-    *,
     ref: str | None = None,
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:

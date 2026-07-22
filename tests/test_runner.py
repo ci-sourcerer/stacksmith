@@ -265,7 +265,6 @@ def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path)
         args: list[str],
         working_dir: Path,
         config,
-        *,
         stack_name: str,
         cache_dir=None,
         auth_config=None,
@@ -431,7 +430,7 @@ def test_run_terragrunt_delegates_plan_result_processing(monkeypatch, tmp_path):
         ],
     )
 
-    def _fake_process_plan_validation_results(results, *, strict_validation_warnings):
+    def _fake_process_plan_validation_results(results, strict_validation_warnings):
         calls["results"] = results
         calls["strict_validation_warnings"] = strict_validation_warnings
         return 17

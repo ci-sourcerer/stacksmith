@@ -46,7 +46,6 @@ def _split_module_source(source: str) -> tuple[str, Path]:
 def resolve_module_dir(
     source: str,
     version: str,
-    *,
     cache_dir: Path | None = None,
     auth_config: "RemoteAuthConfig | None" = None,
     vendor_dir: Path | None = None,
@@ -149,7 +148,6 @@ def _clone_module(
 def discover_module_variables(
     source: str,
     version: str,
-    *,
     cache_dir: Path | None = None,
     auth_config: "RemoteAuthConfig | None" = None,
     vendor_dir: Path | None = None,

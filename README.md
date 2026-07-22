@@ -396,33 +396,52 @@ If `--runfile` is omitted, Stacksmith checks `STACKSMITH_RUN_FILE` and then auto
 
 `--merge-mode` on the CLI always takes precedence over the runfile `merge_mode` value.
 
-## GitHub Actions GitOps workflow
+## CI GitOps workflows
 
-This repository hosts reusable workflows and opinionated wrapper templates.
+Stacksmith provides equivalent opinionated GitOps entrypoints for GitHub Actions and Jenkins. Both use the same provider-neutral CI manifest and the `stacksmith ci prepare` / `stacksmith ci execute` contract, so environment selection and per-environment execution stay consistent across providers.
 
-- `.github/workflows/stacksmith-gitops-reusable.yml` executes one environment in `plan`, `apply`, or native `operation` mode.
+- `.github/workflows/stacksmith-gitops-reusable.yml` executes one environment from a versioned CI manifest in `plan`, `apply`, or native `operation` mode.
 - `.github/workflows/stacksmith-gitops-opinionated-reusable.yml` discovers environments and fans out to the single-environment reusable workflow.
 - `examples/github-actions/stacksmith-plan.yml`, `examples/github-actions/stacksmith-apply.yml`, and `examples/github-actions/stacksmith-operation.yml` are trigger wrappers that call the opinionated reusable workflow using `uses`.
-- `jenkins/Jenkinsfile` is the opinionated Jenkins GitOps wrapper and is best used as a Multibranch Pipeline.
+- `Jenkinsfile` is the opinionated Jenkins GitOps wrapper and is best used as a Multibranch Pipeline.
 
-The wrappers under `examples/` do not execute in this repository because they are outside `.github/workflows`.
-In your own repository, you can either:
+The GitHub templates under `examples/` do not execute in this repository because they are outside `.github/workflows`.
 
-- call `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@<version>` from your workflow, or
-- use the example wrappers as reference for trigger configuration.
+### Shared behavior
 
-The opinionated reusable workflow discovers target environments and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment.
+The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins wrapper uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
 
 The CI selector is named `command` in GitHub Actions and `COMMAND` in Jenkins. Callers using the former `operation` or `OPERATION` selector must update to the new name.
 
-- `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.
+- GitHub Actions `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.
 - Native operation mode requires `operation_name`, the stack-local name passed to `stacksmith operation run` in each selected environment. Set `STACKSMITH_FORCE_RERUN=1` in the CI environment to force replacement of the operation runner resource when its execution identity has not changed.
 - `discovery_mode` selects how environments are discovered. Use `folders` for `environments/<env>/` directories, `flat-files` for root-level `stacksmith.<env>.yaml|yml|json` files, or `env-files` for the hybrid `environments/<env>.yaml` layout. The aliases `env` and `env-files` both map to the hybrid env-file discovery path.
-- `STACKSMITH_GITOPS_ROOT` defaults to `.` and can be overridden per run with `gitops_root`.
+- In GitHub Actions, `STACKSMITH_GITOPS_ROOT` defaults to `.` and can be overridden per run with `gitops_root`.
 - Changes under `<gitops_root>/common` and `<gitops_root>/manifests/common` fan out to all environments.
 - Changes under `<gitops_root>/environments/<env>` and `<gitops_root>/manifests/environments/<env>` target only that environment.
 - For push and pull request events, when changed files do not map to any discovered environment, the workflow selection result is empty and the no-op job runs.
 - Manual `environments` entries must map to discovered environments or selection fails fast.
+
+Both implementations reserve the command selector, operation name, runfiles, build directory, plan output, validation format, and apply approval flags because those values are part of the GitOps contract. Every other Stacksmith CLI option can be supplied, in order and without shell-quoting loss, through `STACKSMITH_ARGS_JSON`. For example:
+
+```json
+["--vars", "vars/common.yaml", "--var", "replicas=3", "--tag", "service", "--debug"]
+```
+
+If you vendor either entrypoint into a consumer repository, put it under a platform-owned path or submodule and protect it with a CODEOWNERS file so ordinary contributors cannot change the enforcement entrypoint. For example:
+
+```text
+.github/workflows/stacksmith-gitops-reusable.yml @platform-team
+.github/workflows/stacksmith-gitops-opinionated-reusable.yml @platform-team
+Jenkinsfile @platform-team
+```
+
+### GitHub Actions
+
+In your own repository, you can either:
+
+- call `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@<version>` from your workflow, or
+- use the example wrappers as reference for trigger configuration.
 
 The wrappers pass reusable workflow inputs from repository variables when available.
 
@@ -442,29 +461,13 @@ The wrappers pass reusable workflow inputs from repository variables when availa
 - `TG_AUTH_PROVIDER_CMD` (default empty)
 - `TG_IAM_ASSUME_ROLE` (default empty)
 
-Credential values are inherited into the reusable workflows with standard GitHub Actions `secrets: inherit`. The supported secret names are `STACKSMITH_GIT_TOKEN`, `STACKSMITH_GIT_SSH_KEY`, `STACKSMITH_HTTP_TOKEN`, `STACKSMITH_HTTP_USERNAME`, and `STACKSMITH_HTTP_PASSWORD`. Jenkins provides the same runtime variables through native Jenkins credential bindings configured by `STACKSMITH_CREDENTIALS_JSON`.
-
-Both CI implementations reserve the command selector, operation name, runfiles, build directory, plan output, validation format, and apply approval flags because those values are part of the GitOps contract. Every other Stacksmith CLI option can be supplied, in order and without shell-quoting loss, through `STACKSMITH_ARGS_JSON`. For example:
-
-```json
-["--vars", "vars/common.yaml", "--var", "replicas=3", "--tag", "service", "--debug"]
-```
+Credential values are inherited into the reusable workflows with standard GitHub Actions `secrets: inherit`. The supported secret names are `STACKSMITH_GIT_TOKEN`, `STACKSMITH_GIT_SSH_KEY`, `STACKSMITH_HTTP_TOKEN`, `STACKSMITH_HTTP_USERNAME`, and `STACKSMITH_HTTP_PASSWORD`.
 
 The GitHub workflows expose this as their `stacksmith_args_json` input. JSON arrays are used so repeated options, argument order, and values containing whitespace are preserved exactly. The workflow also requires a platform-managed config reference via `config_ref` or `STACKSMITH_CONFIG_REF`, injects it as `--config <ref>` for every Stacksmith invocation, and rejects attempts to override the config through `stacksmith_args_json`.
 
 The opinionated reusable workflow intentionally does not expose free-form extra CLI args for `plan` or `apply`. Execution behavior is defined by repository-controlled workflow configuration and variables.
 
-If you vendored the Jenkins wrapper or workflow assets into a consumer repository, put the vendored files under a platform-owned path or submodule and protect them with a CODEOWNERS file in that consumer repository so ordinary contributors cannot change the enforcement entrypoints. For example:
-
-```text
-.github/workflows/stacksmith-gitops-reusable.yml @platform-team
-.github/workflows/stacksmith-gitops-opinionated-reusable.yml @platform-team
-jenkins/Jenkinsfile @platform-team
-```
-
-The same pattern applies to any copied GitHub Actions workflow files that should remain platform-controlled.
-
-### Consumer quickstart
+#### Consumer quickstart
 
 Call the opinionated reusable workflow from your repository using `uses:`. Keep triggers and approval policies local and delegate discovery + per-environment execution to the reusable workflow here.
 
@@ -542,6 +545,49 @@ jobs:
 
 The reusable workflow also supports the `folders` and `flat-files` discovery modes for repositories that prefer those layouts.
 
+### Jenkins
+
+Configure a Jenkins Multibranch Pipeline with `Jenkinsfile` as its pipeline script path. The pipeline checks out the branch, prepares its CI manifest once, runs each selected environment in parallel, requests manual approval for `apply` and `operation`, and archives plan JSON and validation reports when artifact uploads are enabled. It maps Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically.
+
+Choose one execution mode through Jenkins folder properties or the job environment:
+
+- Set `STACKSMITH_USE_K8S` to a truthy value to run in a Kubernetes-plugin pod.
+- Set `STACKSMITH_NODE_LABEL` to run directly on that labeled agent.
+- Otherwise, the pipeline runs in a Docker container on any available agent, or on `STACKSMITH_DOCKER_NODE` when set.
+
+The following Jenkins parameters are exposed on every build:
+
+- `COMMAND`: `plan`, `apply`, or `operation`. Defaults to `plan`.
+- `OPERATION_NAME`: Required when `COMMAND` is `operation`.
+- `ENVIRONMENTS`: Optional comma-separated list of environment names.
+- `STACKSMITH_CONFIG_REF`: Platform-managed Stacksmith config reference. A folder or job `STACKSMITH_CONFIG_REF` environment value takes precedence.
+- `WORKDIR`: Working directory for Stacksmith commands. Defaults to `.`.
+- `FAIL_ON_CHANGES`: Fail a plan containing resource changes. Defaults to `false`.
+- `STRICT_VALIDATION_WARNINGS`: Treat plan validation warnings as failures. Defaults to `false`.
+
+Configure these values as Jenkins folder properties or job environment variables when needed:
+
+- `STACKSMITH_IMAGE`: Full image for Kubernetes and Docker modes. When unset, the image is `cisourcerer/stacksmith:<STACKSMITH_IMAGE_VERSION>`.
+- `STACKSMITH_IMAGE_VERSION`: Image tag when `STACKSMITH_IMAGE` is unset. Defaults to `latest`.
+- `STACKSMITH_GITOPS_ROOT`: GitOps root for discovery. Defaults to `WORKDIR` in Jenkins.
+- `STACKSMITH_DISCOVERY_MODE`: `auto`, `folders`, `flat-files`, or `env-files`. Defaults to `auto`.
+- `STACKSMITH_ENV_FILE`: Env file passed to Stacksmith. Defaults to `/dev/null` to prevent implicit `.env` loading.
+- `STACKSMITH_NO_CAS`, `STACKSMITH_FORCE_RERUN`, `STACKSMITH_VALIDATION_REPORT_FORMAT`, `STACKSMITH_UPLOAD_ARTIFACTS`, and `STACKSMITH_ARGS_JSON`: Shared execution settings with the same behavior described above. `STACKSMITH_ARGS_JSON` must be an ordered JSON array and cannot override the managed config.
+- `NO_VALIDATE_BRANCH_AND_OPERATION`: Set to `true` to bypass the shared default-branch and pull-request operation guard.
+- `STACKSMITH_DEFAULT_BRANCH` or `BRANCH_IS_PRIMARY`: Branch-policy context when Jenkins does not provide it.
+- `TG_AUTH_PROVIDER_CMD` and `TG_IAM_ASSUME_ROLE`: Optional Terragrunt authentication settings.
+
+Bind remote-source credentials through `STACKSMITH_CREDENTIALS_JSON`. Each entry supplies a Jenkins credential ID for a supported auth type: `git_token`, `git_ssh_key`, `http_token`, or `http_basic`.
+
+```json
+{
+  "git_token": { "credentialId": "my-git-token" },
+  "git_ssh_key": { "credentialId": "my-git-ssh" },
+  "http_token": { "credentialId": "my-http-token" },
+  "http_basic": { "credentialId": "my-http-basic" }
+}
+```
+
 This example now also shows app deployment and native operation patterns alongside infrastructure stacks. The shared config can expose approved Terraform component types such as `helm_app` and `k8s_app`, plus approved operations for local commands and Jenkins builds.
 
 ## Native operations
@@ -595,6 +641,26 @@ stacksmith operation run deploy_app --force-rerun --stack stack.yaml --config st
 
 Alternatively, change `rerun_token` in the stack definition when the rerun request should remain declarative and reviewable. `operation run` performs a targeted OpenTofu apply of that operation's private module. Operations with the `after_apply` trigger run in stack dependency order during `stacksmith apply` and `stacksmith run-all apply`; stack-local `depends_on` can order multiple operations within a stack.
 
+## Python automation utilities
+
+`stacksmith.gitops.changes` offers small, importable helpers for automated GitOps changes. They validate edited stack documents before leaving a change on disk, and `commit_and_push` stages and commits only the paths supplied by the caller.
+
+What they do is easily implemented with your own git commands, but these helpers are simply convenient for Python-based automation scripts.
+
+```python
+from stacksmith.gitops.changes import request_operation_rerun
+
+result = request_operation_rerun(
+    repo_path=".",
+    stack_path="stacks/app.yaml",
+    operation="deploy_app",
+    push=False,
+)
+print(result.rerun_token)
+```
+
+Use `update_operation_rerun_token`, `set_operation_inputs`, and `update_component_properties` when mutation and Git publication should be controlled separately. YAML edits retain content outside the modified value; comments within a replaced mapping may be reformatted or removed.
+
 The Jenkins and GitHub Actions GitOps entrypoints also support native operation mode. Provide the stack-local operation name through Jenkins `OPERATION_NAME` with `COMMAND=operation`, or through the reusable workflow's `operation_name` input with `command: operation`. Set `STACKSMITH_FORCE_RERUN=1` in Jenkins folder properties or GitHub repository variables for a definite dispatch. Native operations use the same environment discovery, runfile layering, credentials, branch protections, and deployment approvals as infrastructure applies.
 
 In this pattern, the shared runfile references the platform and service stack layers first, then environment-specific vars and overlays are layered on top.
@@ -630,8 +696,7 @@ Single-stack commands default to `stack.yaml` in the current directory, with fal
 ### `stacksmith`
 
 ```text
-stacksmith [-h] [--version]
-                  {validate,generate,run-all,init,plan,apply,destroy,operation,info,ci} ...
+stacksmith [-h] [--version] {validate,generate,run-all,init,plan,apply,destroy,operation,info,ci} ...
 ```
 
 YAML/JSON-driven Terragrunt wrapper
@@ -658,14 +723,11 @@ YAML/JSON-driven Terragrunt wrapper
 ### `stacksmith validate`
 
 ```text
-stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE]
-                           [-c CONFIG] [--env-file ENV_FILE]
-                           [--vars VARS_FILE] [--var VARS]
-                           [--merge-mode {deep,override}]
-                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
-                           [--no-cas] [--strict-validation-warnings]
-                           [--use-local-modules | --no-local-modules]
-                           [--debug | -q] [--validation-report-format {json}]
+stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
+                           [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                           [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
+                           [--use-local-modules | --no-local-modules] [--debug | -q]
+                           [--validation-report-format {json}]
                            [stack_file]
 ```
 
@@ -693,14 +755,10 @@ stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE]
 ### `stacksmith generate`
 
 ```text
-stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE]
-                           [-c CONFIG] [--env-file ENV_FILE]
-                           [--vars VARS_FILE] [--var VARS]
-                           [--merge-mode {deep,override}]
-                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
-                           [--no-cas] [--strict-validation-warnings]
-                           [--use-local-modules | --no-local-modules]
-                           [--debug | -q]
+stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
+                           [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                           [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
+                           [--use-local-modules | --no-local-modules] [--debug | -q]
                            [stack_file]
 ```
 
@@ -727,19 +785,13 @@ stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE]
 ### `stacksmith run-all`
 
 ```text
-stacksmith run-all [-h] [--root ROOT] [--stack STACK]
-                          [--runfile RUNFILE] [-c CONFIG]
-                          [--env-file ENV_FILE] [--vars VARS_FILE]
-                          [--var VARS] [--merge-mode {deep,override}]
-                          [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
-                          [--no-cas] [--strict-validation-warnings]
-                          [--use-local-modules | --no-local-modules]
-                          [--debug | -q] [--validation-report-format {json}]
-                          [--destroy] [--save-plan-json SAVE_PLAN_JSON]
-                          [--fail-on-changes] [--tag TAG]
-                          [--tag-expr TAG_EXPR] [--include-tag INCLUDE_TAG]
-                          [--exclude-tag EXCLUDE_TAG] [--clean]
-                          [--auto-approve]
+stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+                          [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}]
+                          [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
+                          [--strict-validation-warnings] [--use-local-modules | --no-local-modules] [--debug |
+                          -q] [--validation-report-format {json}] [--destroy] [--save-plan-json SAVE_PLAN_JSON]
+                          [--fail-on-changes] [--tag TAG] [--tag-expr TAG_EXPR] [--include-tag INCLUDE_TAG]
+                          [--exclude-tag EXCLUDE_TAG] [--clean] [--auto-approve]
                           {init,plan,apply,destroy}
 ```
 
@@ -777,11 +829,9 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK]
 ### `stacksmith init`
 
 ```text
-stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
-                       [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
-                       [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
-                       [--log LOG] [--no-cache] [--no-cas]
-                       [--strict-validation-warnings] [--use-local-modules |
+stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
+                       [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                       [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
                        --no-local-modules] [--debug | -q]
                        [stack_file]
 ```
@@ -809,15 +859,11 @@ stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith plan`
 
 ```text
-stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
-                       [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
-                       [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
-                       [--log LOG] [--no-cache] [--no-cas]
-                       [--strict-validation-warnings] [--use-local-modules |
-                       --no-local-modules] [--debug | -q] [--destroy]
-                       [--save-plan-json SAVE_PLAN_JSON] [--fail-on-changes]
-                       [--tag TAG] [--tag-expr TAG_EXPR]
-                       [--validation-report-format {json}]
+stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
+                       [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                       [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
+                       --no-local-modules] [--debug | -q] [--destroy] [--save-plan-json SAVE_PLAN_JSON]
+                       [--fail-on-changes] [--tag TAG] [--tag-expr TAG_EXPR] [--validation-report-format {json}]
                        [stack_file]
 ```
 
@@ -850,13 +896,10 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith apply`
 
 ```text
-stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
-                        [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
-                        [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
-                        [--log LOG] [--no-cache] [--no-cas]
-                        [--strict-validation-warnings] [--use-local-modules |
-                        --no-local-modules] [--debug | -q] [--tag TAG]
-                        [--tag-expr TAG_EXPR] [--auto-approve]
+stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
+                        [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                        [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
+                        --no-local-modules] [--debug | -q] [--tag TAG] [--tag-expr TAG_EXPR] [--auto-approve]
                         [stack_file]
 ```
 
@@ -886,14 +929,11 @@ stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith destroy`
 
 ```text
-stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
-                          [--env-file ENV_FILE] [--vars VARS_FILE]
-                          [--var VARS] [--merge-mode {deep,override}]
-                          [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
-                          [--no-cas] [--strict-validation-warnings]
-                          [--use-local-modules | --no-local-modules]
-                          [--debug | -q] [--tag TAG] [--tag-expr TAG_EXPR]
-                          [--auto-approve]
+stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
+                          [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                          [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
+                          [--use-local-modules | --no-local-modules] [--debug | -q] [--tag TAG]
+                          [--tag-expr TAG_EXPR] [--auto-approve]
                           [stack_file]
 ```
 
@@ -923,15 +963,11 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith operation run`
 
 ```text
-stacksmith operation run [-h] [--force-rerun] [--stack STACK]
-                                [--runfile RUNFILE] [-c CONFIG]
-                                [--env-file ENV_FILE] [--vars VARS_FILE]
-                                [--var VARS] [--merge-mode {deep,override}]
-                                [--build-dir BUILD_DIR] [--log LOG]
-                                [--no-cache] [--no-cas]
-                                [--strict-validation-warnings]
-                                [--use-local-modules | --no-local-modules]
-                                [--debug | -q]
+stacksmith operation run [-h] [--force-rerun] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+                                [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+                                [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
+                                [--no-cas] [--strict-validation-warnings] [--use-local-modules |
+                                --no-local-modules] [--debug | -q]
                                 operation_name [stack_file]
 ```
 
@@ -960,15 +996,11 @@ stacksmith operation run [-h] [--force-rerun] [--stack STACK]
 ### `stacksmith info inspect`
 
 ```text
-stacksmith info inspect [-h] [--format {table,json}] [--basic]
-                               [--runfile RUNFILE] [-c CONFIG]
-                               [--env-file ENV_FILE] [--vars VARS_FILE]
-                               [--var VARS] [--merge-mode {deep,override}]
-                               [--build-dir BUILD_DIR] [--log LOG]
-                               [--no-cache] [--no-cas]
-                               [--strict-validation-warnings]
-                               [--use-local-modules | --no-local-modules]
-                               [--debug | -q]
+stacksmith info inspect [-h] [--format {table,json}] [--basic] [--runfile RUNFILE] [-c CONFIG]
+                               [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+                               [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
+                               [--no-cas] [--strict-validation-warnings] [--use-local-modules |
+                               --no-local-modules] [--debug | -q]
                                [component_type ...]
 ```
 
@@ -996,15 +1028,11 @@ stacksmith info inspect [-h] [--format {table,json}] [--basic]
 ### `stacksmith info diagnose`
 
 ```text
-stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}]
-                                [--runfile RUNFILE] [-c CONFIG]
-                                [--env-file ENV_FILE] [--vars VARS_FILE]
-                                [--var VARS] [--merge-mode {deep,override}]
-                                [--build-dir BUILD_DIR] [--log LOG]
-                                [--no-cache] [--no-cas]
-                                [--strict-validation-warnings]
-                                [--use-local-modules | --no-local-modules]
-                                [--debug | -q]
+stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}] [--runfile RUNFILE] [-c CONFIG]
+                                [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+                                [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
+                                [--no-cas] [--strict-validation-warnings] [--use-local-modules |
+                                --no-local-modules] [--debug | -q]
                                 [stack_file]
 ```
 
@@ -1034,10 +1062,8 @@ stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}]
 ```text
 stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
                                     [--discovery-mode {folders,flat-files,env-files,env,auto}]
-                                    [--environments ENVIRONMENTS]
-                                    [--event-name EVENT_NAME]
-                                    [--changed-path CHANGED_PATH]
-                                    [--base-ref BASE_REF] [--before BEFORE]
+                                    [--environments ENVIRONMENTS] [--event-name EVENT_NAME]
+                                    [--changed-path CHANGED_PATH] [--base-ref BASE_REF] [--before BEFORE]
                                     [--after AFTER] [--format {table,json}]
 ```
 
@@ -1058,8 +1084,7 @@ stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
 ```text
 stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
                               [--discovery-mode {folders,flat-files,env-files,env,auto}]
-                              [--environments ENVIRONMENTS]
-                              [--workflow-runfile WORKFLOW_RUNFILE]
+                              [--environments ENVIRONMENTS] [--workflow-runfile WORKFLOW_RUNFILE]
                               [--workflow-env-file WORKFLOW_ENV_FILE]
                               [--workflow-validation-report-format WORKFLOW_VALIDATION_REPORT_FORMAT]
                               [--format {table,json}]
@@ -1074,6 +1099,90 @@ stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
 | `--workflow-env-file` | Env file path to validate for CI invocations. Use /dev/null to represent deterministic no-env-file mode. |
 | `--workflow-validation-report-format` | Validation report format value to validate for CI plan runs. |
 | `--format` | Output format for CI validation results. Choices: `table`, `json`. |
+
+### `stacksmith ci prepare`
+
+```text
+stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
+                             [--discovery-mode {folders,flat-files,env-files,env,auto}]
+                             [--environments ENVIRONMENTS] [--event-name EVENT_NAME]
+                             [--changed-path CHANGED_PATH] [--base-ref BASE_REF] [--before BEFORE]
+                             [--after AFTER] --command {plan,apply,operation} [--operation-name OPERATION_NAME]
+                             --config-ref CONFIG_REF [--workdir WORKDIR] [--env-file ENV_FILE]
+                             [--stacksmith-args-json STACKSMITH_ARGS_JSON] [--no-cas] [--force-rerun]
+                             [--validation-report-format {json}] [--fail-on-changes]
+                             [--strict-validation-warnings] [--ref-name REF_NAME]
+                             [--default-branch DEFAULT_BRANCH] [--is-primary-branch {true,false}]
+                             [--skip-branch-validation] [--format {table,json}]
+```
+
+| Argument | Description |
+| - | - |
+| `--gitops-root` | Relative path to the GitOps root folder. |
+| `--discovery-mode` | Environment discovery mode. Use folders, flat-files, or env-files (env is an alias for env-files). Choices: `folders`, `flat-files`, `env-files`, `env`, `auto`. |
+| `--environments` | Optional comma-separated environment names to target manually. |
+| `--event-name` | Optional caller event name used for event-aware selection. |
+| `--changed-path` | Changed repository path used for selection simulation. Repeatable. |
+| `--base-ref` | Base branch name used for pull-request diff selection. |
+| `--before` | Previous commit SHA used for push diff selection. |
+| `--after` | Current commit SHA used for push diff selection. |
+| `--command` | Stacksmith command to execute for each selected environment. Choices: `plan`, `apply`, `operation`. |
+| `--operation-name` | Stack-local operation name required when command is operation. |
+| `--config-ref` | Platform-managed Stacksmith config reference. |
+| `--workdir` | Working directory relative to the checked-out repository. |
+| `--env-file` | Environment file path, or /dev/null to disable implicit loading. |
+| `--stacksmith-args-json` | JSON array of additional Stacksmith command-line arguments. |
+| `--no-cas` | Disable content-addressable caching for generated runtime commands. |
+| `--force-rerun` | Force native operation execution even when its identity is unchanged. |
+| `--validation-report-format` | Validation report format for plan executions. Choices: `json`. |
+| `--fail-on-changes` | Fail plan executions when resource changes are detected. |
+| `--strict-validation-warnings` | Treat plan validation warnings as failures. |
+| `--ref-name` | Current branch name used for shared branch policy validation. |
+| `--default-branch` | Repository default branch used for shared branch policy validation. |
+| `--is-primary-branch` | Provider primary-branch indicator when no default branch is available. Choices: `true`, `false`. |
+| `--skip-branch-validation` | Skip shared branch and pull-request policy validation. |
+| `--format` | Output format for the CI execution manifest. Choices: `table`, `json`. |
+
+### `stacksmith ci execute`
+
+```text
+stacksmith ci execute [-h] --manifest MANIFEST --environment ENVIRONMENT
+                             [--validation-report-output VALIDATION_REPORT_OUTPUT]
+```
+
+| Argument | Description |
+| - | - |
+| `--manifest` | Path to a JSON manifest emitted by stacksmith ci prepare. |
+| `--environment` | Environment row from the manifest to execute. |
+| `--validation-report-output` | Optional path for plan validation report output. When set, plan JSON report output is written to this file. |
+
+### `stacksmith ci prepare-from-env`
+
+```text
+stacksmith ci prepare-from-env [-h] [--provider {generic,github-actions,jenkins}]
+                                      [--manifest-file MANIFEST_FILE] [--github-output GITHUB_OUTPUT]
+```
+
+| Argument | Description |
+| - | - |
+| `--provider` | CI provider adapter mode. github-actions emits manifest, matrix, and count to GITHUB_OUTPUT. generic and jenkins emit manifest JSON to stdout. Choices: `generic`, `github-actions`, `jenkins`. |
+| `--manifest-file` | Optional file path where the generated manifest JSON is written. |
+| `--github-output` | Optional override path for GITHUB_OUTPUT when provider is github-actions. |
+
+### `stacksmith ci execute-from-env`
+
+```text
+stacksmith ci execute-from-env [-h] [--provider {generic,github-actions,jenkins}]
+                                      [--manifest-file MANIFEST_FILE] [--environment ENVIRONMENT]
+                                      [--validation-report-output VALIDATION_REPORT_OUTPUT]
+```
+
+| Argument | Description |
+| - | - |
+| `--provider` | CI provider adapter mode for execution defaults. Choices: `generic`, `github-actions`, `jenkins`. |
+| `--manifest-file` | Optional manifest file path override. When omitted, CI_MANIFEST_FILE or STACKSMITH_CI_MANIFEST is used. |
+| `--environment` | Optional environment name override. When omitted, STACKSMITH_ENVIRONMENT or ENVIRONMENT is used. |
+| `--validation-report-output` | Optional plan validation report output path override. When omitted, STACKSMITH_VALIDATION_REPORT_PATH or provider defaults are used. |
 
 <!-- END GENERATED CLI REFERENCE -->
 

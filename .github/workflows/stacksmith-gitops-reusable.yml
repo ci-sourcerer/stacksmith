@@ -3,73 +3,24 @@ name: stacksmith-gitops-reusable
 on:
   workflow_call:
     inputs:
-      command:
-        description: Stacksmith command to run. Supported values are plan, apply, and operation.
+      ci_manifest:
+        description: Versioned JSON manifest emitted by `stacksmith ci prepare`.
         required: true
         type: string
-      operation_name:
-        description: Stack-local native operation name. Required when command is operation.
-        required: false
-        type: string
-        default: ""
       environment:
-        description: Deployment environment name.
+        description: Deployment environment row to execute from the manifest.
         required: true
         type: string
-      runfile:
-        description: Path or URL to the Stacksmith runfile for this environment.
-        required: true
-        type: string
-      config_ref:
-        description: Platform-managed Stacksmith config reference to enforce for this environment.
-        required: false
-        type: string
-        default: ""
-      workdir:
-        description: Working directory to run Stacksmith from.
-        required: false
-        type: string
-        default: .
-      env_file:
-        description: Env file path to pass to Stacksmith (use /dev/null to disable implicit .env loading).
-        required: false
-        type: string
-        default: /dev/null
-      environment_runfile:
-        description: Optional second runfile path or URL for environment-specific overlays.
-        required: false
-        type: string
-        default: ""
-      stacksmith_args_json:
-        description: JSON array of additional Stacksmith CLI arguments. Preferred for complete and lossless CLI option support.
-        required: false
-        type: string
-        default: "[]"
       image_version:
         description: Tag for the custom Stacksmith container image.
         required: false
         type: string
         default: latest
-      validation_report_format:
-        description: Validation report format for plan output.
-        required: false
-        type: string
-        default: json
       upload_artifacts:
-        description: Upload plan artifacts when command is plan.
+        description: Upload plan artifacts when the manifest executes a plan.
         required: false
         type: boolean
         default: true
-      fail_on_changes:
-        description: Fail a plan when resource changes are detected.
-        required: false
-        type: boolean
-        default: false
-      strict_validation_warnings:
-        description: Treat plan validation warnings as failures.
-        required: false
-        type: boolean
-        default: false
     secrets:
       STACKSMITH_GIT_TOKEN:
         description: Optional Stacksmith Git token.
@@ -91,378 +42,70 @@ permissions:
   contents: read
 
 jobs:
-  validate-inputs:
-    name: validate-inputs
+  execute:
+    name: stacksmith-${{ fromJson(inputs.ci_manifest).command }}-${{ inputs.environment }}
     runs-on: ubuntu-latest
-    steps:
-      - name: Validate command
-        shell: bash
-        env:
-          INPUT_COMMAND: ${{ inputs.command }}
-          INPUT_OPERATION_NAME: ${{ inputs.operation_name }}
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          BASE_REF: ${{ github.base_ref }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          SKIP_BRANCH_VALIDATION: ${{ vars.NO_VALIDATE_BRANCH_AND_OPERATION || 'false' }}
-        run: |
-          set -euo pipefail
-          case "$INPUT_COMMAND" in
-            plan|apply) ;;
-            operation)
-              if [ -z "$INPUT_OPERATION_NAME" ]; then
-                echo "operation_name is required when command is 'operation'." >&2
-                exit 1
-              fi
-              ;;
-            *)
-              echo "Invalid command '$INPUT_COMMAND'. Expected 'plan', 'apply', or 'operation'." >&2
-              exit 1
-              ;;
-          esac
-
-          case "$SKIP_BRANCH_VALIDATION" in
-            1|true|TRUE|yes|YES|on|ON) exit 0 ;;
-          esac
-
-          if [ -z "$DEFAULT_BRANCH" ]; then
-            exit 0
-          elif [ "$EVENT_NAME" = pull_request ]; then
-            if [ "$INPUT_COMMAND" = apply ] || [ "$INPUT_COMMAND" = operation ]; then
-              echo "'$INPUT_COMMAND' is not allowed on pull requests. Use 'plan' instead." >&2
-              exit 1
-            fi
-            if [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
-              echo "Pull request operations must target the default branch '$DEFAULT_BRANCH'." >&2
-              exit 1
-            fi
-          elif [ "$REF_NAME" != "$DEFAULT_BRANCH" ]; then
-            echo "Operations are only allowed on the default branch or pull requests to it. Current branch: $REF_NAME" >&2
-            exit 1
-          fi
-
-  plan:
-    needs: validate-inputs
-    if: ${{ inputs.command == 'plan' }}
-    name: stacksmith-plan-${{ inputs.environment }}
-    runs-on: ubuntu-latest
+    environment: ${{ fromJson(inputs.ci_manifest).command != 'plan' && inputs.environment || '' }}
     container:
       image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
     defaults:
       run:
         shell: bash
-        working-directory: ${{ inputs.workdir }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Run Stacksmith plan
+      - name: Execute Stacksmith manifest
         env:
+          STACKSMITH_CI_MANIFEST: ${{ inputs.ci_manifest }}
+          STACKSMITH_ENVIRONMENT: ${{ inputs.environment }}
           STACKSMITH_GIT_TOKEN: ${{ secrets.STACKSMITH_GIT_TOKEN }}
           STACKSMITH_GIT_SSH_KEY_MATERIAL: ${{ secrets.STACKSMITH_GIT_SSH_KEY }}
           STACKSMITH_HTTP_TOKEN: ${{ secrets.STACKSMITH_HTTP_TOKEN }}
           STACKSMITH_HTTP_USERNAME: ${{ secrets.STACKSMITH_HTTP_USERNAME }}
           STACKSMITH_HTTP_PASSWORD: ${{ secrets.STACKSMITH_HTTP_PASSWORD }}
-          STACKSMITH_NO_CAS: ${{ vars.STACKSMITH_NO_CAS || 'false' }}
-          FAIL_ON_CHANGES: ${{ inputs.fail_on_changes }}
-          STRICT_VALIDATION_WARNINGS: ${{ inputs.strict_validation_warnings }}
-          STACKSMITH_ARGS_JSON: ${{ inputs.stacksmith_args_json }}
-          STACKSMITH_CONFIG_REF: ${{ inputs.config_ref }}
           TG_AUTH_PROVIDER_CMD: ${{ vars.TG_AUTH_PROVIDER_CMD || '' }}
           TG_IAM_ASSUME_ROLE: ${{ vars.TG_IAM_ASSUME_ROLE || '' }}
         run: |
           set -euo pipefail
-          artifact_dir=".stacksmith-ci/${{ inputs.environment }}"
-          mkdir -p "$artifact_dir"
-          cas_flag=""
-          case "${STACKSMITH_NO_CAS:-false}" in
-            1|true|TRUE|yes|YES|on|ON) cas_flag="--no-cas" ;;
-          esac
-          plan_flags=()
-          [ "$FAIL_ON_CHANGES" = true ] && plan_flags+=(--fail-on-changes)
-          [ "$STRICT_VALIDATION_WARNINGS" = true ] && plan_flags+=(--strict-validation-warnings)
-          extra_args_file="$artifact_dir/extra-args.bin"
-          python3 - <<'PY' > "$extra_args_file"
-          import json, os, sys
-          args = json.loads(os.environ.get("STACKSMITH_ARGS_JSON") or "[]")
-          if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
-              sys.exit("stacksmith_args_json must be a JSON array of strings")
-          for arg in args:
-              if arg in {"--config", "-c"} or arg.startswith("--config=") or arg.startswith("-c="):
-                  sys.exit("stacksmith_args_json cannot override the platform-managed config")
-          if any("\0" in arg for arg in args):
-              sys.exit("stacksmith_args_json entries cannot contain NUL bytes")
-          sys.stdout.buffer.write(b"".join(arg.encode() + b"\0" for arg in args))
-          PY
-          mapfile -d '' -t extra_args < "$extra_args_file"
-
-          if [ -z "${STACKSMITH_CONFIG_REF:-}" ]; then
-            echo "config_ref is required and must point to the platform-managed Stacksmith config." >&2
-            exit 1
-          fi
-          config_arg=(--config "$STACKSMITH_CONFIG_REF")
-
-          if [ -n "${STACKSMITH_GIT_SSH_KEY_MATERIAL:-}" ]; then
-            ssh_key_path="${RUNNER_TEMP:-/tmp}/stacksmith_git_ssh_key_${{ inputs.environment }}"
-            umask 077
-            printf '%s\n' "$STACKSMITH_GIT_SSH_KEY_MATERIAL" > "$ssh_key_path"
-            export STACKSMITH_GIT_SSH_KEY="$ssh_key_path"
-          fi
-
-          if [ -n "${{ inputs.environment_runfile }}" ]; then
-            stacksmith plan \
-              "${config_arg[@]}" \
-              "${extra_args[@]}" \
-              --var "environment=${{ inputs.environment }}" \
-              --env-file "${{ inputs.env_file }}" \
-              --runfile "${{ inputs.runfile }}" \
-              --runfile "${{ inputs.environment_runfile }}" \
-              --build-dir "$artifact_dir" \
-              --save-plan-json "$artifact_dir/plan.json" \
-              --validation-report-format "${{ inputs.validation_report_format }}" \
-              $cas_flag \
-              "${plan_flags[@]}" \
-              | tee "$artifact_dir/validation-report.${{ inputs.validation_report_format }}"
-          else
-            stacksmith plan \
-              "${config_arg[@]}" \
-              "${extra_args[@]}" \
-              --var "environment=${{ inputs.environment }}" \
-              --env-file "${{ inputs.env_file }}" \
-              --runfile "${{ inputs.runfile }}" \
-              --build-dir "$artifact_dir" \
-              --save-plan-json "$artifact_dir/plan.json" \
-              --validation-report-format "${{ inputs.validation_report_format }}" \
-              $cas_flag \
-              "${plan_flags[@]}" \
-              | tee "$artifact_dir/validation-report.${{ inputs.validation_report_format }}"
-          fi
+          stacksmith ci execute-from-env --provider github-actions
 
       - name: Upload plan artifacts
-        if: ${{ (success() || failure()) && inputs.upload_artifacts }}
+        if: ${{ (success() || failure()) && inputs.upload_artifacts && fromJson(inputs.ci_manifest).command == 'plan' }}
         uses: actions/upload-artifact@v7
         with:
           name: stacksmith-plan-${{ inputs.environment }}-${{ github.sha }}
           path: |
-            ${{ inputs.workdir }}/.stacksmith-ci/${{ inputs.environment }}/validation-report.${{ inputs.validation_report_format }}
-            ${{ inputs.workdir }}/.stacksmith-ci/${{ inputs.environment }}/plan.json
+            ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/validation-report.${{ fromJson(inputs.ci_manifest).validation_report_format }}
+            ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/plan.json
 
-      - name: Summarize plan
+      - name: Summarize execution
         if: ${{ success() || failure() }}
         env:
-          SUMMARY_ENVIRONMENT: ${{ inputs.environment }}
-          SUMMARY_RUNFILE: ${{ inputs.runfile }}
-          SUMMARY_REPORT: .stacksmith-ci/${{ inputs.environment }}/validation-report.${{ inputs.validation_report_format }}
-        run: |
-          {
-              echo "## Stacksmith Plan"
-              echo ""
-              printf -- '- Environment: `%s`\n' "$SUMMARY_ENVIRONMENT"
-              printf -- '- Runfile: `%s`\n' "$SUMMARY_RUNFILE"
-              echo '- Operation: `plan`'
-              printf -- '- Report: `%s`\n' "$SUMMARY_REPORT"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  apply:
-    needs: validate-inputs
-    if: ${{ inputs.command == 'apply' }}
-    name: stacksmith-apply-${{ inputs.environment }}
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
-    container:
-      image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
-    defaults:
-      run:
-        shell: bash
-        working-directory: ${{ inputs.workdir }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Run Stacksmith apply
-        env:
-          STACKSMITH_GIT_TOKEN: ${{ secrets.STACKSMITH_GIT_TOKEN }}
-          STACKSMITH_GIT_SSH_KEY_MATERIAL: ${{ secrets.STACKSMITH_GIT_SSH_KEY }}
-          STACKSMITH_HTTP_TOKEN: ${{ secrets.STACKSMITH_HTTP_TOKEN }}
-          STACKSMITH_HTTP_USERNAME: ${{ secrets.STACKSMITH_HTTP_USERNAME }}
-          STACKSMITH_HTTP_PASSWORD: ${{ secrets.STACKSMITH_HTTP_PASSWORD }}
-          STACKSMITH_NO_CAS: ${{ vars.STACKSMITH_NO_CAS || 'false' }}
-          STACKSMITH_ARGS_JSON: ${{ inputs.stacksmith_args_json }}
-          STACKSMITH_CONFIG_REF: ${{ inputs.config_ref }}
-          TG_AUTH_PROVIDER_CMD: ${{ vars.TG_AUTH_PROVIDER_CMD || '' }}
-          TG_IAM_ASSUME_ROLE: ${{ vars.TG_IAM_ASSUME_ROLE || '' }}
-        run: |
-          set -euo pipefail
-          artifact_dir=".stacksmith-ci/${{ inputs.environment }}"
-          mkdir -p "$artifact_dir"
-          cas_flag=""
-          case "${STACKSMITH_NO_CAS:-false}" in
-            1|true|TRUE|yes|YES|on|ON) cas_flag="--no-cas" ;;
-          esac
-          extra_args_file="$artifact_dir/extra-args.bin"
-          python3 - <<'PY' > "$extra_args_file"
-          import json, os, sys
-          args = json.loads(os.environ.get("STACKSMITH_ARGS_JSON") or "[]")
-          if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
-              sys.exit("stacksmith_args_json must be a JSON array of strings")
-          for arg in args:
-              if arg in {"--config", "-c"} or arg.startswith("--config=") or arg.startswith("-c="):
-                  sys.exit("stacksmith_args_json cannot override the platform-managed config")
-          if any("\0" in arg for arg in args):
-              sys.exit("stacksmith_args_json entries cannot contain NUL bytes")
-          sys.stdout.buffer.write(b"".join(arg.encode() + b"\0" for arg in args))
-          PY
-          mapfile -d '' -t extra_args < "$extra_args_file"
-
-          if [ -z "${STACKSMITH_CONFIG_REF:-}" ]; then
-            echo "config_ref is required and must point to the platform-managed Stacksmith config." >&2
-            exit 1
-          fi
-          config_arg=(--config "$STACKSMITH_CONFIG_REF")
-
-          if [ -n "${STACKSMITH_GIT_SSH_KEY_MATERIAL:-}" ]; then
-            ssh_key_path="${RUNNER_TEMP:-/tmp}/stacksmith_git_ssh_key_${{ inputs.environment }}"
-            umask 077
-            printf '%s\n' "$STACKSMITH_GIT_SSH_KEY_MATERIAL" > "$ssh_key_path"
-            export STACKSMITH_GIT_SSH_KEY="$ssh_key_path"
-          fi
-
-          if [ -n "${{ inputs.environment_runfile }}" ]; then
-            stacksmith apply \
-              "${config_arg[@]}" \
-              "${extra_args[@]}" \
-              --var "environment=${{ inputs.environment }}" \
-              --env-file "${{ inputs.env_file }}" \
-              --runfile "${{ inputs.runfile }}" \
-              --runfile "${{ inputs.environment_runfile }}" \
-              --build-dir "$artifact_dir" \
-              --auto-approve \
-              $cas_flag
-          else
-            stacksmith apply \
-              "${config_arg[@]}" \
-              "${extra_args[@]}" \
-              --var "environment=${{ inputs.environment }}" \
-              --env-file "${{ inputs.env_file }}" \
-              --runfile "${{ inputs.runfile }}" \
-              --build-dir "$artifact_dir" \
-              --auto-approve \
-              $cas_flag
-          fi
-
-      - name: Summarize apply
-        env:
-          SUMMARY_ENVIRONMENT: ${{ inputs.environment }}
-          SUMMARY_RUNFILE: ${{ inputs.runfile }}
-        run: |
-          {
-              echo "## Stacksmith Apply"
-              echo ""
-              printf -- '- Environment: `%s`\n' "$SUMMARY_ENVIRONMENT"
-              printf -- '- Runfile: `%s`\n' "$SUMMARY_RUNFILE"
-              echo '- Operation: `apply`'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  operation:
-    needs: validate-inputs
-    if: ${{ inputs.command == 'operation' }}
-    name: stacksmith-operation-${{ inputs.environment }}
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
-    container:
-      image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
-    defaults:
-      run:
-        shell: bash
-        working-directory: ${{ inputs.workdir }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Run Stacksmith operation
-        env:
-          STACKSMITH_GIT_TOKEN: ${{ secrets.STACKSMITH_GIT_TOKEN }}
-          STACKSMITH_GIT_SSH_KEY_MATERIAL: ${{ secrets.STACKSMITH_GIT_SSH_KEY }}
-          STACKSMITH_HTTP_TOKEN: ${{ secrets.STACKSMITH_HTTP_TOKEN }}
-          STACKSMITH_HTTP_USERNAME: ${{ secrets.STACKSMITH_HTTP_USERNAME }}
-          STACKSMITH_HTTP_PASSWORD: ${{ secrets.STACKSMITH_HTTP_PASSWORD }}
-          STACKSMITH_NO_CAS: ${{ vars.STACKSMITH_NO_CAS || 'false' }}
-          STACKSMITH_ARGS_JSON: ${{ inputs.stacksmith_args_json }}
-          STACKSMITH_CONFIG_REF: ${{ inputs.config_ref }}
+          STACKSMITH_CI_MANIFEST: ${{ inputs.ci_manifest }}
           STACKSMITH_ENVIRONMENT: ${{ inputs.environment }}
-          STACKSMITH_ENVIRONMENT_RUNFILE: ${{ inputs.environment_runfile }}
-          STACKSMITH_ENV_FILE: ${{ inputs.env_file }}
-          STACKSMITH_FORCE_RERUN: ${{ vars.STACKSMITH_FORCE_RERUN || 'false' }}
-          STACKSMITH_OPERATION_NAME: ${{ inputs.operation_name }}
-          STACKSMITH_RUNFILE: ${{ inputs.runfile }}
-          TG_AUTH_PROVIDER_CMD: ${{ vars.TG_AUTH_PROVIDER_CMD || '' }}
-          TG_IAM_ASSUME_ROLE: ${{ vars.TG_IAM_ASSUME_ROLE || '' }}
         run: |
-          set -euo pipefail
-          artifact_dir=".stacksmith-ci/$STACKSMITH_ENVIRONMENT"
-          mkdir -p "$artifact_dir"
-          cas_flag=""
-          case "${STACKSMITH_NO_CAS:-false}" in
-            1|true|TRUE|yes|YES|on|ON) cas_flag="--no-cas" ;;
-          esac
-          extra_args_file="$artifact_dir/extra-args.bin"
-          python3 - <<'PY' > "$extra_args_file"
-          import json, os, sys
-          args = json.loads(os.environ.get("STACKSMITH_ARGS_JSON") or "[]")
-          if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
-              sys.exit("stacksmith_args_json must be a JSON array of strings")
-          for arg in args:
-              if arg in {"--config", "-c"} or arg.startswith("--config=") or arg.startswith("-c="):
-                  sys.exit("stacksmith_args_json cannot override the platform-managed config")
-          if any("\0" in arg for arg in args):
-              sys.exit("stacksmith_args_json entries cannot contain NUL bytes")
-          sys.stdout.buffer.write(b"".join(arg.encode() + b"\0" for arg in args))
+          python3 - <<'PY' >>"$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+
+          manifest = json.loads(os.environ["STACKSMITH_CI_MANIFEST"])
+          row = next(
+              item for item in manifest["matrix"]
+              if item["environment"] == os.environ["STACKSMITH_ENVIRONMENT"]
+          )
+          print(f"## Stacksmith {manifest['command'].title()}")
+          print()
+          print(f"- Environment: `{row['environment']}`")
+          print(f"- Runfile: `{row['runfile']}`")
+          if manifest["command"] == "operation":
+              print(f"- Operation: `{manifest['operation_name']}`")
+          elif manifest["command"] == "plan":
+              print(
+                  "- Report: "
+                  f"`{manifest['workdir']}/.stacksmith-ci/{row['environment']}/"
+                  f"validation-report.{manifest['validation_report_format']}`"
+              )
           PY
-          mapfile -d '' -t extra_args < "$extra_args_file"
-
-          if [ -z "${STACKSMITH_CONFIG_REF:-}" ]; then
-            echo "config_ref is required and must point to the platform-managed Stacksmith config." >&2
-            exit 1
-          fi
-          config_arg=(--config "$STACKSMITH_CONFIG_REF")
-
-          if [ -n "${STACKSMITH_GIT_SSH_KEY_MATERIAL:-}" ]; then
-            ssh_key_path="${RUNNER_TEMP:-/tmp}/stacksmith_git_ssh_key_$STACKSMITH_ENVIRONMENT"
-            umask 077
-            printf '%s\n' "$STACKSMITH_GIT_SSH_KEY_MATERIAL" > "$ssh_key_path"
-            export STACKSMITH_GIT_SSH_KEY="$ssh_key_path"
-          fi
-
-          runfiles=(--runfile "$STACKSMITH_RUNFILE")
-          if [ -n "$STACKSMITH_ENVIRONMENT_RUNFILE" ]; then
-            runfiles+=(--runfile "$STACKSMITH_ENVIRONMENT_RUNFILE")
-          fi
-
-          stacksmith operation run "$STACKSMITH_OPERATION_NAME" \
-            "${config_arg[@]}" \
-            "${extra_args[@]}" \
-            --var "environment=$STACKSMITH_ENVIRONMENT" \
-            --env-file "$STACKSMITH_ENV_FILE" \
-            "${runfiles[@]}" \
-            --build-dir "$artifact_dir" \
-            $cas_flag
-
-      - name: Summarize operation
-        env:
-          SUMMARY_ENVIRONMENT: ${{ inputs.environment }}
-          SUMMARY_OPERATION_NAME: ${{ inputs.operation_name }}
-          SUMMARY_RUNFILE: ${{ inputs.runfile }}
-        run: |
-          {
-              echo "## Stacksmith Operation"
-              echo ""
-              printf -- '- Environment: `%s`\n' "$SUMMARY_ENVIRONMENT"
-              printf -- '- Runfile: `%s`\n' "$SUMMARY_RUNFILE"
-              printf -- '- Operation: `%s`\n' "$SUMMARY_OPERATION_NAME"
-          } >> "$GITHUB_STEP_SUMMARY"

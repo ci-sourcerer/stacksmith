@@ -206,7 +206,6 @@ def inspect_component_type(
     component_type: str,
     mapping: ModuleMapping,
     config: ToolConfig | None = None,
-    *,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
     vendor_dir: Path | None = None,
@@ -304,7 +303,6 @@ def inspect_component_type(
 def _build_input_info(
     var_name: str,
     property_spec: ModulePropertySpec | None,
-    *,
     validation_location: str | None = None,
     validation_source: str | None = None,
     transform_location: str | None = None,
@@ -327,7 +325,6 @@ def _build_input_info(
 
 def inspect_all(
     config: ToolConfig,
-    *,
     component_types: list[str] | None = None,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
@@ -400,7 +397,7 @@ def inspect_plan_policies(
     return policies
 
 
-def format_json(results: list[ComponentTypeInfo], *, details: bool = True) -> str:
+def format_json(results: list[ComponentTypeInfo], details: bool = True) -> str:
     """Serialize inspection results to JSON.
 
     Args:
@@ -440,7 +437,7 @@ def format_json(results: list[ComponentTypeInfo], *, details: bool = True) -> st
     return json.dumps(output, indent=2, sort_keys=True)
 
 
-def format_yaml(results: list[ComponentTypeInfo], *, details: bool = True) -> str:
+def format_yaml(results: list[ComponentTypeInfo], details: bool = True) -> str:
     """Serialize inspection results to YAML.
 
     Args:
@@ -458,7 +455,6 @@ def format_yaml(results: list[ComponentTypeInfo], *, details: bool = True) -> st
 
 def format_table(
     results: list[ComponentTypeInfo],
-    *,
     details: bool = True,
     basic: bool = False,
     plan_policies: list[PlanPolicyInfo] | None = None,

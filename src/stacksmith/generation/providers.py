@@ -16,7 +16,6 @@ from ..remote import resolve_reference_path
 def _load_provider_config_code(
     spec: Any,
     base_path: Path | None,
-    *,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
 ) -> tuple[str, str]:
@@ -54,7 +53,6 @@ def _evaluate_provider_config(
     provider_name: str,
     instance_name: str,
     config: Any,
-    *,
     context: dict[str, Any],
     base_path: Path | None,
     cache_dir: Path | None = None,
@@ -90,7 +88,6 @@ def _evaluate_provider_config(
 
 def _build_required_providers(
     config: ToolConfig,
-    *,
     formatter_options: Mapping[str, Any] | None = None,
 ) -> dict[str, dict[str, str]]:
     return {
@@ -105,7 +102,6 @@ def _build_required_providers(
 
 def _build_provider_blocks(
     config: ToolConfig,
-    *,
     context: dict[str, Any],
     base_path: Path | None,
     cache_dir: Path | None = None,

@@ -11,6 +11,8 @@ from ..enums import (
 from ..exceptions import StacksmithConfigError
 from ..utils import env_truthy, stacksmith_env, stacksmith_env_list
 
+CI_ADAPTER_PROVIDERS = ["generic", "github-actions", "jenkins"]
+
 STACKSMITH_LOG_CATEGORIES = (
     "stacksmith.api",
     "stacksmith.cli.args",
@@ -240,7 +242,6 @@ def _add_plan_output_args(parser: argparse.ArgumentParser) -> None:
 
 def _add_target_selection_args(
     parser: argparse.ArgumentParser,
-    *,
     include_auto_approve: bool = False,
     tag_help: str | None = None,
     tag_expr_help: str | None = None,
@@ -430,7 +431,6 @@ def _configure_diagnose_parser(parser: argparse.ArgumentParser) -> None:
 
 def _add_gitops_discovery_args(
     parser: argparse.ArgumentParser,
-    *,
     include_event_context: bool,
     include_auto_mode: bool,
     discovery_mode_default: str,
@@ -541,9 +541,188 @@ def _configure_ci_validate_parser(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
+    _add_gitops_discovery_args(
+        parser,
+        include_event_context=True,
+        include_auto_mode=True,
+        discovery_mode_default="auto",
+    )
+    parser.add_argument(
+        "--command",
+        required=True,
+        choices=["plan", "apply", "operation"],
+        help="Stacksmith command to execute for each selected environment.",
+    )
+    parser.add_argument(
+        "--operation-name",
+        default="",
+        help="Stack-local operation name required when command is operation.",
+    )
+    parser.add_argument(
+        "--config-ref",
+        required=True,
+        help="Platform-managed Stacksmith config reference.",
+    )
+    parser.add_argument(
+        "--workdir",
+        default=".",
+        help="Working directory relative to the checked-out repository.",
+    )
+    parser.add_argument(
+        "--env-file",
+        default="/dev/null",
+        help="Environment file path, or /dev/null to disable implicit loading.",
+    )
+    parser.add_argument(
+        "--stacksmith-args-json",
+        default="[]",
+        help="JSON array of additional Stacksmith command-line arguments.",
+    )
+    parser.add_argument(
+        "--no-cas",
+        action="store_true",
+        default=False,
+        help="Disable content-addressable caching for generated runtime commands.",
+    )
+    parser.add_argument(
+        "--force-rerun",
+        action="store_true",
+        default=False,
+        help="Force native operation execution even when its identity is unchanged.",
+    )
+    parser.add_argument(
+        "--validation-report-format",
+        default=ValidationReportFormat.JSON.value,
+        choices=[format_name.value for format_name in ValidationReportFormat],
+        help="Validation report format for plan executions.",
+    )
+    parser.add_argument(
+        "--fail-on-changes",
+        action="store_true",
+        default=False,
+        help="Fail plan executions when resource changes are detected.",
+    )
+    parser.add_argument(
+        "--strict-validation-warnings",
+        action="store_true",
+        default=False,
+        help="Treat plan validation warnings as failures.",
+    )
+    parser.add_argument(
+        "--ref-name",
+        default="",
+        help="Current branch name used for shared branch policy validation.",
+    )
+    parser.add_argument(
+        "--default-branch",
+        default="",
+        help="Repository default branch used for shared branch policy validation.",
+    )
+    parser.add_argument(
+        "--is-primary-branch",
+        choices=["true", "false"],
+        default=None,
+        help="Provider primary-branch indicator when no default branch is available.",
+    )
+    parser.add_argument(
+        "--skip-branch-validation",
+        action="store_true",
+        default=False,
+        help="Skip shared branch and pull-request policy validation.",
+    )
+    parser.add_argument(
+        "--format",
+        choices=[format_name.value for format_name in InspectOutputFormat],
+        default=InspectOutputFormat.JSON.value,
+        help="Output format for the CI execution manifest.",
+    )
+
+
+def _configure_ci_execute_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--manifest",
+        type=_path_type,
+        required=True,
+        help="Path to a JSON manifest emitted by stacksmith ci prepare.",
+    )
+    parser.add_argument(
+        "--environment",
+        required=True,
+        help="Environment row from the manifest to execute.",
+    )
+    parser.add_argument(
+        "--validation-report-output",
+        type=_path_type,
+        default=None,
+        help=(
+            "Optional path for plan validation report output. "
+            "When set, plan JSON report output is written to this file."
+        ),
+    )
+
+
+def _configure_ci_prepare_from_env_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--provider",
+        choices=CI_ADAPTER_PROVIDERS,
+        default="generic",
+        help=(
+            "CI provider adapter mode. github-actions emits manifest, matrix, and "
+            "count to GITHUB_OUTPUT. generic and jenkins emit manifest JSON to stdout."
+        ),
+    )
+    parser.add_argument(
+        "--manifest-file",
+        type=_path_type,
+        default=None,
+        help="Optional file path where the generated manifest JSON is written.",
+    )
+    parser.add_argument(
+        "--github-output",
+        type=_path_type,
+        default=None,
+        help="Optional override path for GITHUB_OUTPUT when provider is github-actions.",
+    )
+
+
+def _configure_ci_execute_from_env_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--provider",
+        choices=CI_ADAPTER_PROVIDERS,
+        default="generic",
+        help="CI provider adapter mode for execution defaults.",
+    )
+    parser.add_argument(
+        "--manifest-file",
+        type=_path_type,
+        default=None,
+        help=(
+            "Optional manifest file path override. "
+            "When omitted, CI_MANIFEST_FILE or STACKSMITH_CI_MANIFEST is used."
+        ),
+    )
+    parser.add_argument(
+        "--environment",
+        default="",
+        help=(
+            "Optional environment name override. "
+            "When omitted, STACKSMITH_ENVIRONMENT or ENVIRONMENT is used."
+        ),
+    )
+    parser.add_argument(
+        "--validation-report-output",
+        type=_path_type,
+        default=None,
+        help=(
+            "Optional plan validation report output path override. "
+            "When omitted, STACKSMITH_VALIDATION_REPORT_PATH or provider defaults are used."
+        ),
+    )
+
+
 def _add_stack_arg(
     parser: argparse.ArgumentParser,
-    *,
     include_positional: bool = True,
 ) -> None:
     parser.add_argument(

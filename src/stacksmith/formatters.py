@@ -64,7 +64,6 @@ PROVIDER_SOURCE_FORMATTERS: dict[str, ProviderSourceFormatter] = {
 def render_file_reference_for(
     target: str,
     reference: FileReference | str | Path,
-    *,
     options: Mapping[str, Any] | None = None,
 ) -> str:
     """Render a file reference string for a target formatter.
@@ -92,7 +91,6 @@ def render_file_reference_for(
 def render_module_source_for(
     target: str,
     source: ModuleSourceReference,
-    *,
     options: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
     """Render module source fields for a target formatter.
@@ -120,7 +118,6 @@ def render_module_source_for(
 def render_provider_source_for(
     target: str,
     source: ProviderSourceReference,
-    *,
     options: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
     """Render provider source fields for a target formatter.

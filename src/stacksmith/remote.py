@@ -82,7 +82,6 @@ def parse_git_url(url: str) -> GitRef:
 
 def resolve_reference_path(
     reference: str | Path | "FileReference",
-    *,
     base_path: Path | None,
     cache_dir: Path | None = None,
     auth_config: "RemoteAuthConfig | None" = None,
@@ -480,7 +479,6 @@ def resolve_if_remote(
     reference: str | Path | "FileReference",
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
-    *,
     missing_cache_error_factory: Callable[[str], Exception] | None = None,
 ) -> Path:
     """Return a local `Path` — fetching first when the reference is a remote URL.
@@ -516,7 +514,6 @@ def resolve_references(
     references: Sequence[str | Path | "FileReference"],
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
-    *,
     missing_cache_error_factory: Callable[[str], Exception] | None = None,
 ) -> list[Path]:
     """Resolve an ordered collection of local and remote file references."""

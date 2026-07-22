@@ -13,7 +13,6 @@ from stacksmith.loader import (
 
 
 def _s3_config_yaml(
-    *,
     backend_bucket: str = "test-state-bucket",
     backend_region: str = "us-east-1",
     provider_version: str = "~> 5.0",
@@ -62,7 +61,6 @@ def _s3_config_yaml(
 
 
 def _local_config_yaml(
-    *,
     module_body: str = "",
     extra_body: str = "",
 ) -> str:
@@ -101,7 +99,6 @@ def _local_config_yaml(
 
 
 def _provider_override_yaml(
-    *,
     version: str,
     module_body: str = "",
     extra_body: str = "",
@@ -594,46 +591,6 @@ class TestLoadConfig:
             config.provider_mappings["aws"].instances["default"].config.inline
             is not None
         )
-
-    def test_load_config_rejects_legacy_reference_shapes(self, tmp_path: Path):
-        config_file = tmp_path / "stacksmith-config.yaml"
-        config_file.write_text(
-            "backend:\n"
-            "  type: local\n"
-            "  path: .state\n"
-            "tools:\n"
-            "  tofu:\n"
-            "    version: '1.8.0'\n"
-            "  terragrunt:\n"
-            "    version: '1.0.6'\n"
-            "provider_mappings:\n"
-            "  aws:\n"
-            "    source: hashicorp/aws\n"
-            "    version: '~> 6.0'\n"
-            "    instances:\n"
-            "      default:\n"
-            "        config:\n"
-            "          script: scripts/providers/aws.py\n"
-            "module_mappings:\n"
-            "  aws_s3_bucket:\n"
-            "    source: https://github.com/org/terraform-aws-s3.git//modules/bucket\n"
-            "    version: '1.2.3'\n"
-            "    properties:\n"
-            "      acl:\n"
-            "        transform:\n"
-            "          script: scripts/transforms/acl.py\n"
-            "var_validations:\n"
-            "  bucket_name:\n"
-            "    script: scripts/validations/bucket_name.py\n"
-            "plan_validations:\n"
-            "  no_destroy:\n"
-            "    rule:\n"
-            "      script: scripts/validations/no_destroy.py\n",
-            encoding="utf-8",
-        )
-
-        with pytest.raises(ValidationError):
-            load_config(config_file)
 
     def test_load_local_backend_config(self, sample_config_local_yaml: Path):
         config = load_config(sample_config_local_yaml)

@@ -34,7 +34,6 @@ from .validations.summarize import (
 
 
 def _load_inline_or_script_code(
-    *,
     inline_code: str | None,
     script: FileReference | None,
     inline_origin: str,
@@ -86,7 +85,6 @@ def _format_validation_error(
 def _resolve_script_path(
     script: FileReference | str,
     base_path: Path | None,
-    *,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
 ) -> Path:
@@ -117,7 +115,6 @@ def _resolve_script_path(
 def _load_code(
     spec: ValidationSpec | TransformSpec,
     base_path: Path | None,
-    *,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
 ) -> tuple[str, str]:
@@ -206,7 +203,6 @@ class PlanValidationExitCode(IntEnum):
 
 def process_plan_validation_results(
     results: list[PlanValidationResult],
-    *,
     strict_validation_warnings: bool,
 ) -> PlanValidationExitCode:
     """Log plan validation outcomes and return the process-style exit code.
@@ -262,13 +258,12 @@ def _process_plan_validation(
     name: str,
     plan_validation: PlanValidation,
     plan_data: dict[str, Any],
-    *,
+    resource_summary: str,
+    stack_name: str,
     base_path: Path | None = None,
     context: dict[str, Any] | None = None,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
-    resource_summary: str,
-    stack_name: str,
 ) -> PlanValidationResult:
     LOGGER.debug(
         "Evaluating plan validation '{name}' for stack: {stack_name}",
@@ -320,14 +315,13 @@ async def _evaluate_plan_validation_task(
     name: str,
     plan_validation: PlanValidation,
     plan_data: dict[str, Any],
-    *,
+    resource_summary: str,
+    stack_name: str,
+    semaphore: asyncio.Semaphore,
     base_path: Path | None = None,
     context: dict[str, Any] | None = None,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
-    resource_summary: str,
-    stack_name: str,
-    semaphore: asyncio.Semaphore,
 ) -> PlanValidationResult:
     async with semaphore:
         return await asyncio.to_thread(
@@ -358,7 +352,7 @@ def _extract_outcome_status_and_message(
     return _normalize_outcome_status(raw_result), None
 
 
-def _invalid_outcome_contract_message(*, allow_warn: bool, raw_result: Any) -> str:
+def _invalid_outcome_contract_message(allow_warn: bool, raw_result: Any) -> str:
     status_values = "'pass', 'warn', or 'fail'" if allow_warn else "'pass' or 'fail'"
     return (
         f"Validation must return {status_values}, or a mapping with a 'status' key. "
@@ -368,7 +362,6 @@ def _invalid_outcome_contract_message(*, allow_warn: bool, raw_result: Any) -> s
 
 def _coerce_validation_outcome(
     raw_result: Any,
-    *,
     allow_warn: bool,
 ) -> tuple[PlanValidationOutcome, str | None]:
     normalized_status, message = _extract_outcome_status_and_message(raw_result)
@@ -397,7 +390,6 @@ def _coerce_validation_outcome(
 def validate_value_with_outcome(
     spec: ValidationSpec,
     value: Any,
-    *,
     base_path: Path | None = None,
     context: dict[str, Any] | None = None,
     cache_dir: Path | None = None,
@@ -495,7 +487,6 @@ def validate_value_with_outcome(
 def validate_value(
     spec: ValidationSpec,
     value: Any,
-    *,
     base_path: Path | None = None,
     context: dict[str, Any] | None = None,
     cache_dir: Path | None = None,
@@ -538,7 +529,6 @@ def validate_value(
 def evaluate_plan_validations_with_results(
     plan_validations: dict[str, PlanValidation],
     plan_data: dict[str, Any],
-    *,
     base_path: Path | None = None,
     context: dict[str, Any] | None = None,
     cache_dir: Path | None = None,
@@ -636,7 +626,6 @@ def evaluate_plan_validations_with_results(
 def evaluate_plan_validations(
     plan_validations: dict[str, PlanValidation],
     plan_data: dict[str, Any],
-    *,
     base_path: Path | None = None,
     context: dict[str, Any] | None = None,
     cache_dir: Path | None = None,
@@ -678,7 +667,6 @@ def evaluate_plan_validations(
 def apply_transform(
     spec: TransformSpec,
     value: Any,
-    *,
     base_path: Path | None = None,
     context: dict[str, Any] | None = None,
     cache_dir: Path | None = None,

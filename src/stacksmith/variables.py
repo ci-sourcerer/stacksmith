@@ -38,9 +38,7 @@ def _coerce_value(raw: str) -> Any:
         return raw
 
 
-def _merge_var_values(
-    existing: Any, incoming: Any, *, merge_mode: str | MergeMode
-) -> Any:
+def _merge_var_values(existing: Any, incoming: Any, merge_mode: str | MergeMode) -> Any:
     if MergeMode(merge_mode) == MergeMode.OVERRIDE:
         return deepcopy(incoming)
 
@@ -55,7 +53,6 @@ def _merge_resolved_value(
     resolved: dict[str, Any],
     name: str,
     incoming: Any,
-    *,
     merge_mode: str | MergeMode,
 ) -> None:
     if name in resolved:
@@ -139,7 +136,6 @@ def _apply_vars_source(
 def _apply_cli_var_item(
     resolved: dict[str, Any],
     raw_item: str,
-    *,
     merge_mode: str | MergeMode = MergeMode.DEEP,
 ) -> None:
     name, raw_value = _parse_var_item(raw_item)

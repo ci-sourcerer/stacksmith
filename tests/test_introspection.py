@@ -1,5 +1,3 @@
-"""Tests for module introspection — HCL variable discovery."""
-
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch

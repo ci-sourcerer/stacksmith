@@ -93,7 +93,6 @@ def _redact_sensitive_plan_value(value: Any, sensitivity: Any = None) -> Any:
 
 def _summarize_redacted_value(
     value: Any,
-    *,
     max_depth: int = 2,
     max_items: int = 4,
 ) -> str:

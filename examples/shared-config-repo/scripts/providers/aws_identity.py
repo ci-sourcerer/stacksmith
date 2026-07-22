@@ -1,5 +1,3 @@
-"""AWS identity helper functions."""
-
 import logging
 import os
 

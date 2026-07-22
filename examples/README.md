@@ -65,12 +65,12 @@ The stack repo contains stack definitions and environment vars.
 
 ## Jenkins pipeline submodule
 
-A reusable Jenkins pipeline is available in `jenkins/Jenkinsfile`.
+A reusable Jenkins pipeline is available in `Jenkinsfile`.
 It is designed to be consumed by vendoring this repository as a git submodule and exposes the same GitOps selection behavior as the GitHub Actions wrappers.
 
 For consuming repositories, set `STACKSMITH_AGENT_LABEL` and use `withEnv` in your Pipeline step to pass the required GitOps variables.
 
-Use `jenkins/Jenkinsfile` as the Jenkins GitOps entrypoint. It mirrors the GitHub Actions workflow's discovery, execution flags, approval, and artifact behavior using Jenkins-native features.
+Use `Jenkinsfile` as the Jenkins GitOps entrypoint. It mirrors the GitHub Actions workflow's discovery, execution flags, approval, and artifact behavior using Jenkins-native features.
 
 The shared config repo contains module mappings, transforms, and validations.
 

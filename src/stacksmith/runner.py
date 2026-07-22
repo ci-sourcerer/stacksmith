@@ -42,7 +42,6 @@ def _parse_terragrunt_action(
 def _should_run_plan_validation_flow(
     args: list[str],
     config: ToolConfig | None,
-    *,
     save_plan_json: Path | None = None,
     fail_on_changes: bool = False,
 ) -> bool:
@@ -112,7 +111,6 @@ def _check_required_tool_versions(
 def _resolve_plan_json_output_path(
     base_path: Path,
     stack_name: str,
-    *,
     multiple: bool = False,
 ) -> Path:
     if multiple or base_path.suffix.lower() != ".json":
@@ -138,7 +136,6 @@ def _has_plan_changes(plan_data: dict[str, Any]) -> bool:
 def _run_terragrunt(
     cmd: list[str],
     working_dir: Path,
-    *,
     capture_output: bool = False,
     auth_config: RemoteAuthConfig | None = None,
 ) -> subprocess.CompletedProcess[str] | int:
@@ -162,7 +159,6 @@ def _run_terragrunt(
 def _run_terragrunt_streaming(
     cmd: list[str],
     working_dir: Path,
-    *,
     auth_config: RemoteAuthConfig | None = None,
 ) -> int:
     return int(_run_terragrunt(cmd, working_dir, auth_config=auth_config).returncode)
@@ -171,7 +167,6 @@ def _run_terragrunt_streaming(
 def _run_terragrunt_capture_text(
     cmd: list[str],
     working_dir: Path,
-    *,
     auth_config: RemoteAuthConfig | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return _run_terragrunt(
@@ -185,7 +180,6 @@ def _run_terragrunt_capture_text(
 def check_plan_validations(
     config: ToolConfig,
     plan_data: dict[str, Any],
-    *,
     stack_name: str,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
@@ -304,7 +298,6 @@ def _run_plan_validations(
     args: list[str],
     working_dir: Path,
     config: ToolConfig | None,
-    *,
     stack_name: str,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
