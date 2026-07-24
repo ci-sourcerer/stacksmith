@@ -1,0 +1,34 @@
+backend:
+  type: local
+  path: .stacksmith-state
+
+tools:
+  tofu:
+    version: "1.11.6"
+  terragrunt:
+    version: "1.0.6"
+
+provider_mappings:
+  "null":
+    source:
+      source: registry
+      data:
+        address: hashicorp/null
+        version: "~> 3.2"
+    instances:
+      default:
+        config:
+          inline: |
+            def config(**context):
+                return {}
+
+module_mappings:
+  null_resource:
+    description: Credential-free placeholder resource
+    source:
+      source: local
+      data:
+        path: ../modules/null_resource
+    auto_inject: true
+    providers:
+      "null": null.default

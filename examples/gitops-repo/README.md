@@ -1,0 +1,46 @@
+# GitOps Example
+
+This example GitOps repository uses the hybrid `env-files` discovery style. It keeps the shared runfile under `common/stacksmith.yaml`, each environment manifest in `environments/<env>.yaml`, and shared stack layers under `manifests/common/`.
+
+The reusable workflow's other layouts are summarized in [GitOps discovery styles](../README.md#gitops-discovery-styles).
+
+This example is intentionally local-path based for easy testing. In a real GitOps workflow, point the `source: local` references at remote Git or HTTP sources instead.
+
+The shared runfile also demonstrates address-aware merging. The platform stack provides a common Helm `values_files` entry, while the service stack provides the environment-specific entry. Its `merge_rules` selector overrides that list at `/components/frontend_release/properties/values_files`, preventing the normal deep-merge behavior from appending both files.
+
+## Local testing with Stacksmith
+
+The reusable workflow fans out one job per environment, using the shared runfile in `common/stacksmith.yaml` and the environment file in `environments/<env>.yaml`. You can reproduce that locally with the same inputs the CI job would pass.
+
+Plan the `dev` environment from this repository root.
+
+```bash
+ENVIRONMENT=dev
+stacksmith plan \
+  --runfile examples/gitops-repo/common/stacksmith.yaml \
+  --runfile examples/gitops-repo/environments/${ENVIRONMENT}.yaml \
+  --vars examples/gitops-repo/vars/vars.${ENVIRONMENT}.yaml
+```
+
+Apply the `dev` environment from this repository root.
+
+```bash
+ENVIRONMENT=dev
+stacksmith apply \
+  --runfile examples/gitops-repo/common/stacksmith.yaml \
+  --runfile examples/gitops-repo/environments/${ENVIRONMENT}.yaml \
+  --vars examples/gitops-repo/vars/vars.${ENVIRONMENT}.yaml
+```
+
+## Local workflow testing with `act`
+
+Use the included helper script to test the reusable GitHub Actions workflow locally.
+
+```sh
+examples/gitops-repo/run-act-workflow.sh plan dev
+examples/gitops-repo/run-act-workflow.sh apply dev
+```
+
+The script uses the same workflow inputs as the reusable job and requires AWS credentials to be available in your shell.
+
+> Note: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` must be set in your shell environment before running this test.

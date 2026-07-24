@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stacksmith.dev/schemas/runfile.schema.json",
+  "title": "Stacksmith runfile",
+  "description": "Defines a reproducible Stacksmith invocation with layered stack, config, and variable inputs.",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "localReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "local",
+          "description": "Reference source type for local files."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Local filesystem path to the referenced runfile resource."
+            }
+          }
+        }
+      }
+    },
+    "gitReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "git",
+          "description": "Reference source type for Git-hosted files."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "repo",
+            "path"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "repo": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(https?://|ssh://|git://|git@).+",
+              "description": "Git repository URL for the referenced runfile resource."
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Path inside the Git repository to the referenced runfile resource."
+            },
+            "ref": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Git ref, branch, or tag used to resolve the reference."
+            }
+          }
+        }
+      }
+    },
+    "httpReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "http",
+          "description": "Reference source type for HTTP(S) URLs."
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^https?://",
+              "description": "HTTP or HTTPS URL for the referenced resource."
+            }
+          }
+        }
+      }
+    },
+    "inlineReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "inline",
+          "description": "Reference source type for inline variable values."
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Inline variable values. Values may use any YAML-supported type."
+        }
+      }
+    },
+    "mergeRule": {
+      "type": "object",
+      "required": [
+        "select",
+        "mode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "select": {
+          "type": "string",
+          "minLength": 1,
+          "description": "JMESPath predicate evaluated against the merge scope, JSON Pointer address, and path segments."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "deep",
+            "override"
+          ],
+          "description": "Merge strategy used when the selector matches."
+        }
+      }
+    },
+    "fileReference": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/localReference"
+        },
+        {
+          "$ref": "#/$defs/gitReference"
+        },
+        {
+          "$ref": "#/$defs/httpReference"
+        }
+      ]
+    },
+    "variableReference": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/localReference"
+        },
+        {
+          "$ref": "#/$defs/gitReference"
+        },
+        {
+          "$ref": "#/$defs/httpReference"
+        },
+        {
+          "$ref": "#/$defs/inlineReference"
+        }
+      ]
+    }
+  },
+  "properties": {
+    "merge_mode": {
+      "type": "string",
+      "enum": [
+        "deep",
+        "override"
+      ],
+      "description": "Merge strategy for layered stacks, configs, and vars. Defaults to `deep`."
+    },
+    "merge_rules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/mergeRule"
+      },
+      "description": "Ordered address-aware merge rules for stacks, configs, and vars. Later matching rules win. These rules do not control the merge of the runfiles that declare them."
+    },
+    "stacks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fileReference"
+      },
+      "description": "Ordered stack definition references to deep-merge for single-stack commands, or explicit stack targets for run-all."
+    },
+    "configs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fileReference"
+      },
+      "description": "Ordered tool configuration references. Later layers override earlier scalar values while dicts merge recursively and lists append."
+    },
+    "vars": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/variableReference"
+      },
+      "description": "Ordered variable sources applied before CLI-provided variable layers."
+    }
+  }
+}

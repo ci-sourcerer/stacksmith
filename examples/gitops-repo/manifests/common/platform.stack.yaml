@@ -1,0 +1,67 @@
+name: gitops-platform-example
+tags:
+  - gitops
+  - shared
+  - compute
+components:
+  assets_bucket:
+    type: aws_s3_bucket
+    properties:
+      versioning_enabled: true
+      block_public_acls: false
+      block_public_policy: true
+      ignore_public_acls: true
+      restrict_public_buckets: true
+      control_object_ownership: true
+      object_ownership: BucketOwnerEnforced
+      attach_deny_insecure_transport_policy: true
+  app_ec2_instance:
+    type: aws_ec2_instance
+    tags:
+      - web
+    properties:
+      create_iam_instance_profile: true
+      create_security_group: true
+      metadata_options:
+        http_tokens: required
+        http_endpoint: enabled
+      monitoring: true
+  frontend_release:
+    type: helm_app
+    tags:
+      - app
+      - web
+    properties:
+      chart: ingress-nginx
+      repository: https://kubernetes.github.io/ingress-nginx
+      version: "4.11.3"
+      values_files:
+        - examples/gitops-repo/manifests/common/frontend-values.yaml
+  app_config:
+    type: k8s_app
+    tags:
+      - app
+      - config
+    properties:
+      namespace: "{{ inputs.environment }}"
+  logs_bucket:
+    type: aws_s3_bucket
+    tags:
+      - logs
+    properties:
+      versioning_enabled: true
+      block_public_acls: true
+      block_public_policy: true
+      ignore_public_acls: true
+      restrict_public_buckets: true
+      control_object_ownership: true
+      object_ownership: BucketOwnerEnforced
+      attach_deny_insecure_transport_policy: true
+
+operations:
+  deploy_platform:
+    use: deploy
+    with:
+      environment: "{{ inputs.environment }}"
+      release_tag: platform
+      logs_bucket_id: "${module.logs_bucket.s3_bucket_id}"

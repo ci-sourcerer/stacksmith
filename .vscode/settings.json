@@ -1,0 +1,28 @@
+{
+    "python-envs.defaultEnvManager": "ms-python.python:venv",
+    "python-envs.defaultPackageManager": "ms-python.python:pip",
+    "yaml.schemas": {
+        "src/stacksmith/schemas/config.schema.json": "**/stacksmith-config.yaml",
+        "src/stacksmith/schemas/stack.schema.json": [
+            "**/stack.yaml",
+            "**/*.stack.yaml"
+        ],
+        "src/stacksmith/schemas/runfile.schema.json": [
+            "**/stacksmith.yaml"
+        ]
+    },
+    "json.schemas": [
+        {
+            "fileMatch": [
+                "**/stacksmith.config.json"
+            ],
+            "url": "./src/stacksmith/schemas/config.schema.json"
+        },
+        {
+            "fileMatch": [
+                "**/stack.json"
+            ],
+            "url": "./src/stacksmith/schemas/stack.schema.json"
+        }
+    ]
+}

@@ -1,0 +1,37 @@
+name: stacksmith-operation
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation_name:
+        description: Stack-local native operation name.
+        required: true
+        type: string
+      environments:
+        description: Comma-separated environment names. Leave empty to run in all environments.
+        required: false
+        type: string
+      gitops_root:
+        description: Relative path to the GitOps root folder.
+        required: false
+        type: string
+      discovery_mode:
+        description: "Discovery mode. Supported values: folders (default), flat-files, or env-files."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  operation:
+    uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main
+    with:
+      command: operation
+      operation_name: ${{ github.event.inputs.operation_name }}
+      environments: ${{ github.event.inputs.environments || '' }}
+      config_ref: ${{ vars.STACKSMITH_CONFIG_REF || '' }}
+      gitops_root: ${{ github.event.inputs.gitops_root || vars.STACKSMITH_GITOPS_ROOT || '.' }}
+      discovery_mode: ${{ github.event.inputs.discovery_mode || vars.STACKSMITH_DISCOVERY_MODE || 'auto' }}
+      workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
+    secrets: inherit

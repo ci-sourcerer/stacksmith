@@ -1,0 +1,111 @@
+name: stacksmith-gitops-reusable
+
+on:
+  workflow_call:
+    inputs:
+      ci_manifest:
+        description: Versioned JSON manifest emitted by `stacksmith ci prepare`.
+        required: true
+        type: string
+      environment:
+        description: Deployment environment row to execute from the manifest.
+        required: true
+        type: string
+      image_version:
+        description: Tag for the custom Stacksmith container image.
+        required: false
+        type: string
+        default: latest
+      upload_artifacts:
+        description: Upload plan artifacts when the manifest executes a plan.
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      STACKSMITH_GIT_TOKEN:
+        description: Optional Stacksmith Git token.
+        required: false
+      STACKSMITH_GIT_SSH_KEY:
+        description: Optional private SSH key content for Stacksmith Git auth.
+        required: false
+      STACKSMITH_HTTP_TOKEN:
+        description: Optional Stacksmith HTTP bearer token.
+        required: false
+      STACKSMITH_HTTP_USERNAME:
+        description: Optional Stacksmith HTTP basic username.
+        required: false
+      STACKSMITH_HTTP_PASSWORD:
+        description: Optional Stacksmith HTTP basic password.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    name: stacksmith-${{ fromJson(inputs.ci_manifest).command }}-${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ fromJson(inputs.ci_manifest).command != 'plan' && inputs.environment || '' }}
+    container:
+      image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Execute Stacksmith manifest
+        env:
+          STACKSMITH_CI_MANIFEST: ${{ inputs.ci_manifest }}
+          STACKSMITH_ENVIRONMENT: ${{ inputs.environment }}
+          STACKSMITH_GIT_TOKEN: ${{ secrets.STACKSMITH_GIT_TOKEN }}
+          STACKSMITH_GIT_SSH_KEY_MATERIAL: ${{ secrets.STACKSMITH_GIT_SSH_KEY }}
+          STACKSMITH_HTTP_TOKEN: ${{ secrets.STACKSMITH_HTTP_TOKEN }}
+          STACKSMITH_HTTP_USERNAME: ${{ secrets.STACKSMITH_HTTP_USERNAME }}
+          STACKSMITH_HTTP_PASSWORD: ${{ secrets.STACKSMITH_HTTP_PASSWORD }}
+          TG_AUTH_PROVIDER_CMD: ${{ vars.TG_AUTH_PROVIDER_CMD || '' }}
+          TG_IAM_ASSUME_ROLE: ${{ vars.TG_IAM_ASSUME_ROLE || '' }}
+        run: |
+          set -euo pipefail
+          stacksmith ci execute-from-env --provider github-actions
+
+      - name: Upload plan artifacts
+        if: ${{ (success() || failure()) && inputs.upload_artifacts && fromJson(inputs.ci_manifest).command == 'plan' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: stacksmith-plan-${{ inputs.environment }}-${{ github.sha }}
+          path: |
+            ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/validation-report.${{ fromJson(inputs.ci_manifest).validation_report_format }}
+            ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/plan.json
+
+      - name: Summarize execution
+        if: ${{ success() || failure() }}
+        env:
+          STACKSMITH_CI_MANIFEST: ${{ inputs.ci_manifest }}
+          STACKSMITH_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          python3 - <<'PY' >>"$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+
+          manifest = json.loads(os.environ["STACKSMITH_CI_MANIFEST"])
+          row = next(
+              item for item in manifest["matrix"]
+              if item["environment"] == os.environ["STACKSMITH_ENVIRONMENT"]
+          )
+          print(f"## Stacksmith {manifest['command'].title()}")
+          print()
+          print(f"- Environment: `{row['environment']}`")
+          print(f"- Runfile: `{row['runfile']}`")
+          if manifest["command"] == "operation":
+              print(f"- Operation: `{manifest['operation_name']}`")
+          elif manifest["command"] == "plan":
+              print(
+                  "- Report: "
+                  f"`{manifest['workdir']}/.stacksmith-ci/{row['environment']}/"
+                  f"validation-report.{manifest['validation_report_format']}`"
+              )
+          PY

@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stacksmith.dev/schemas/stack.schema.json",
+  "title": "Stacksmith Stack Definition",
+  "description": "Defines a single infrastructure stack for stacksmith.",
+  "type": "object",
+  "minProperties": 1,
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "minLength": 2,
+      "description": "Unique stack identifier within the monorepo."
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "description": "Arbitrary tags for filtering, CI targeting, and documentation. e.g. [platform, prod]"
+    },
+    "depends_on": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 2
+      },
+      "uniqueItems": true,
+      "description": "List of stack names this stack depends on. All outputs from dependencies are passed as inputs."
+    },
+    "mock_outputs": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Mock output values for this stack. Used by dependent stacks during plan/validate when this stack has not been applied."
+    },
+    "components": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Abstract component type that maps to a module in the tool configuration."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true,
+            "description": "Optional tags used for tag-expression targeting."
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Properties passed as inputs to the module. Values may contain Jinja2 expressions and Terraform references to other component module outputs."
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "description": "Component definitions. Keys are component names, values specify type and properties."
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "use"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "use": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of an operation approved in the tool configuration."
+          },
+          "with": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Declared operation inputs. Values may contain Jinja2 expressions and Terraform references to component module outputs."
+          },
+          "rerun_token": {
+            "type": "string",
+            "description": "Optional value that deliberately creates a new operation execution identity."
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true,
+            "description": "Stack-local operations that must succeed before this operation runs."
+          }
+        }
+      },
+      "description": "Native operational actions requested by this stack."
+    }
+  }
+}

@@ -1,0 +1,40 @@
+backend:
+  type: local
+  path: "/tmp/stacksmith-state"
+
+
+tools:
+  tofu:
+    version: "1.8.0"
+  terragrunt:
+    version: "1.8.0"
+
+provider_mappings:
+  aws:
+    source:
+      source: registry
+      data:
+        address: "hashicorp/aws"
+        version: "~> 5.0"
+    instances:
+      default:
+        config:
+          data:
+            region: "us-east-1"
+
+module_mappings:
+  aws_s3_bucket:
+    source:
+      source: git
+      data:
+        repo: "https://github.com/org/terraform-aws-s3.git"
+        ref: "1.0.0"
+    properties:
+      acl:
+        mapped_to: bucket_acl
+  aws_ec2_instance:
+    source:
+      source: git
+      data:
+        repo: "https://github.com/org/terraform-aws-ec2.git"
+        ref: "2.0.0"

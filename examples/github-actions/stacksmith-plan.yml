@@ -1,0 +1,66 @@
+name: stacksmith-plan
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "**/stacksmith.yaml"
+      - "**/stacksmith.*.yaml"
+      - "**/stacksmith.*.yml"
+      - "**/stacksmith.*.json"
+      - "**/*.stack.yaml"
+      - "**/*.stack.yml"
+      - "**/environments/*.yaml"
+      - "**/environments/*.yml"
+      - "**/environments/*.json"
+      - "**/manifests/common/**"
+      - "**/manifests/environments/**"
+      - .github/workflows/stacksmith-plan.yml
+      - .github/workflows/stacksmith-apply.yml
+  push:
+    branches:
+      - main
+    paths:
+      - "**/stacksmith.yaml"
+      - "**/stacksmith.*.yaml"
+      - "**/stacksmith.*.yml"
+      - "**/stacksmith.*.json"
+      - "**/*.stack.yaml"
+      - "**/*.stack.yml"
+      - "**/environments/*.yaml"
+      - "**/environments/*.yml"
+      - "**/environments/*.json"
+      - "**/manifests/common/**"
+      - "**/manifests/environments/**"
+      - .github/workflows/stacksmith-plan.yml
+      - .github/workflows/stacksmith-apply.yml
+  workflow_dispatch:
+    inputs:
+      environments:
+        description: Comma-separated environment names. Leave empty for automatic selection.
+        required: false
+        type: string
+      gitops_root:
+        description: Relative path to the GitOps root folder.
+        required: false
+        type: string
+      discovery_mode:
+        description: "Discovery mode. Supported values: folders (default), flat-files, or env-files."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main
+    with:
+      command: plan
+      environments: ${{ github.event.inputs.environments || '' }}
+      config_ref: ${{ vars.STACKSMITH_CONFIG_REF || '' }}
+      gitops_root: ${{ github.event.inputs.gitops_root || vars.STACKSMITH_GITOPS_ROOT || '.' }}
+      discovery_mode: ${{ github.event.inputs.discovery_mode || vars.STACKSMITH_DISCOVERY_MODE || 'auto' }}
+      workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
+    secrets: inherit

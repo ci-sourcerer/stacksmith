@@ -1,0 +1,87 @@
+name: ec2-s3-writer
+tags:
+  - compute
+  - storage
+  - example
+  - prod
+components:
+  app_ec2_instance:
+    type: aws_ec2_instance
+    tags:
+      - prod
+      - web
+    properties:
+      name: app-writer
+      create_iam_instance_profile: true
+      create_security_group: true
+      metadata_options:
+        http_tokens: required
+        http_endpoint: enabled
+      monitoring: true
+      tags:
+        component: app
+  assets_bucket:
+    type: aws_s3_bucket
+    tags:
+      - prod
+      - storage
+    properties:
+      versioning_enabled: true
+      lifecycle_rules:
+        - id: purge-multipart-uploads
+          status: Enabled
+          abort_incomplete_multipart_upload_days: 7
+      attach_policy: true
+      writer_principal_arn: "${module.app_ec2_instance.iam_role_arn}"
+      block_public_acls: false
+      block_public_policy: true
+      ignore_public_acls: true
+      restrict_public_buckets: true
+      control_object_ownership: true
+      object_ownership: BucketOwnerEnforced
+      attach_deny_insecure_transport_policy: true
+      tags:
+        component: assets
+  logs_bucket:
+    type: aws_s3_bucket
+    tags:
+      - storage
+      - logs
+    properties:
+      versioning_enabled: false
+      block_public_acls: true
+      block_public_policy: true
+      ignore_public_acls: true
+      restrict_public_buckets: true
+      control_object_ownership: true
+      object_ownership: BucketOwnerEnforced
+      attach_deny_insecure_transport_policy: true
+      tags:
+        component: logs
+  asset_reader_role:
+    type: aws_iam_role
+    tags:
+      - iam
+    properties:
+      name: asset-reader
+      trust_policy_permissions:
+        assume-role:
+          effect: Allow
+          principals:
+            - type: Service
+              identifiers:
+                - ec2.amazonaws.com
+          actions:
+            - sts:AssumeRole
+      create_inline_policy: true
+      inline_policy_permissions:
+        s3-assets-read:
+          effect: Allow
+          actions:
+            - s3:GetObject
+            - s3:ListBucket
+          resources:
+            - "arn:aws:s3:::${module.assets_bucket.s3_bucket_id}"
+            - "arn:aws:s3:::${module.assets_bucket.s3_bucket_id}/*"
+      tags:
+        component: iam

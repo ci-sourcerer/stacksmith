@@ -1,0 +1,13 @@
+# Reuse the platform-owned configuration shared by the examples.
+configs:
+  - source: local
+    data:
+      path: ../../shared-config-repo/null-resource-config.yaml
+stacks:
+  - source: local
+    data:
+      path: ../manifests/common/null-resources.stack.yaml
+vars:
+  - source: local
+    data:
+      path: ../vars/vars.common.yaml

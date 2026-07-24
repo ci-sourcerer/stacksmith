@@ -1,0 +1,23 @@
+name: null-resources
+
+tags:
+  - gitops
+  - example
+
+components:
+  first:
+    type: null_resource
+    properties:
+      triggers:
+        environment: "{{ inputs.environment }}"
+        message: "{{ inputs.message }}"
+        name: "{{ inputs.first_name }}"
+        project: "{{ inputs.project }}"
+  second:
+    type: null_resource
+    properties:
+      triggers:
+        environment: "{{ inputs.environment }}"
+        message: "{{ inputs.message }}"
+        name: "{{ inputs.second_name }}"
+        project: "{{ inputs.project }}"

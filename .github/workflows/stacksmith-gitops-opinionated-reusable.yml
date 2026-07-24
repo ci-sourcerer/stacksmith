@@ -1,0 +1,153 @@
+name: stacksmith-gitops-opinionated-reusable
+
+on:
+  workflow_call:
+    inputs:
+      command:
+        description: Stacksmith command to run. Supported values are plan, apply, and operation.
+        required: true
+        type: string
+      operation_name:
+        description: Stack-local native operation name. Required when command is operation.
+        required: false
+        type: string
+        default: ""
+      environments:
+        description: Comma-separated environment names. Leave empty for automatic selection.
+        required: false
+        type: string
+        default: ""
+      discovery_mode:
+        description: "Discovery mode. Supported values: auto (default), folders, flat-files, or env-files."
+        required: false
+        type: string
+        default: auto
+      gitops_root:
+        description: Relative path to the GitOps root folder.
+        required: false
+        type: string
+        default: .
+      config_ref:
+        description: Platform-managed Stacksmith config reference applied to every selected environment.
+        required: false
+        type: string
+        default: ""
+      workdir:
+        description: Working directory to run Stacksmith from.
+        required: false
+        type: string
+        default: .
+      stacksmith_args_json:
+        description: JSON array of additional Stacksmith CLI arguments applied to every selected environment.
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    name: discover-environments
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/cisourcerer/stacksmith:${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+    outputs:
+      manifest: ${{ steps.select.outputs.manifest }}
+      matrix: ${{ steps.select.outputs.matrix }}
+      count: ${{ steps.select.outputs.count }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Select target environments
+        id: select
+        env:
+          INPUT_ENVIRONMENTS: ${{ inputs.environments }}
+          INPUT_DISCOVERY_MODE: ${{ inputs.discovery_mode }}
+          INPUT_GITOPS_ROOT: ${{ inputs.gitops_root }}
+          INPUT_COMMAND: ${{ inputs.command }}
+          INPUT_OPERATION_NAME: ${{ inputs.operation_name }}
+          INPUT_CONFIG_REF: ${{ fromJson(toJson(vars)).STACKSMITH_CONFIG_REF || '' }}
+          INPUT_WORKDIR: ${{ inputs.workdir }}
+          INPUT_ENV_FILE: ${{ fromJson(toJson(vars)).STACKSMITH_ENV_FILE || '/dev/null' }}
+          INPUT_STACKSMITH_ARGS_JSON: ${{ inputs.stacksmith_args_json || fromJson(toJson(vars)).STACKSMITH_ARGS_JSON || '[]' }}
+          INPUT_NO_CAS: ${{ fromJson(toJson(vars)).STACKSMITH_NO_CAS || 'false' }}
+          INPUT_FORCE_RERUN: ${{ fromJson(toJson(vars)).STACKSMITH_FORCE_RERUN || 'false' }}
+          INPUT_VALIDATION_REPORT_FORMAT: ${{ fromJson(toJson(vars)).STACKSMITH_VALIDATION_REPORT_FORMAT || 'json' }}
+          INPUT_FAIL_ON_CHANGES: ${{ fromJson(toJson(vars)).STACKSMITH_FAIL_ON_CHANGES || 'false' }}
+          INPUT_STRICT_VALIDATION_WARNINGS: ${{ fromJson(toJson(vars)).STACKSMITH_STRICT_VALIDATION_WARNINGS || 'false' }}
+          CALLER_EVENT_NAME: ${{ github.event_name }}
+          CALLER_BASE_REF: ${{ github.base_ref }}
+          CALLER_EVENT_BEFORE: ${{  github.event.before }}
+          CALLER_SHA: ${{ github.sha }}
+          CALLER_REF_NAME: ${{ github.ref_name }}
+          CALLER_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SKIP_BRANCH_VALIDATION: ${{ vars.NO_VALIDATE_BRANCH_AND_OPERATION || 'false' }}
+        run: |
+          set -euo pipefail
+          stacksmith ci prepare-from-env --provider github-actions
+
+  plan:
+    name: plan
+    needs: discover
+    if: ${{ inputs.command == 'plan' && needs.discover.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/stacksmith-gitops-reusable.yml
+    with:
+      ci_manifest: ${{ needs.discover.outputs.manifest }}
+      environment: ${{ matrix.environment }}
+      image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+      upload_artifacts: ${{ (fromJson(toJson(vars)).STACKSMITH_UPLOAD_ARTIFACTS || 'true') != 'false' }}
+    secrets: inherit
+
+  apply:
+    name: apply
+    needs: discover
+    if: ${{ inputs.command == 'apply' && needs.discover.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/stacksmith-gitops-reusable.yml
+    with:
+      ci_manifest: ${{ needs.discover.outputs.manifest }}
+      environment: ${{ matrix.environment }}
+      image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+    secrets: inherit
+
+  operation:
+    name: operation
+    needs: discover
+    if: ${{ inputs.command == 'operation' && needs.discover.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/stacksmith-gitops-reusable.yml
+    with:
+      ci_manifest: ${{ needs.discover.outputs.manifest }}
+      environment: ${{ matrix.environment }}
+      image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+    secrets: inherit
+
+  no-op:
+    name: no-op
+    runs-on: ubuntu-latest
+    needs: discover
+    if: ${{ needs.discover.outputs.count == '0' }}
+    steps:
+      - name: Summary
+        run: |
+          {
+              echo "## Stacksmith ${INPUT_COMMAND}"
+              echo ""
+              echo "No environment manifests were selected for this event."
+          } >>"$GITHUB_STEP_SUMMARY"
+        env:
+          INPUT_COMMAND: ${{ inputs.command }}

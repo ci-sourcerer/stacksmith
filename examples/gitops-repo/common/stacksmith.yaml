@@ -1,0 +1,21 @@
+merge_mode: deep
+merge_rules:
+  - select: >-
+      scope == 'stack' &&
+      address == '/components/frontend_release/properties/values_files'
+    mode: override
+configs:
+  - source: local
+    data:
+      path: ../../shared-config-repo/stacksmith-config.yaml
+stacks:
+  - source: local
+    data:
+      path: ../manifests/common/platform.stack.yaml
+  - source: local
+    data:
+      path: ../manifests/common/service.stack.yaml
+vars:
+  - source: inline
+    data:
+      id: 1234
