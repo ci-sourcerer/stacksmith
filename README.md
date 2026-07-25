@@ -902,10 +902,10 @@ stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-
 
 ```text
 stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
-                          [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
-                          [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
-                          [--no-cas] [--strict-validation-warnings] [--use-local-modules |
-                          --no-local-modules] [--debug | -q] [--validation-report-format {json}] [--destroy]
+                          [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}]
+                          [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
+                          [--strict-validation-warnings] [--use-local-modules | --no-local-modules] [--debug |
+                          -q] [--validation-report-format {json}] [--destroy]
                           [--save-plan-json SAVE_PLAN_JSON] [--fail-on-changes] [--tag TAG]
                           [--tag-expr TAG_EXPR] [--include-tag INCLUDE_TAG] [--exclude-tag EXCLUDE_TAG]
                           [--clean] [--auto-approve]
@@ -980,8 +980,8 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
                        [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                        [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
                        [--use-local-modules | --no-local-modules] [--debug | -q] [--destroy]
-                       [--save-plan-json SAVE_PLAN_JSON] [--fail-on-changes] [--tag TAG]
-                       [--tag-expr TAG_EXPR] [--validation-report-format {json}]
+                       [--save-plan-json SAVE_PLAN_JSON] [--fail-on-changes] [--tag TAG] [--tag-expr TAG_EXPR]
+                       [--validation-report-format {json}]
                        [stack_file]
 ```
 
@@ -1015,10 +1015,10 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 
 ```text
 stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
-                        [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}]
-                        [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
-                        [--strict-validation-warnings] [--use-local-modules | --no-local-modules] [--debug |
-                        -q] [--tag TAG] [--tag-expr TAG_EXPR] [--auto-approve]
+                        [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                        [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
+                        [--use-local-modules | --no-local-modules] [--debug | -q] [--tag TAG]
+                        [--tag-expr TAG_EXPR] [--auto-approve]
                         [stack_file]
 ```
 
@@ -1051,8 +1051,8 @@ stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-fil
 stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
                           [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}]
                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
-                          [--strict-validation-warnings] [--use-local-modules | --no-local-modules]
-                          [--debug | -q] [--tag TAG] [--tag-expr TAG_EXPR] [--auto-approve]
+                          [--strict-validation-warnings] [--use-local-modules | --no-local-modules] [--debug |
+                          -q] [--tag TAG] [--tag-expr TAG_EXPR] [--auto-approve]
                           [stack_file]
 ```
 
@@ -1117,8 +1117,8 @@ stacksmith operation run [-h] [--force-rerun] [--stack STACK] [--runfile RUNFILE
 ```text
 stacksmith info inspect [-h] [--format {table,json}] [--basic] [--runfile RUNFILE] [-c CONFIG]
                                [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
-                               [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
-                               [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
+                               [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
+                               [--no-cas] [--strict-validation-warnings] [--use-local-modules |
                                --no-local-modules] [--debug | -q]
                                [component_type ...]
 ```
