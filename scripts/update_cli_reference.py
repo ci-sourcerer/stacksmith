@@ -11,6 +11,7 @@ from stacksmith.cli.main import _build_parser
 README_PATH = Path("README.md")
 START_MARKER = "<!-- BEGIN GENERATED CLI REFERENCE -->"
 END_MARKER = "<!-- END GENERATED CLI REFERENCE -->"
+_CLI_REFERENCE_WIDTH = 110
 
 
 def generate_cli_reference() -> str:
@@ -172,7 +173,16 @@ def _strip_ansi_codes(text: str) -> str:
 
 
 def _normalize_usage(parser: argparse.ArgumentParser) -> str:
-    usage = _strip_ansi_codes(parser.format_usage())
+    formatter = parser.formatter_class(
+        prog=parser.prog,
+        width=_CLI_REFERENCE_WIDTH,
+    )
+    formatter.add_usage(
+        parser.usage,
+        parser._actions,
+        parser._mutually_exclusive_groups,
+    )
+    usage = _strip_ansi_codes(formatter.format_help())
     return usage.removeprefix("usage: ").strip()
 
 

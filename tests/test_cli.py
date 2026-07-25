@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,9 +9,10 @@ import stacksmith.cli.main
 from stacksmith import api
 from stacksmith.cli import args as cli_args
 from stacksmith.cli import main as cli_main
+from stacksmith.enums import MergeMode
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.inspector import ComponentTypeInfo, InputInfo
-from stacksmith.models import MergePolicy, RunFile, render_file_reference
+from stacksmith.models import MergePolicy, MergeRule, RunFile, render_file_reference
 
 
 @pytest.fixture
@@ -108,6 +110,143 @@ def test_root_defaults_to_cwd(monkeypatch, tmp_path):
     assert args.root == tmp_path
     assert args.clean is False
     assert args.config == ["/tmp/config.yaml"]
+
+
+def test_test_command_accepts_config_layers_and_pytest_args(parser):
+    args = parser.parse_args(
+        [
+            "test",
+            "--config",
+            "base.yaml",
+            "--config",
+            "override.yaml",
+            "tests/test_policy.py",
+            "--",
+            "-k",
+            "imdsv2",
+        ]
+    )
+
+    assert args.config == ["base.yaml", "override.yaml"]
+    assert args.test_path == [
+        Path("tests/test_policy.py"),
+        Path("-k"),
+        Path("imdsv2"),
+    ]
+
+
+def test_test_command_forwards_merged_config_to_pytest(
+    monkeypatch: pytest.MonkeyPatch,
+    parser: pytest.Parser,
+    tmp_path: Path,
+) -> None:
+    base_config = tmp_path / "base" / "stacksmith-config.yaml"
+    override_config = tmp_path / "override" / "stacksmith-config.yaml"
+    cache_dir = tmp_path / ".stacksmith" / ".cache"
+    selected_test = tmp_path / "selected" / "test_policy.py"
+    calls: dict[str, object] = {}
+
+    def _fake_load_runtime_config(*args, **kwargs):
+        calls["config"] = (args, kwargs)
+        return cache_dir, [base_config, override_config], object()
+
+    def _fake_run(command, check):
+        calls["pytest"] = (command, check)
+        return SimpleNamespace(returncode=7)
+
+    monkeypatch.setattr(cli_main, "_load_runtime_config", _fake_load_runtime_config)
+    monkeypatch.setattr(cli_main.subprocess, "run", _fake_run)
+    args = parser.parse_args(
+        [
+            "test",
+            "--config",
+            str(base_config),
+            "--config",
+            str(override_config),
+            "--merge-mode",
+            "override",
+            str(selected_test),
+            "--",
+            "-k",
+            "policy",
+        ]
+    )
+
+    assert cli_main._cmd_test(args) == 7
+    assert calls["config"] == (
+        ([str(base_config), str(override_config)], None),
+        {
+            "no_cache": False,
+            "merge_mode": MergeMode.OVERRIDE,
+        },
+    )
+    assert calls["pytest"] == (
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            str(selected_test),
+            "--stacksmith-config",
+            str(base_config),
+            "--stacksmith-config",
+            str(override_config),
+            "--stacksmith-cache-dir",
+            str(cache_dir),
+            "--stacksmith-merge-mode",
+            "override",
+            "-k",
+            "policy",
+        ],
+        False,
+    )
+
+
+def test_test_command_discovers_test_directories_for_all_config_layers(
+    monkeypatch: pytest.MonkeyPatch,
+    parser: pytest.Parser,
+    tmp_path: Path,
+) -> None:
+    base_config = tmp_path / "base" / "stacksmith-config.yaml"
+    override_config = tmp_path / "override" / "stacksmith-config.yaml"
+    base_tests = base_config.parent / "tests"
+    override_tests = override_config.parent / "tests"
+    base_tests.mkdir(parents=True)
+    override_tests.mkdir(parents=True)
+    calls: dict[str, object] = {}
+
+    def _fake_run(command, check):
+        calls["pytest"] = (command, check)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(
+        cli_main,
+        "_load_runtime_config",
+        lambda *args, **kwargs: (
+            tmp_path / ".cache",
+            [base_config, override_config],
+            object(),
+        ),
+    )
+    monkeypatch.setattr(cli_main.subprocess, "run", _fake_run)
+    args = parser.parse_args(["test", "--config", str(base_config)])
+
+    assert cli_main._cmd_test(args) == 0
+    assert calls["pytest"][0][3:5] == [str(base_tests), str(override_tests)]
+
+
+def test_test_command_serializes_address_aware_merge_rules_for_pytest():
+    pytest_args = cli_main._pytest_merge_args(
+        MergePolicy(
+            default=MergeMode.DEEP,
+            rules=[MergeRule(select="address == '/plan_validations'", mode="override")],
+        )
+    )
+
+    assert pytest_args[:2] == ["--stacksmith-merge-mode", "deep"]
+    assert pytest_args[2] == "--stacksmith-merge-rules-json"
+    assert json.loads(pytest_args[3]) == [
+        {"select": "address == '/plan_validations'", "mode": "override"}
+    ]
 
 
 def test_info_inspect_has_basic_flag(parser):

@@ -27,9 +27,11 @@ from .gitops.changes import (
     validate_stack_document,
 )
 from .models import MergePolicy, MergeRule
+from .testing import ComponentPropertyResult, StacksmithTestRunner
 
 __all__ = [
     "CommitPushResult",
+    "ComponentPropertyResult",
     "DocumentChange",
     "OperationRerunResult",
     "RepositoryStatus",
@@ -44,6 +46,7 @@ __all__ = [
     "StacksmithError",
     "StacksmithNotFoundError",
     "StacksmithRemoteError",
+    "StacksmithTestRunner",
     "StacksmithTransformError",
     "StacksmithValidationError",
     "repository_status",
