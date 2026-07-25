@@ -752,14 +752,45 @@ stacksmith operation run deploy_app --force-rerun --stack stack.yaml --config st
 
 Alternatively, change `rerun_token` in the stack definition when the rerun request should remain declarative and reviewable. `operation run` performs a targeted OpenTofu apply of that operation's private module. Operations with the `after_apply` trigger run in stack dependency order during `stacksmith apply` and `stacksmith run-all apply`; stack-local `depends_on` can order multiple operations within a stack.
 
-## Python automation utilities
+## Python API
 
-`stacksmith.gitops.changes` offers small, importable helpers for automated GitOps changes. They validate edited stack documents before leaving a change on disk, and `commit_and_push` stages and commits only the paths supplied by the caller.
+Stacksmith exposes a stable Python API for applications, automation, and CI systems that need the same behavior as the CLI without launching a subprocess. Import supported names directly from `stacksmith`; submodules and names that begin with an underscore are implementation details.
+
+| Function | Purpose |
+| - | - |
+| `validate_stack` | Validate a stack and its resolved inputs, returning a structured report. |
+| `generate_stack` | Generate the OpenTofu and Terragrunt files for a stack. |
+| `run_stack_action` | Generate one stack and run a Terragrunt action. |
+| `run_all_stacks` | Discover or select stacks and run an action in dependency order. |
+| `prepare_ci_execution` | Build a provider-neutral CI execution manifest. |
+
+The workflow functions accept the same layered stack, managed-config, variable, targeting, cache, and validation options used by the corresponding CLI commands. Execution functions return process-style exit codes, while generation returns the generated directory.
+
+```python
+import sys
+from pathlib import Path
+
+from stacksmith import run_stack_action
+
+exit_code = run_stack_action(
+    "plan",
+    "stack.yaml",
+    config=["stacksmith-config.yaml"],
+    save_plan_json=Path("artifacts/plan.json"),
+)
+sys.exit(exit_code)
+```
+
+The top-level package also exports Stacksmith's exception types, merge-policy models, `StacksmithTestRunner`, and the GitOps change helpers described below.
+
+### GitOps change helpers
+
+Stacksmith offers small, importable helpers for automated GitOps changes. They validate edited stack documents before leaving a change on disk, and `commit_and_push` stages and commits only the paths supplied by the caller.
 
 What they do is easily implemented with your own git commands, but these helpers are simply convenient for Python-based automation scripts.
 
 ```python
-from stacksmith.gitops.changes import request_operation_rerun
+from stacksmith import request_operation_rerun
 
 result = request_operation_rerun(
     repo_path=".",
