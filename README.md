@@ -1552,7 +1552,7 @@ Use `--clean` on `run-all` to remove the existing build directory before regener
 
 A Docker image is provided that bundles OpenTofu and Terragrunt so no local installation is required. It is also especially useful for CI environments.
 
-As this project is reliant on [Common Python Tasks](https://github.com/ci-sourcerer/common-python-tasks), you can build the image with a simple command: `poe build-image`. You can pass `--build-args TOFU_PROVIDER_SPEC="hashicorp/aws=6.41.0:hashicorp/random=3.8.1"`, for example, to pre-install some OpenTofu providers into the image. This can drastically speed up Stacksmith runs for your users. By default, the image includes no providers, so OpenTofu will download them on demand during execution.
+As this project is reliant on [Common Python Tasks](https://github.com/ci-sourcerer/common-python-tasks), you can build the image with a simple command: `poe build-image`. You can pass `--build-args TOFU_PROVIDER_SPEC="hashicorp/aws=6.41.0:hashicorp/random=3.8.1"`, for example, to pre-install some OpenTofu providers into the image. This can drastically speed up Stacksmith runs for your users, which is especially helpful in CI environments. By default, the image includes no providers, so OpenTofu will download them on demand during execution.
 
 > ⚠️ **WARNING:** `TOFU_PROVIDER_SPEC` is a shared provider cache keyed by provider version, not by OpenTofu version. If you build or run images with multiple OpenTofu versions, pre-cached providers may not be compatible with an older runtime unless you explicitly pin and pre-cache every provider version needed by those tool versions.
 
