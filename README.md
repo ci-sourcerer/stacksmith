@@ -811,8 +811,7 @@ Single-stack commands default to `stack.yaml` in the current directory, with fal
 ### `stacksmith`
 
 ```text
-stacksmith [-h] [--version]
-                  {validate,generate,run-all,init,plan,apply,destroy,operation,info,ci} ...
+stacksmith [-h] [--version] {validate,generate,run-all,init,plan,apply,destroy,operation,info,ci} ...
 ```
 
 YAML/JSON-driven Terragrunt wrapper
@@ -839,13 +838,10 @@ YAML/JSON-driven Terragrunt wrapper
 ### `stacksmith validate`
 
 ```text
-stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE]
-                           [-c CONFIG] [--env-file ENV_FILE]
-                           [--vars VARS_FILE] [--var VARS]
-                           [--merge-mode {deep,override}]
-                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
-                           [--no-cas] [--strict-validation-warnings]
-                           [--use-local-modules | --no-local-modules]
+stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
+                           [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}]
+                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
+                           [--strict-validation-warnings] [--use-local-modules | --no-local-modules]
                            [--debug | -q] [--validation-report-format {json}]
                            [stack_file]
 ```
@@ -874,13 +870,10 @@ stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE]
 ### `stacksmith generate`
 
 ```text
-stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE]
-                           [-c CONFIG] [--env-file ENV_FILE]
-                           [--vars VARS_FILE] [--var VARS]
-                           [--merge-mode {deep,override}]
-                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
-                           [--no-cas] [--strict-validation-warnings]
-                           [--use-local-modules | --no-local-modules]
+stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
+                           [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}]
+                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
+                           [--strict-validation-warnings] [--use-local-modules | --no-local-modules]
                            [--debug | -q]
                            [stack_file]
 ```
@@ -908,19 +901,14 @@ stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE]
 ### `stacksmith run-all`
 
 ```text
-stacksmith run-all [-h] [--root ROOT] [--stack STACK]
-                          [--runfile RUNFILE] [-c CONFIG]
-                          [--env-file ENV_FILE] [--vars VARS_FILE]
-                          [--var VARS] [--merge-mode {deep,override}]
-                          [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
-                          [--no-cas] [--strict-validation-warnings]
-                          [--use-local-modules | --no-local-modules]
-                          [--debug | -q] [--validation-report-format {json}]
-                          [--destroy] [--save-plan-json SAVE_PLAN_JSON]
-                          [--fail-on-changes] [--tag TAG]
-                          [--tag-expr TAG_EXPR] [--include-tag INCLUDE_TAG]
-                          [--exclude-tag EXCLUDE_TAG] [--clean]
-                          [--auto-approve]
+stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+                          [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+                          [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
+                          [--no-cas] [--strict-validation-warnings] [--use-local-modules |
+                          --no-local-modules] [--debug | -q] [--validation-report-format {json}] [--destroy]
+                          [--save-plan-json SAVE_PLAN_JSON] [--fail-on-changes] [--tag TAG]
+                          [--tag-expr TAG_EXPR] [--include-tag INCLUDE_TAG] [--exclude-tag EXCLUDE_TAG]
+                          [--clean] [--auto-approve]
                           {init,plan,apply,destroy}
 ```
 
@@ -958,12 +946,10 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK]
 ### `stacksmith init`
 
 ```text
-stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
-                       [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
-                       [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
-                       [--log LOG] [--no-cache] [--no-cas]
-                       [--strict-validation-warnings] [--use-local-modules |
-                       --no-local-modules] [--debug | -q]
+stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
+                       [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                       [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
+                       [--use-local-modules | --no-local-modules] [--debug | -q]
                        [stack_file]
 ```
 
@@ -990,15 +976,12 @@ stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith plan`
 
 ```text
-stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
-                       [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
-                       [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
-                       [--log LOG] [--no-cache] [--no-cas]
-                       [--strict-validation-warnings] [--use-local-modules |
-                       --no-local-modules] [--debug | -q] [--destroy]
-                       [--save-plan-json SAVE_PLAN_JSON] [--fail-on-changes]
-                       [--tag TAG] [--tag-expr TAG_EXPR]
-                       [--validation-report-format {json}]
+stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
+                       [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                       [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
+                       [--use-local-modules | --no-local-modules] [--debug | -q] [--destroy]
+                       [--save-plan-json SAVE_PLAN_JSON] [--fail-on-changes] [--tag TAG]
+                       [--tag-expr TAG_EXPR] [--validation-report-format {json}]
                        [stack_file]
 ```
 
@@ -1031,13 +1014,11 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith apply`
 
 ```text
-stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
-                        [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
-                        [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
-                        [--log LOG] [--no-cache] [--no-cas]
-                        [--strict-validation-warnings] [--use-local-modules |
-                        --no-local-modules] [--debug | -q] [--tag TAG]
-                        [--tag-expr TAG_EXPR] [--auto-approve]
+stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
+                        [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}]
+                        [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
+                        [--strict-validation-warnings] [--use-local-modules | --no-local-modules] [--debug |
+                        -q] [--tag TAG] [--tag-expr TAG_EXPR] [--auto-approve]
                         [stack_file]
 ```
 
@@ -1067,14 +1048,11 @@ stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith destroy`
 
 ```text
-stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
-                          [--env-file ENV_FILE] [--vars VARS_FILE]
-                          [--var VARS] [--merge-mode {deep,override}]
-                          [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
-                          [--no-cas] [--strict-validation-warnings]
-                          [--use-local-modules | --no-local-modules]
-                          [--debug | -q] [--tag TAG] [--tag-expr TAG_EXPR]
-                          [--auto-approve]
+stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
+                          [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}]
+                          [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
+                          [--strict-validation-warnings] [--use-local-modules | --no-local-modules]
+                          [--debug | -q] [--tag TAG] [--tag-expr TAG_EXPR] [--auto-approve]
                           [stack_file]
 ```
 
@@ -1104,15 +1082,11 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
 ### `stacksmith operation run`
 
 ```text
-stacksmith operation run [-h] [--force-rerun] [--stack STACK]
-                                [--runfile RUNFILE] [-c CONFIG]
-                                [--env-file ENV_FILE] [--vars VARS_FILE]
-                                [--var VARS] [--merge-mode {deep,override}]
-                                [--build-dir BUILD_DIR] [--log LOG]
-                                [--no-cache] [--no-cas]
-                                [--strict-validation-warnings]
-                                [--use-local-modules | --no-local-modules]
-                                [--debug | -q]
+stacksmith operation run [-h] [--force-rerun] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+                                [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+                                [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
+                                [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
+                                --no-local-modules] [--debug | -q]
                                 operation_name [stack_file]
 ```
 
@@ -1141,15 +1115,11 @@ stacksmith operation run [-h] [--force-rerun] [--stack STACK]
 ### `stacksmith info inspect`
 
 ```text
-stacksmith info inspect [-h] [--format {table,json}] [--basic]
-                               [--runfile RUNFILE] [-c CONFIG]
-                               [--env-file ENV_FILE] [--vars VARS_FILE]
-                               [--var VARS] [--merge-mode {deep,override}]
-                               [--build-dir BUILD_DIR] [--log LOG]
-                               [--no-cache] [--no-cas]
-                               [--strict-validation-warnings]
-                               [--use-local-modules | --no-local-modules]
-                               [--debug | -q]
+stacksmith info inspect [-h] [--format {table,json}] [--basic] [--runfile RUNFILE] [-c CONFIG]
+                               [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+                               [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
+                               [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
+                               --no-local-modules] [--debug | -q]
                                [component_type ...]
 ```
 
@@ -1177,15 +1147,11 @@ stacksmith info inspect [-h] [--format {table,json}] [--basic]
 ### `stacksmith info diagnose`
 
 ```text
-stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}]
-                                [--runfile RUNFILE] [-c CONFIG]
-                                [--env-file ENV_FILE] [--vars VARS_FILE]
-                                [--var VARS] [--merge-mode {deep,override}]
-                                [--build-dir BUILD_DIR] [--log LOG]
-                                [--no-cache] [--no-cas]
-                                [--strict-validation-warnings]
-                                [--use-local-modules | --no-local-modules]
-                                [--debug | -q]
+stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}] [--runfile RUNFILE] [-c CONFIG]
+                                [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+                                [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
+                                [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
+                                --no-local-modules] [--debug | -q]
                                 [stack_file]
 ```
 
@@ -1215,10 +1181,8 @@ stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}]
 ```text
 stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
                                     [--discovery-mode {folders,flat-files,env-files,env,auto}]
-                                    [--environments ENVIRONMENTS]
-                                    [--event-name EVENT_NAME]
-                                    [--changed-path CHANGED_PATH]
-                                    [--base-ref BASE_REF] [--before BEFORE]
+                                    [--environments ENVIRONMENTS] [--event-name EVENT_NAME]
+                                    [--changed-path CHANGED_PATH] [--base-ref BASE_REF] [--before BEFORE]
                                     [--after AFTER] [--format {table,json}]
 ```
 
@@ -1239,8 +1203,7 @@ stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
 ```text
 stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
                               [--discovery-mode {folders,flat-files,env-files,env,auto}]
-                              [--environments ENVIRONMENTS]
-                              [--workflow-runfile WORKFLOW_RUNFILE]
+                              [--environments ENVIRONMENTS] [--workflow-runfile WORKFLOW_RUNFILE]
                               [--workflow-env-file WORKFLOW_ENV_FILE]
                               [--workflow-validation-report-format WORKFLOW_VALIDATION_REPORT_FORMAT]
                               [--format {table,json}]
@@ -1261,24 +1224,15 @@ stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
 ```text
 stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
                              [--discovery-mode {folders,flat-files,env-files,env,auto}]
-                             [--environments ENVIRONMENTS]
-                             [--event-name EVENT_NAME]
-                             [--changed-path CHANGED_PATH]
-                             [--base-ref BASE_REF] [--before BEFORE]
+                             [--environments ENVIRONMENTS] [--event-name EVENT_NAME]
+                             [--changed-path CHANGED_PATH] [--base-ref BASE_REF] [--before BEFORE]
                              [--after AFTER] --command {plan,apply,operation}
-                             [--operation-name OPERATION_NAME]
-                             --config-ref CONFIG_REF [--workdir WORKDIR]
-                             [--env-file ENV_FILE]
-                             [--stacksmith-args-json STACKSMITH_ARGS_JSON]
-                             [--no-cas] [--force-rerun]
-                             [--validation-report-format {json}]
-                             [--fail-on-changes]
-                             [--strict-validation-warnings]
-                             [--ref-name REF_NAME]
-                             [--default-branch DEFAULT_BRANCH]
-                             [--is-primary-branch {true,false}]
-                             [--skip-branch-validation]
-                             [--format {table,json}]
+                             [--operation-name OPERATION_NAME] --config-ref CONFIG_REF [--workdir WORKDIR]
+                             [--env-file ENV_FILE] [--stacksmith-args-json STACKSMITH_ARGS_JSON] [--no-cas]
+                             [--force-rerun] [--validation-report-format {json}] [--fail-on-changes]
+                             [--strict-validation-warnings] [--ref-name REF_NAME]
+                             [--default-branch DEFAULT_BRANCH] [--is-primary-branch {true,false}]
+                             [--skip-branch-validation] [--format {table,json}]
 ```
 
 | Argument | Description |
@@ -1311,8 +1265,7 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
 ### `stacksmith ci execute`
 
 ```text
-stacksmith ci execute [-h] --manifest MANIFEST
-                             --environment ENVIRONMENT
+stacksmith ci execute [-h] --manifest MANIFEST --environment ENVIRONMENT
                              [--validation-report-output VALIDATION_REPORT_OUTPUT]
 ```
 
@@ -1325,10 +1278,8 @@ stacksmith ci execute [-h] --manifest MANIFEST
 ### `stacksmith ci prepare-from-env`
 
 ```text
-stacksmith ci prepare-from-env [-h]
-                                      [--provider {generic,github-actions,jenkins}]
-                                      [--manifest-file MANIFEST_FILE]
-                                      [--github-output GITHUB_OUTPUT]
+stacksmith ci prepare-from-env [-h] [--provider {generic,github-actions,jenkins}]
+                                      [--manifest-file MANIFEST_FILE] [--github-output GITHUB_OUTPUT]
 ```
 
 | Argument | Description |
@@ -1340,10 +1291,8 @@ stacksmith ci prepare-from-env [-h]
 ### `stacksmith ci execute-from-env`
 
 ```text
-stacksmith ci execute-from-env [-h]
-                                      [--provider {generic,github-actions,jenkins}]
-                                      [--manifest-file MANIFEST_FILE]
-                                      [--environment ENVIRONMENT]
+stacksmith ci execute-from-env [-h] [--provider {generic,github-actions,jenkins}]
+                                      [--manifest-file MANIFEST_FILE] [--environment ENVIRONMENT]
                                       [--validation-report-output VALIDATION_REPORT_OUTPUT]
 ```
 
