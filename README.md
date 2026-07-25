@@ -74,6 +74,25 @@ Stacksmith supports Python-based validation and transform hooks.
 - Transforms use `inline`, `script`, or `jinja` depending on context.
 - Relative script paths resolve from the declaring file.
 
+### Testing policies and transforms with pytest
+
+Stacksmith provides `StacksmithTestRunner` and a pytest fixture so managed-config repositories can test the same policies and transforms that run in production. The fixture loads the nearest `stacksmith-config.yaml`; use `--stacksmith-config path/to/stacksmith-config.yaml` when the configuration is elsewhere.
+
+```python
+from stacksmith.validations.outcomes import PlanValidationOutcome
+
+
+def test_requires_imdsv2(stacksmith_test_runner):
+    outcome, _ = stacksmith_test_runner.run_plan_policy(
+        "ec2_requires_imdsv2",
+        {"resource_changes": []},
+    )
+
+    assert outcome == PlanValidationOutcome.PASS
+```
+
+The plugin is auto-discovered when Stacksmith is installed. If pytest plugin auto-loading is disabled, enable it explicitly with `pytest -p stacksmith.pytest_plugin`. `run_plan_policy` executes the named rule even when it is disabled in managed config, so a policy can be tested before it is enabled. `run_variable_policy` tests a configured variable rule, and `run_component_property` runs a mapped property through its production transform and validation path.
+
 ### Local path resolution
 
 - Local paths in `stacksmith.yaml` runfile `stacks`, `configs`, and local `vars` sources resolve relative to the runfile that declares them.
