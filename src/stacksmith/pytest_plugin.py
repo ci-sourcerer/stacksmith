@@ -1,5 +1,3 @@
-"""Pytest fixture for Stacksmith policy and transform tests."""
-
 from pathlib import Path
 
 import pytest

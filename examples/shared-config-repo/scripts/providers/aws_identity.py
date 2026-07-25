@@ -1,3 +1,5 @@
+"""Determine whether the active AWS credentials resolve to a root principal."""
+
 import logging
 import os
 
