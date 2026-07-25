@@ -7,6 +7,21 @@ This directory is a platform-owned Stacksmith managed configuration. It defines 
 The `tests/` directory uses pytest and Stacksmith's auto-loaded pytest plugin. Run the complete example suite from the repository root.
 
 ```shell
+stacksmith test --config examples/shared-config-repo/stacksmith-config.yaml
+```
+
+`stacksmith test` supports repeated `--config` options and uses the same ordered configuration merge behavior as other Stacksmith commands. Pass additional pytest arguments after `--`.
+
+```shell
+stacksmith test \
+  --config platform/stacksmith-config.yaml \
+  --config environments/prod/stacksmith-config.yaml \
+  -- -k imdsv2
+```
+
+Use pytest directly when you prefer its native command line.
+
+```shell
 pytest examples/shared-config-repo/tests
 ```
 
@@ -20,6 +35,15 @@ pytest examples/shared-config-repo/tests \
 ```
 
 If pytest plugin auto-loading is disabled, add `-p stacksmith.pytest_plugin` to either command.
+
+You can also pass multiple layers directly to pytest.
+
+```shell
+pytest examples/shared-config-repo/tests \
+  --stacksmith-config examples/shared-config-repo/base-config.yaml \
+  --stacksmith-config examples/shared-config-repo/production-config.yaml \
+  --stacksmith-merge-mode deep
+```
 
 The examples are organized by the Stacksmith behavior under test.
 

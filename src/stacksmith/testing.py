@@ -1,5 +1,6 @@
 """Public helpers for testing managed Stacksmith policies and properties."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -7,7 +8,7 @@ from typing import Any, Mapping
 from .exceptions import StacksmithNotFoundError
 from .generator import _apply_property_spec, _build_property_context
 from .loader import load_config
-from .models import RemoteAuthConfig, ToolConfig
+from .models import MergeConfig, RemoteAuthConfig, ToolConfig
 from .module_mapping import resolve_module_mapping
 from .validation import (
     InputValidationOutcome,
@@ -72,6 +73,36 @@ class StacksmithTestRunner:
             A runner backed by the loaded configuration.
         """
         return cls(load_config(Path(config_path)), cache_dir, auth_config)
+
+    @classmethod
+    def from_config_layers(
+        cls,
+        config_paths: Sequence[Path | str],
+        merge_mode: MergeConfig,
+        cache_dir: Path | None = None,
+        auth_config: RemoteAuthConfig | None = None,
+    ) -> "StacksmithTestRunner":
+        """Load merged managed-config layers and create a test runner.
+
+        Args:
+            config_paths: Ordered managed configuration paths. Later layers are
+                merged over earlier layers according to `merge_mode`.
+            merge_mode: Strategy used to merge configuration layers.
+            cache_dir: Optional cache directory for remote policy or transform
+                scripts.
+            auth_config: Optional remote authentication override.
+
+        Returns:
+            A runner backed by the effective merged configuration.
+        """
+        return cls(
+            load_config(
+                [Path(config_path) for config_path in config_paths],
+                merge_mode=merge_mode,
+            ),
+            cache_dir,
+            auth_config,
+        )
 
     def run_plan_policy(
         self,

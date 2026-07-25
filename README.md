@@ -76,7 +76,7 @@ Stacksmith supports Python-based validation and transform hooks.
 
 ### Testing policies and transforms with pytest
 
-Stacksmith provides `StacksmithTestRunner` and a pytest fixture so managed-config repositories can test the same policies and transforms that run in production. The fixture loads the nearest `stacksmith-config.yaml`; use `--stacksmith-config path/to/stacksmith-config.yaml` when the configuration is elsewhere.
+Stacksmith provides `StacksmithTestRunner` and a pytest fixture so managed-config repositories can test the same policies and transforms that run in production. Use `stacksmith test` to launch pytest using Stacksmith's config, runfile, cache, and layered-configuration behavior. The fixture loads the nearest `stacksmith-config.yaml`; use one or more `--stacksmith-config path/to/stacksmith-config.yaml` options when the configuration is elsewhere.
 
 ```python
 from stacksmith.validations.outcomes import PlanValidationOutcome
@@ -811,7 +811,8 @@ Single-stack commands default to `stack.yaml` in the current directory, with fal
 ### `stacksmith`
 
 ```text
-stacksmith [-h] [--version] {validate,generate,run-all,init,plan,apply,destroy,operation,info,ci} ...
+stacksmith [-h] [--version]
+                  {validate,generate,test,run-all,init,plan,apply,destroy,operation,info,ci} ...
 ```
 
 YAML/JSON-driven Terragrunt wrapper
@@ -826,6 +827,7 @@ YAML/JSON-driven Terragrunt wrapper
 | - | - |
 | `validate` | Validate stack schema and variables |
 | `generate` | Generate .tf.json and terragrunt.hcl.json |
+| `test` | Run pytest tests for one or more managed config layers |
 | `run-all` | Discover all stacks and run terragrunt run-all |
 | `init` | Generate + terragrunt init |
 | `plan` | Generate + terragrunt plan |
@@ -897,6 +899,35 @@ stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+
+### `stacksmith test`
+
+```text
+stacksmith test [-h] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE] [--vars VARS_FILE]
+                       [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
+                       [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
+                       --no-local-modules] [--debug | -q]
+                       [test_path ...]
+```
+
+| Argument | Description |
+| - | - |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. |
+| `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+| `test_path` | Optional pytest test paths. Defaults to tests/ beside each config layer. |
 
 ### `stacksmith run-all`
 

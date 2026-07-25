@@ -1,8 +1,10 @@
 import argparse
 import contextlib
+import importlib.util
 import json
 import logging
 import os
+import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
@@ -35,6 +37,7 @@ from stacksmith.remote import is_remote_url, resolve_if_remote
 from stacksmith.utils import env_truthy, stacksmith_env
 
 from ..api import (
+    _load_runtime_config,
     generate_stack,
     inspect_cache_diagnostics,
     inspect_environments,
@@ -47,7 +50,7 @@ from ..api import (
     validate_stack,
 )
 from ..enums import InspectOutputFormat, TerragruntAction, ValidationReportFormat
-from ..exceptions import StacksmithError
+from ..exceptions import StacksmithConfigError, StacksmithError
 from ..gitops.contracts import CiExecutionManifest
 from ..inspector import format_json, format_table
 from ..utils import load_env_files
@@ -289,6 +292,75 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         merge_mode=_merge_mode_arg(args),
     )
     return 0
+
+
+def _test_directories(config_paths: list[Path]) -> list[Path]:
+    test_directories = []
+    for config_path in config_paths:
+        candidate = config_path.parent / "tests"
+        if candidate.is_dir() and candidate not in test_directories:
+            test_directories.append(candidate)
+    return test_directories
+
+
+def _split_test_paths_and_pytest_args(
+    paths_and_args: list[Path],
+) -> tuple[list[Path], list[str]]:
+    for index, path_or_arg in enumerate(paths_and_args):
+        if str(path_or_arg).startswith("-"):
+            return paths_and_args[:index], [str(arg) for arg in paths_and_args[index:]]
+    return paths_and_args, []
+
+
+def _pytest_merge_args(merge_mode: MergeConfig) -> list[str]:
+    if isinstance(merge_mode, MergePolicy):
+        return [
+            "--stacksmith-merge-mode",
+            merge_mode.default.value,
+            "--stacksmith-merge-rules-json",
+            json.dumps([rule.model_dump(mode="json") for rule in merge_mode.rules]),
+        ]
+    return ["--stacksmith-merge-mode", merge_mode.value]
+
+
+def _cmd_test(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    merge_mode = _merge_mode_arg(args)
+    cache_dir, config_paths, _ = _load_runtime_config(
+        args.config,
+        args.build_dir,
+        no_cache=args.no_cache,
+        merge_mode=merge_mode,
+    )
+    specified_test_paths, forwarded_pytest_args = _split_test_paths_and_pytest_args(
+        args.test_path
+    )
+    test_paths = specified_test_paths or _test_directories(config_paths)
+    if not test_paths:
+        raise StacksmithConfigError(
+            "No tests directory was found beside the selected config layers. "
+            "Provide one or more test paths after the Stacksmith options."
+        )
+    if importlib.util.find_spec("pytest") is None:
+        raise StacksmithConfigError(
+            "pytest is required for 'stacksmith test'. Install pytest in the active "
+            "Python environment."
+        )
+
+    pytest_args = [str(test_path) for test_path in test_paths]
+    for config_path in config_paths:
+        pytest_args.extend(["--stacksmith-config", str(config_path)])
+    pytest_args.extend(
+        [
+            "--stacksmith-cache-dir",
+            str(cache_dir),
+            *_pytest_merge_args(merge_mode),
+            *forwarded_pytest_args,
+        ]
+    )
+    return subprocess.run(
+        [sys.executable, "-m", "pytest", *pytest_args], check=False
+    ).returncode
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
@@ -973,6 +1045,18 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_stack_arg(p_generate)
     _add_common_args(p_generate)
 
+    # test
+    p_test = subparsers.add_parser(
+        "test", help="Run pytest tests for one or more managed config layers"
+    )
+    _add_common_args(p_test)
+    p_test.add_argument(
+        "test_path",
+        nargs="*",
+        type=_path_type,
+        help="Optional pytest test paths. Defaults to tests/ beside each config layer.",
+    )
+
     # run-all
     p_run_all = subparsers.add_parser(
         "run-all", help="Discover all stacks and run terragrunt run-all"
@@ -1211,6 +1295,8 @@ def main() -> None:
                 exit_code = _cmd_generate(args)
                 if exit_code != 0:
                     exit_code = 6  # Module/configuration error
+            case "test":
+                exit_code = _cmd_test(args)
             case "info":
                 match args.info_command:
                     case "inspect":
