@@ -8,7 +8,7 @@
 
 Stacksmith is a CLI tool that lets teams define infrastructure stacks in a simple YAML (or JSON) format and deploy them via [OpenTofu](https://opentofu.org) and [Terragrunt](https://terragrunt.gruntwork.io). It bridges the gap between a developer writing a plain resource list and the OpenTofu ecosystem by abstracting module wiring, backend configuration, variable resolution, policy checks, and monorepo orchestration.
 
-## Concepts
+## Core concepts and examples
 
 ### Stack
 
@@ -26,134 +26,62 @@ Components are the entries under `components` in a stack file. Each component de
 - `tags`: optional [targeting tags](#tags-and-targeting)
 - `properties`: module input values authored by stack owners
 
-### Tags and targeting
+### Writing a stack
 
-Stacksmith supports both stack-level and component-level targeting.
-
-- Stack tags come from the stack `tags` field and can be filtered in `run-all` with `--include-tag` and `--exclude-tag`.
-- Component tags come from component `tags` plus optional managed-config module tags.
-- Target expressions use `--tag-expr` and are evaluated with context keys including `tags`, `tag`, `stack_tags`, `component_name`, and `component_type`.
-
-### Inputs
-
-Input resolution order from lowest to highest priority.
-
-1. Vars files from `STACKSMITH_VARS`, when used without `--runfile`
-2. Environment variables prefixed with `STACKSMITH_VAR_`
-3. `stacksmith.yaml` `vars` sources, when a runfile is used
-4. Explicit `--vars` and `--var key=value` entries, deep-merged in the order they appear on the command line
-
-Runfile inline `vars` sources support Jinja in two stages. Stage 1 runs while the runfile itself is loaded and provides `runfile` metadata fields. Stage 2 runs during input resolution and provides `inputs` and `stack`.
-
-The `runfile` metadata fields available during stage 1 are `runfile.path`, `runfile.dir`, `runfile.name`, and `runfile.stem`.
-
-When Stacksmith renders a stack from a Git working tree with an `origin` remote, `git_repository` contains that remote URL. Stack rendering, input resolution, property transforms, and default module source templates resolve it from the stack file's directory, not Stacksmith's launch directory. Runfile stage 1 resolves it from the runfile directory. For direct input resolution without a stack, Stacksmith uses its current working directory. The variable is undefined when the relevant directory is not in a Git working tree or `origin` is not configured. For example, a stack can use `iac_repository: "{{ git_repository }}"` in an AWS resource tag.
-
-When `--runfile` is used, Stacksmith applies runfile `vars` sources before CLI-provided variable layers and does not apply `STACKSMITH_VARS` defaults.
-
-### Templating matrix
-
-Stacksmith supports Jinja in specific surfaces rather than as a global feature.
-
-| Surface | Render timing | Context | Notes |
-| - | - | - | - |
-| Stack source (`stack.yaml`, `stack.yml`, `stack.json`) | Before YAML or JSON parse and schema validation | `inputs`, `stack`, `git_repository` when available | Full-file render for structural generation such as loops and conditional blocks. |
-| Resolved input values | After vars, env vars, runfile vars, and CLI vars are merged | `inputs`, `stack`, `git_repository` when available | Value-level render across merged inputs. |
-| Runfile stage 1 (`stacksmith.yaml`) | During runfile load before schema validation | `runfile.path`, `runfile.dir`, `runfile.name`, `runfile.stem`, `git_repository` when available | Primarily for structured references and inline vars source data. |
-| Runfile stage 2 (runfile inline vars after merge) | During input resolution | `inputs`, `stack`, `git_repository` when available | Lets runfile-provided values compose with final merged inputs and stack metadata. |
-| `default_module_mapping.source` | During module mapping resolution when no explicit mapping exists | `component_type`, `component_name`, `git_repository` when available | Strict sandboxed render with post-render source validation. |
-| `transform.jinja` | During property transform execution | `value` plus transform context (`name`, `kind`, `component_name`, `component_type`, `output_name`, `inputs`, `stack`, `git_repository` when available) | Use when a property transform is declarative and local to one mapped field. |
-
-Ordinary managed-config fields are intentionally non-templated.
-
-### Validation and transforms
-
-Stacksmith supports Python-based validation and transform hooks.
-
-- Validations use either `inline` Python or `script`.
-- Transforms use `inline`, `script`, or `jinja` depending on context.
-- Relative script paths resolve from the declaring file.
-
-### Testing policies and transforms
-
-Stacksmith tests are declared in `tests.yaml` manifests. `stacksmith test` compiles those manifests into an ephemeral pytest module and runs it with Stacksmith's managed-config fixture wiring, cache behavior, and layered merge behavior.
-
-When `--config` points at one or more managed config layers, Stacksmith discovers `tests.yaml` beside each selected config and merges them in order. You can also pass explicit manifest paths after Stacksmith options.
-
-```shell
-stacksmith test \
-  --config examples/shared-config-repo/stacksmith-config.yaml
-```
-
-```shell
-stacksmith test \
-  --config platform/base-config.yaml \
-  --config platform/prod-config.yaml \
-  platform/tests.yaml \
-  -- -k imdsv2
-```
-
-Use `--dump-tests` when you want to inspect the generated pytest code.
-
-```shell
-stacksmith test \
-  --config examples/shared-config-repo/stacksmith-config.yaml \
-  --dump-tests /tmp/stacksmith-generated-tests.py
-```
-
-Manifest test cases cover variable policies, plan policies, and component properties. Plan policy cases can include optional context (for example stack metadata), and manifests can define optional setup/teardown fixtures using either inline Python or script references. Fixture execution mode can be set to `per-suite` (default) or `per-test-case`.
+A stack definition describes a logical unit of infrastructure. Developers write it, and the [managed config](#managed-config) resolves implementation details.
 
 ```yaml
-fixtures:
-  mode: per-test-case
-  setup:
-    inline: |
-      fixture_state["ready"] = True
+# stack.yaml
 
-variable_policies:
-  aws_region:
-    - value: us-east-1
-      expect: pass
+stack:
+  name: my-app
 
-plan_policies:
-  ec2_t3_micro_warning:
-    - resources:
-        - address: aws_instance.web
-          type: aws_instance
-          change:
-            after:
-              instance_type: t3.micro
-      context:
-        stack_name: production
-      expect: warn
+tags:
+  - apps
+  - storage
 
-component_properties:
-  aws_s3_bucket:
-    bucket_name:
-      - value: My_Bucket
-        inputs:
-          environment: prod
-        expect:
-          output_name: bucket
-          value: prod-my-bucket
+components:
+  app-bucket:
+    type: aws_s3_bucket
+    properties:
+      acl: private
+      bucket: "{{ inputs.bucket_name }}"
+  app-server:
+    type: aws_ec2_instance
+    properties:
+      ami: ami-0abcdef1234567890
+      instance_type: t3.small
 ```
 
-### Local path resolution
+Stacksmith property templates can also access stack metadata via `stack.name` and `stack.tags`, plus `git_repository` when the current working directory is a Git repository with an `origin` remote.
+For example, you can compute values from the stack name like `{{ stack.name }}-{{ inputs.bucket_name }}`.
 
-- Local paths in `stacksmith.yaml` runfile `stacks`, `configs`, and local `vars` sources resolve relative to the runfile that declares them.
-- Local script paths and local module source paths in `stacksmith-config.yaml` resolve relative to the config file that declares them.
+Components in the same stack can consume each other's OpenTofu module outputs with native Terraform references. The component name becomes the module name, so `${module.app_server.private_ip}` passes the `private_ip` output from `app_server` to another component property. OpenTofu infers the dependency from the reference.
 
-### Plan validations
+#### Generating components with Jinja
 
-The [managed config](#managed-config) can define `plan_validations` that run after `plan` and `run-all plan` against OpenTofu plan JSON output.
+Stacksmith renders the complete stack source with the resolved `inputs` map before it parses and validates YAML or JSON. This lets a stack template generate any number of explicit components while keeping each generated component independently named, tagged, targeted, and referenced.
 
-Plan validation rules can return `pass`, `warn`, or `fail` outcomes.
+```yaml
+components:
+{% for worker_name, worker in inputs.workers.items() %}
+  "{{ worker_name }}":
+    type: aws_ec2_instance
+    properties:
+      ami: {{ worker.ami | tojson }}
+      instance_type: {{ worker.instance_type | tojson }}
+      tags:
+        worker: {{ worker_name | tojson }}
+{% endfor %}
+```
 
-- Truthy values pass and falsey values fail.
-- Warnings are non-blocking by default; use `--strict-validation-warnings` to treat warning outcomes as failures.
-- Use `--fail-on-changes` on `plan` or `run-all plan` to return a non-zero exit code whenever the rendered plan contains *any* resource changes. This is useful for automated drift detection or CI checks where only a non-empty plan should fail.
+The same rendering pass handles ordinary values, so existing property expressions such as `bucket: "{{ inputs.bucket_name }}"` remain supported. Use the Jinja `tojson` filter for an unquoted dynamic YAML value when it might contain characters that need escaping.
 
-## Configuration
+#### State backend
+
+The S3 state key is derived automatically from the stack file's path relative to the repo root. For example `networking/vpc/stack.yaml` produces key `networking/vpc/terraform.tfstate`. For standalone stacks (single-stack commands without a `--root`), the key is simply `<name>/terraform.tfstate`.
+
+### Configuration
 
 This section shows managed config authoring details. Conceptual definitions for config ownership and responsibilities are documented in [Concepts](#concepts).
 
@@ -250,210 +178,15 @@ A few things to note about the config are as follows.
 - **Provider versions should probably be exact pins where possible, not ranges.** Fuzzy constraints like `~> 5.0` leave room for provider updates to silently change behaviour across deployments. The config is the right place to make upgrades deliberate and reviewed.
 - **Component types must have a resolution path.** Stacksmith uses an explicit mapping first, then the default mapping when configured, and rejects the component at generation time when neither exists.
 
-## Writing a stack
+## Execution & Orchestration
 
-A stack definition describes a logical unit of infrastructure. Developers write it, and the [managed config](#managed-config) resolves implementation details.
-
-```yaml
-# stack.yaml
-
-stack:
-  name: my-app
-
-tags:
-  - apps
-  - storage
-
-components:
-  app-bucket:
-    type: aws_s3_bucket
-    properties:
-      acl: private
-      bucket: "{{ inputs.bucket_name }}"
-  app-server:
-    type: aws_ec2_instance
-    properties:
-      ami: ami-0abcdef1234567890
-      instance_type: t3.small
-```
-
-Stacksmith property templates can also access stack metadata via `stack.name` and `stack.tags`, plus `git_repository` when the current working directory is a Git repository with an `origin` remote.
-For example, you can compute values from the stack name like `{{ stack.name }}-{{ inputs.bucket_name }}`.
-
-Components in the same stack can consume each other's OpenTofu module outputs with native Terraform references. The component name becomes the module name, so `${module.app_server.private_ip}` passes the `private_ip` output from `app_server` to another component property. OpenTofu infers the dependency from the reference.
-
-### Generating components with Jinja
-
-Stacksmith renders the complete stack source with the resolved `inputs` map before it parses and validates YAML or JSON. This lets a stack template generate any number of explicit components while keeping each generated component independently named, tagged, targeted, and referenced.
-
-```yaml
-components:
-{% for worker_name, worker in inputs.workers.items() %}
-  "{{ worker_name }}":
-    type: aws_ec2_instance
-    properties:
-      ami: {{ worker.ami | tojson }}
-      instance_type: {{ worker.instance_type | tojson }}
-      tags:
-        worker: {{ worker_name | tojson }}
-{% endfor %}
-```
-
-The same rendering pass handles ordinary values, so existing property expressions such as `bucket: "{{ inputs.bucket_name }}"` remain supported. Use the Jinja `tojson` filter for an unquoted dynamic YAML value when it might contain characters that need escaping.
-
-### State backend
-
-The S3 state key is derived automatically from the stack file's path relative to the repo root. For example `networking/vpc/stack.yaml` produces key `networking/vpc/terraform.tfstate`. For standalone stacks (single-stack commands without a `--root`), the key is simply `<name>/terraform.tfstate`.
-
-Concept-level details for tags, input resolution, validations, plan validations, and transforms are documented in [Concepts](#concepts). This section intentionally focuses on stack authoring shape and examples.
-
-## Remote resources
-
-Stacksmith can pull scripts, config files, vars files, stack files, and runfiles from remote locations. Anywhere a local file path is accepted for validation scripts, transform scripts, vars files, stack files, config files, or `stacksmith.yaml`, a remote URL can be used instead.
-
-Runfiles and config script references use a structured `source` + `data` object.
-
-Supported sources are:
-
-- `local` with `data.path`
-- `git` with `data.repo`, `data.path`, optional `data.ref`
-- `http` with `data.url`
-- `registry` with `data.address`, `data.version`
-
-Stacksmith treats this as the canonical representation and renders tool-specific syntax server-side before invoking downstream tools.
-
-### Canonical vs rendered target syntax
-
-| Canonical reference | OpenTofu rendered value | CLI flag rendered value |
-| - | - | - |
-| `source: local`, `data.path: ./vars.dev.yaml` | `./vars.dev.yaml` | `./vars.dev.yaml` |
-| `source: http`, `data.url: https://example.com/base.yaml` | `https://example.com/base.yaml` | `https://example.com/base.yaml` |
-| `source: git`, `data.repo: https://github.com/org/shared.git`, `data.path: vars/base.yaml`, `data.ref: v1.2.3` | `git::https://github.com/org/shared.git//vars/base.yaml?ref=v1.2.3` | `git+https://github.com/org/shared.git//vars/base.yaml@v1.2.3` |
-| `source: registry`, `data.address: hashicorp/aws`, `data.version: ~> 6.0` | `{ source = "hashicorp/aws", version = "~> 6.0" }` (provider/module fields) | Not used for file-style CLI flags |
-
-### Usage examples
-
-In config validations/transforms, use a structured script reference.
-
-```yaml
-# stacksmith-config.yaml – remote managed input validation script
-var_validations:
-  bucket_name:
-    script:
-      source: http
-      data:
-        url: https://raw.githubusercontent.com/my-org/shared/main/validators/bucket.py
-```
-
-```yaml
-# stacksmith-config.yaml – remote transform script from a git repo
-module_mappings:
-  aws_s3_bucket:
-    source:
-      source: git
-      data:
-        repo: https://github.com/my-org/terraform-aws-s3.git
-        ref: 3.2.1
-    properties:
-      acl:
-        mapped_to: bucket_acl
-        transform:
-          script:
-            source: git
-            data:
-              repo: https://github.com/my-org/shared.git
-              path: transforms/acl.py
-              ref: v2.0.0
-```
-
-Config files, vars files, stack files, and runfiles also support remote URLs via CLI flags (`--config`, `--vars`, `--stack`, `--runfile`) where URL strings are passed directly.
-
-```shell
-stacksmith plan \
-  --config https://example.com/org-config.yaml \
-  --vars git+https://github.com/org/defaults.git//env/base.yaml@v1.2.0 \
-  --vars git+https://github.com/org/service-defaults.git//bucket-writer/dev.yaml@v3.4.1
-```
-
-```shell
-stacksmith validate \
-  --runfile git+https://github.com/org/platform-live.git//services/payments/stacksmith.yaml@main
-```
-
-### Caching
-
-Stacksmith and Terragrunt now use two cache layers.
-
-- Stacksmith cache stores Stacksmith-resolved remote references (for example config files, vars files, stack files, runfiles, and Python scripts referenced by validations/transforms) under `.cache/` inside the build output directory, or `.stacksmith/.cache/` when no build directory is set.
-- Terragrunt CAS caches Terragrunt source fetching (modules/catalog/stack sources) and is enabled by default in Terragrunt `>= 1.1.0`.
-
-Use `--no-cache` to force Stacksmith to re-fetch its own remote references. On runtime commands (`init`, `plan`, `apply`, `destroy`, and `run-all`), `--no-cache` also disables Terragrunt CAS for that invocation.
-
-Use `--no-cas` when you only want to disable Terragrunt CAS without clearing the Stacksmith cache.
-
-### Environment variable defaults
-
-`STACKSMITH_CONFIG` and `STACKSMITH_VARS` can provide default config and vars references when the corresponding CLI flags are omitted.
-
-`STACKSMITH_STACK` can provide a default stack file path when no positional stack argument is given.
-
-`STACKSMITH_RUN_FILE` can provide a default runfile reference when `--runfile` is omitted. If it is not set, Stacksmith auto-loads `./stacksmith.yaml` when present.
-
-Use colon-delimited lists.
-
-If an item contains colons, such as a remote URL, wrap that item in quotes.
-
-```shell
-export STACKSMITH_VARS='"git+https://github.com/org/platform-defaults.git//env/base.yaml@v1.2.0":"git+https://github.com/org/service-defaults.git//bucket-writer/dev.yaml@v3.4.1"'
-```
-
-### Authentication
-
-Authentication is resolved by checking the `remote_auth` config section first, then falling back to environment variables.
-
-#### Config-based auth
-
-Add a `remote_auth` section to `stacksmith-config.yaml`, keyed by hostname.
-
-```yaml
-remote_auth:
-  github.com:
-    type: token
-    token_env: GITHUB_TOKEN
-  gitlab.internal.com:
-    type: basic
-    username_env: GITLAB_USER
-    password_env: GITLAB_PASS
-  git.private.com:
-    type: ssh
-    ssh_key_path: /home/ci/.ssh/deploy_key
-```
-
-Supported auth types are `token` (HTTP Bearer or git token), `basic` (HTTP Basic), and `ssh` (Git SSH key).
-
-When Stacksmith executes Terragrunt runtime commands, Stacksmith also forwards Git auth into the Terragrunt subprocess environment so CAS-backed Git fetches can reuse your configured credentials.
-
-#### Environment variable fallbacks
-
-When no matching `remote_auth` entry exists, stacksmith checks the following environment variables.
-
-| Variable | Purpose |
-| - | - |
-| `STACKSMITH_HTTP_TOKEN` | Bearer token for HTTP(S) requests |
-| `STACKSMITH_HTTP_USERNAME` / `STACKSMITH_HTTP_PASSWORD` | Basic auth for HTTP(S) |
-| `STACKSMITH_GIT_TOKEN` | Token auth for git clone (HTTPS) |
-| `STACKSMITH_GIT_SSH_KEY` | Path to SSH private key for git clone |
-| `STACKSMITH_SSL_VERIFY` | Set to `false` to disable TLS verification |
-
-> ℹ️ **Note:** Remote config files are fetched *before* the config is loaded, so `remote_auth` entries are not available for config-level URLs. Use environment variables for authentication when fetching remote configs.
-
-## Runfile
+### The Runfile
 
 A runfile, usually `stacksmith.yaml`, is a reproducible invocation file for Stacksmith itself. It solves the GitOps problem of recording exactly which stack layers, shared configs, and variable sources were used for a deployment-oriented command instead of relying on an ephemeral shell history entry.
 
 This is useful when platform teams publish a shared repo of base stack layers and managed defaults while application teams add service-specific overlays on top.
 
-In the following example, the runfile references two stack layers (one from a git repo and one local) and three variable sources in a deterministic order. The final source supplies inline default values for the stack. There is no `configs` section in this example, as the runfile author chose to rely on the environment variable `STACKSMITH_CONFIG` for config layering (coming from, for example, a GitHub Actions repository variable).
+In the following example, the runfile references two stack layers (one from a git repo and one local) and three variable sources in a deterministic order. The final source supplies inline default values for the stack. There is no `configs` section in this example, as the runfile author chose to rely on the environment variable `STACKSMITH_CONFIG` for config layering (coming from, for example, a GitHub Actions repository variable, or a Jenkins global environment variable).
 
 ```yaml
 stacks:
@@ -552,7 +285,388 @@ If `--runfile` is omitted, Stacksmith checks `STACKSMITH_RUN_FILE` and then auto
 
 `--merge-mode` on the CLI always takes precedence over the runfile `merge_mode` value and disables its `merge_rules`, making the selected mode a force-all override for that invocation.
 
-## CI GitOps workflows
+### Monorepo orchestration
+
+In a monorepo, stacksmith recursively discovers all `stack.yaml`/`stack.yml`/`stack.json` files from a root directory and builds a dependency graph from `depends_on` declarations.
+
+#### Inter-stack dependencies
+
+When a stack declares `depends_on`, all OpenTofu outputs from the dependency are automatically passed as inputs. Stack authors never write output or input declarations; the wiring is inferred. If you need to reference a created item's attribute in another program, it is recommended you do so by using the API or CLI of the target system (e.g. AWS CLI) rather than OpenTofu outputs, as this creates a more explicit and decoupled contract between stacks.
+
+For plan and apply stages, Terragrunt `mock_outputs` are used so that dependent stacks can be planned before dependencies have been applied. Define expected output shapes in the stack that *produces* them:
+
+```yaml
+# networking/vpc/stack.yaml
+stack:
+  name: vpc
+
+mock_outputs:
+  vpc_id: mock-vpc-id
+  subnet_ids:
+    - mock-subnet-1
+    - mock-subnet-2
+
+components:
+  main-vpc:
+    type: aws_vpc
+    properties:
+      cidr_block: "10.0.0.0/16"
+```
+
+```yaml
+# compute/web/stack.yaml
+stack:
+  name: web
+
+depends_on:
+  - vpc
+
+components:
+  web-server:
+    type: aws_ec2_instance
+    properties:
+      instance_type: t3.medium
+```
+
+#### Monorepo commands
+
+```bash
+stacksmith run-all <action> [--root <dir>] [--config <config> ...] [--clean] [--auto-approve]
+```
+
+If `STACKSMITH_ROOT` is set, it is used as the default root path. If not, root defaults to the current working directory.
+
+`<action>` is one of `init`, `plan`, `apply`, `destroy`. Stacks are generated in topological dependency order and then Terragrunt is executed per generated stack directory in that order. For `destroy`, execution order is reversed so dependents are destroyed before dependencies.
+
+When `action` is `plan`, you can also pass `--destroy` to run `terragrunt plan -destroy` for every stack.
+
+When `action` is `plan`, you can also pass `--save-plan-json <dir>` to keep the rendered plan JSON for each discovered stack.
+
+Use `--clean` on `run-all` to remove the existing build directory before regeneration.
+
+### Tags and targeting
+
+Stacksmith supports both stack-level and component-level targeting.
+
+- Stack tags come from the stack `tags` field and can be filtered in `run-all` with `--include-tag` and `--exclude-tag`.
+- Component tags come from component `tags` plus optional managed-config module tags.
+- Target expressions use `--tag-expr` and are evaluated with context keys including `tags`, `tag`, `stack_tags`, `component_name`, and `component_type`.
+
+## Advanced Authoring
+
+### Inputs
+
+Input resolution order from lowest to highest priority.
+
+1. Vars files from `STACKSMITH_VARS`, when used without `--runfile`
+2. Environment variables prefixed with `STACKSMITH_VAR_`
+3. `stacksmith.yaml` `vars` sources, when a runfile is used
+4. Explicit `--vars` and `--var key=value` entries, deep-merged in the order they appear on the command line
+
+Runfile inline `vars` sources support Jinja in two stages. Stage 1 runs while the runfile itself is loaded and provides `runfile` metadata fields. Stage 2 runs during input resolution and provides `inputs` and `stack`.
+
+The `runfile` metadata fields available during stage 1 are `runfile.path`, `runfile.dir`, `runfile.name`, and `runfile.stem`.
+
+When Stacksmith renders a stack from a Git working tree with an `origin` remote, `git_repository` contains that remote URL. Stack rendering, input resolution, property transforms, and default module source templates resolve it from the stack file's directory, not Stacksmith's launch directory. Runfile stage 1 resolves it from the runfile directory. For direct input resolution without a stack, Stacksmith uses its current working directory. The variable is undefined when the relevant directory is not in a Git working tree or `origin` is not configured. For example, a stack can use `iac_repository: "{{ git_repository }}"` in an AWS resource tag.
+
+When `--runfile` is used, Stacksmith applies runfile `vars` sources before CLI-provided variable layers and does not apply `STACKSMITH_VARS` defaults.
+
+### Templating matrix
+
+Stacksmith supports Jinja in specific surfaces rather than as a global feature.
+
+| Surface | Render timing | Context | Notes |
+| - | - | - | - |
+| Stack source (`stack.yaml`, `stack.yml`, `stack.json`) | Before YAML or JSON parse and schema validation | `inputs`, `stack`, `git_repository` when available | Full-file render for structural generation such as loops and conditional blocks. |
+| Resolved input values | After vars, env vars, runfile vars, and CLI vars are merged | `inputs`, `stack`, `git_repository` when available | Value-level render across merged inputs. |
+| Runfile stage 1 (`stacksmith.yaml`) | During runfile load before schema validation | `runfile.path`, `runfile.dir`, `runfile.name`, `runfile.stem`, `git_repository` when available | Primarily for structured references and inline vars source data. |
+| Runfile stage 2 (runfile inline vars after merge) | During input resolution | `inputs`, `stack`, `git_repository` when available | Lets runfile-provided values compose with final merged inputs and stack metadata. |
+| `default_module_mapping.source` | During module mapping resolution when no explicit mapping exists | `component_type`, `component_name`, `git_repository` when available | Strict sandboxed render with post-render source validation. |
+| `transform.jinja` | During property transform execution | `value` plus transform context (`name`, `kind`, `component_name`, `component_type`, `output_name`, `inputs`, `stack`, `git_repository` when available) | Use when a property transform is declarative and local to one mapped field. |
+
+Ordinary managed-config fields are intentionally non-templated.
+
+### Remote resources
+
+Stacksmith can pull scripts, config files, vars files, stack files, and runfiles from remote locations. Anywhere a local file path is accepted for validation scripts, transform scripts, vars files, stack files, config files, or `stacksmith.yaml`, a remote URL can be used instead.
+
+Runfiles and config script references use a structured `source` + `data` object.
+
+Supported sources are:
+
+- `local` with `data.path`
+- `git` with `data.repo`, `data.path`, optional `data.ref`
+- `http` with `data.url`
+- `registry` with `data.address`, `data.version`
+
+Stacksmith treats this as the canonical representation and renders tool-specific syntax server-side before invoking downstream tools.
+
+#### Canonical vs rendered target syntax
+
+| Canonical reference | OpenTofu rendered value | CLI flag rendered value |
+| - | - | - |
+| `source: local`, `data.path: ./vars.dev.yaml` | `./vars.dev.yaml` | `./vars.dev.yaml` |
+| `source: http`, `data.url: https://example.com/base.yaml` | `https://example.com/base.yaml` | `https://example.com/base.yaml` |
+| `source: git`, `data.repo: https://github.com/org/shared.git`, `data.path: vars/base.yaml`, `data.ref: v1.2.3` | `git::https://github.com/org/shared.git//vars/base.yaml?ref=v1.2.3` | `git+https://github.com/org/shared.git//vars/base.yaml@v1.2.3` |
+| `source: registry`, `data.address: hashicorp/aws`, `data.version: ~> 6.0` | `{ source = "hashicorp/aws", version = "~> 6.0" }` (provider/module fields) | Not used for file-style CLI flags |
+
+#### Usage examples
+
+In config validations/transforms, use a structured script reference.
+
+```yaml
+# stacksmith-config.yaml – remote managed input validation script
+var_validations:
+  bucket_name:
+    script:
+      source: http
+      data:
+        url: https://raw.githubusercontent.com/my-org/shared/main/validators/bucket.py
+```
+
+```yaml
+# stacksmith-config.yaml – remote transform script from a git repo
+module_mappings:
+  aws_s3_bucket:
+    source:
+      source: git
+      data:
+        repo: https://github.com/my-org/terraform-aws-s3.git
+        ref: 3.2.1
+    properties:
+      acl:
+        mapped_to: bucket_acl
+        transform:
+          script:
+            source: git
+            data:
+              repo: https://github.com/my-org/shared.git
+              path: transforms/acl.py
+              ref: v2.0.0
+```
+
+Config files, vars files, stack files, and runfiles also support remote URLs via CLI flags (`--config`, `--vars`, `--stack`, `--runfile`) where URL strings are passed directly.
+
+```shell
+stacksmith plan \
+  --config https://example.com/org-config.yaml \
+  --vars git+https://github.com/org/defaults.git//env/base.yaml@v1.2.0 \
+  --vars git+https://github.com/org/service-defaults.git//bucket-writer/dev.yaml@v3.4.1
+```
+
+```shell
+stacksmith validate \
+  --runfile git+https://github.com/org/platform-live.git//services/payments/stacksmith.yaml@main
+```
+
+#### Caching
+
+Stacksmith and Terragrunt now use two cache layers.
+
+- Stacksmith cache stores Stacksmith-resolved remote references (for example config files, vars files, stack files, runfiles, and Python scripts referenced by validations/transforms) under `.cache/` inside the build output directory, or `.stacksmith/.cache/` when no build directory is set.
+- Terragrunt CAS caches Terragrunt source fetching (modules/catalog/stack sources) and is enabled by default in Terragrunt `>= 1.1.0`.
+
+Use `--no-cache` to force Stacksmith to re-fetch its own remote references. On runtime commands (`init`, `plan`, `apply`, `destroy`, and `run-all`), `--no-cache` also disables Terragrunt CAS for that invocation.
+
+Use `--no-cas` when you only want to disable Terragrunt CAS without clearing the Stacksmith cache.
+
+#### Environment variable defaults
+
+`STACKSMITH_CONFIG` and `STACKSMITH_VARS` can provide default config and vars references when the corresponding CLI flags are omitted.
+
+`STACKSMITH_STACK` can provide a default stack file path when no positional stack argument is given.
+
+`STACKSMITH_RUN_FILE` can provide a default runfile reference when `--runfile` is omitted. If it is not set, Stacksmith auto-loads `./stacksmith.yaml` when present.
+
+Use colon-delimited lists.
+
+If an item contains colons, such as a remote URL, wrap that item in quotes.
+
+```shell
+export STACKSMITH_VARS='"git+https://github.com/org/platform-defaults.git//env/base.yaml@v1.2.0":"git+https://github.com/org/service-defaults.git//bucket-writer/dev.yaml@v3.4.1"'
+```
+
+#### Authentication
+
+Authentication is resolved by checking the `remote_auth` config section first, then falling back to environment variables.
+
+##### Config-based auth
+
+Add a `remote_auth` section to `stacksmith-config.yaml`, keyed by hostname.
+
+```yaml
+remote_auth:
+  github.com:
+    type: token
+    token_env: GITHUB_TOKEN
+  gitlab.internal.com:
+    type: basic
+    username_env: GITLAB_USER
+    password_env: GITLAB_PASS
+  git.private.com:
+    type: ssh
+    ssh_key_path: /home/ci/.ssh/deploy_key
+```
+
+Supported auth types are `token` (HTTP Bearer or git token), `basic` (HTTP Basic), and `ssh` (Git SSH key).
+
+When Stacksmith executes Terragrunt runtime commands, Stacksmith also forwards Git auth into the Terragrunt subprocess environment so CAS-backed Git fetches can reuse your configured credentials.
+
+##### Environment variable fallbacks
+
+When no matching `remote_auth` entry exists, stacksmith checks the following environment variables.
+
+| Variable | Purpose |
+| - | - |
+| `STACKSMITH_HTTP_TOKEN` | Bearer token for HTTP(S) requests |
+| `STACKSMITH_HTTP_USERNAME` / `STACKSMITH_HTTP_PASSWORD` | Basic auth for HTTP(S) |
+| `STACKSMITH_GIT_TOKEN` | Token auth for git clone (HTTPS) |
+| `STACKSMITH_GIT_SSH_KEY` | Path to SSH private key for git clone |
+| `STACKSMITH_SSL_VERIFY` | Set to `false` to disable TLS verification |
+
+> ℹ️ **Note:** Remote config files are fetched *before* the config is loaded, so `remote_auth` entries are not available for config-level URLs. Use environment variables for authentication when fetching remote configs.
+
+### Validation and transforms
+
+Stacksmith supports Python-based validation and transform hooks.
+
+- Validations use either `inline` Python or `script`.
+- Transforms use `inline`, `script`, or `jinja` depending on context.
+- Relative script paths resolve from the declaring file.
+
+### Plan validations
+
+The [managed config](#managed-config) can define `plan_validations` that run after `plan` and `run-all plan` against OpenTofu plan JSON output.
+
+Plan validation rules can return `pass`, `warn`, or `fail` outcomes.
+
+- Truthy values pass and falsey values fail.
+- Warnings are non-blocking by default; use `--strict-validation-warnings` to treat warning outcomes as failures.
+- Use `--fail-on-changes` on `plan` or `run-all plan` to return a non-zero exit code whenever the rendered plan contains *any* resource changes. This is useful for automated drift detection or CI checks where only a non-empty plan should fail.
+
+### Native operations
+
+Operations are config-owned imperative actions. Stacksmith compiles them into private first-party Terraform modules, so their execution identity and locking use the same configured OpenTofu backend as the stack.
+
+The managed config fixes the runner details, including the local command argument vector or Jenkins job and credentials. A stack can only select an approved operation and supply declared inputs. Operation inputs support the same Jinja templates and native Terraform references as component properties, so an operation can consume an output such as `${module.app.release_name}`. Operations use the `manual` trigger by default; set `trigger: after_apply` in managed config to run them after a successful apply.
+
+```yaml
+# stacksmith-config.yaml
+operations:
+  deploy:
+    runner: local
+    trigger: after_apply
+    command: [./bin/deploy]
+    environment:
+      APP_ENV: environment
+      RELEASE_NAME: release_name
+    inputs:
+      environment:
+        required: true
+      release_name:
+        required: true
+```
+
+```yaml
+# stack.yaml
+components:
+  app:
+    type: application
+
+operations:
+  deploy_app:
+    use: deploy
+    with:
+      environment: "{{ inputs.environment }}"
+      release_name: "${module.app.release_name}"
+```
+
+Run a manual operation by its stack-local name.
+
+```shell
+stacksmith operation run deploy_app --stack stack.yaml --config stacksmith-config.yaml
+```
+
+For a one-time definite dispatch without changing the stack definition, add `--force-rerun` or set `STACKSMITH_FORCE_RERUN=1`. This passes `-replace=module.<operation_module>.terraform_data.operation` to the underlying apply while retaining the operation module target.
+
+```shell
+stacksmith operation run deploy_app --force-rerun --stack stack.yaml --config stacksmith-config.yaml
+```
+
+Alternatively, change `rerun_token` in the stack definition when the rerun request should remain declarative and reviewable. `operation run` performs a targeted OpenTofu apply of that operation's private module. Operations with the `after_apply` trigger run in stack dependency order during `stacksmith apply` and `stacksmith run-all apply`; stack-local `depends_on` can order multiple operations within a stack.
+
+### Testing policies and transforms
+
+Stacksmith tests are declared in `tests.yaml` manifests. `stacksmith test` compiles those manifests into an ephemeral pytest module and runs it with Stacksmith's managed-config fixture wiring, cache behavior, and layered merge behavior.
+
+When `--config` points at one or more managed config layers, Stacksmith discovers `tests.yaml` beside each selected config and merges them in order. You can also pass explicit manifest paths after Stacksmith options.
+
+```shell
+stacksmith test \
+  --config examples/shared-config-repo/stacksmith-config.yaml
+```
+
+```shell
+stacksmith test \
+  --config platform/base-config.yaml \
+  --config platform/prod-config.yaml \
+  platform/tests.yaml \
+  -- -k imdsv2
+```
+
+Use `--dump-tests` when you want to inspect the generated pytest code.
+
+```shell
+stacksmith test \
+  --config examples/shared-config-repo/stacksmith-config.yaml \
+  --dump-tests /tmp/stacksmith-generated-tests.py
+```
+
+Manifest test cases cover variable policies, plan policies, and component properties. Plan policy cases can include optional context (for example stack metadata), and manifests can define optional setup/teardown fixtures using either inline Python or script references. Fixture execution mode can be set to `per-suite` (default) or `per-test-case`.
+
+```yaml
+fixtures:
+  mode: per-test-case
+  setup:
+    inline: |
+      fixture_state["ready"] = True
+
+variable_policies:
+  aws_region:
+    - value: us-east-1
+      expect: pass
+
+plan_policies:
+  ec2_t3_micro_warning:
+    - resources:
+        - address: aws_instance.web
+          type: aws_instance
+          change:
+            after:
+              instance_type: t3.micro
+      context:
+        stack_name: production
+      expect: warn
+
+component_properties:
+  aws_s3_bucket:
+    bucket_name:
+      - value: My_Bucket
+        inputs:
+          environment: prod
+        expect:
+          output_name: bucket
+          value: prod-my-bucket
+```
+
+### Local path resolution
+
+- Local paths in `stacksmith.yaml` runfile `stacks`, `configs`, and local `vars` sources resolve relative to the runfile that declares them.
+- Local script paths and local module source paths in `stacksmith-config.yaml` resolve relative to the config file that declares them.
+
+## Integrations & Ecosystem
+
+### CI GitOps workflows
 
 Stacksmith provides equivalent opinionated GitOps entrypoints for GitHub Actions and Jenkins. Both use the same provider-neutral CI manifest and the `stacksmith ci prepare` / `stacksmith ci execute` contract, so environment selection and per-environment execution stay consistent across providers.
 
@@ -563,7 +677,7 @@ Stacksmith provides equivalent opinionated GitOps entrypoints for GitHub Actions
 
 The GitHub templates under `examples/` do not execute in this repository because they are outside `.github/workflows`.
 
-### Shared behavior
+#### Shared behavior
 
 The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins wrapper uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
 
@@ -592,7 +706,7 @@ If you vendor either entrypoint into a consumer repository, put it under a platf
 Jenkinsfile @platform-team
 ```
 
-### GitHub Actions
+#### GitHub Actions
 
 In your own repository, you can either:
 
@@ -623,7 +737,7 @@ The GitHub workflows expose this as their `stacksmith_args_json` input. JSON arr
 
 The opinionated reusable workflow intentionally does not expose free-form extra CLI args for `plan` or `apply`. Execution behavior is defined by repository-controlled workflow configuration and variables.
 
-#### Consumer quickstart
+##### Consumer quickstart
 
 Call the opinionated reusable workflow from your repository using `uses:`. Keep triggers and approval policies local and delegate discovery + per-environment execution to the reusable workflow here.
 
@@ -701,7 +815,7 @@ jobs:
 
 The reusable workflow also supports the `folders` and `flat-files` discovery modes for repositories that prefer those layouts.
 
-### Jenkins
+#### Jenkins
 
 Configure a Jenkins Multibranch Pipeline with [`Jenkinsfile`](./Jenkinsfile) as its pipeline script path. The pipeline checks out the branch, prepares its CI manifest once, runs each selected environment in parallel, requests manual approval for `apply` and `operation`, and archives plan JSON and validation reports when artifact uploads are enabled. It maps Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically.
 
@@ -746,58 +860,7 @@ Bind remote-source credentials through `STACKSMITH_CREDENTIALS_JSON`. Each entry
 
 This example now also shows app deployment and native operation patterns alongside infrastructure stacks. The shared config can expose approved Terraform component types such as `helm_app` and `k8s_app`, plus approved operations for local commands and Jenkins builds.
 
-## Native operations
-
-Operations are config-owned imperative actions. Stacksmith compiles them into private first-party Terraform modules, so their execution identity and locking use the same configured OpenTofu backend as the stack.
-
-The managed config fixes the runner details, including the local command argument vector or Jenkins job and credentials. A stack can only select an approved operation and supply declared inputs. Operation inputs support the same Jinja templates and native Terraform references as component properties, so an operation can consume an output such as `${module.app.release_name}`. Operations use the `manual` trigger by default; set `trigger: after_apply` in managed config to run them after a successful apply.
-
-```yaml
-# stacksmith-config.yaml
-operations:
-  deploy:
-    runner: local
-    trigger: after_apply
-    command: [./bin/deploy]
-    environment:
-      APP_ENV: environment
-      RELEASE_NAME: release_name
-    inputs:
-      environment:
-        required: true
-      release_name:
-        required: true
-```
-
-```yaml
-# stack.yaml
-components:
-  app:
-    type: application
-
-operations:
-  deploy_app:
-    use: deploy
-    with:
-      environment: "{{ inputs.environment }}"
-      release_name: "${module.app.release_name}"
-```
-
-Run a manual operation by its stack-local name.
-
-```shell
-stacksmith operation run deploy_app --stack stack.yaml --config stacksmith-config.yaml
-```
-
-For a one-time definite dispatch without changing the stack definition, add `--force-rerun` or set `STACKSMITH_FORCE_RERUN=1`. This passes `-replace=module.<operation_module>.terraform_data.operation` to the underlying apply while retaining the operation module target.
-
-```shell
-stacksmith operation run deploy_app --force-rerun --stack stack.yaml --config stacksmith-config.yaml
-```
-
-Alternatively, change `rerun_token` in the stack definition when the rerun request should remain declarative and reviewable. `operation run` performs a targeted OpenTofu apply of that operation's private module. Operations with the `after_apply` trigger run in stack dependency order during `stacksmith apply` and `stacksmith run-all apply`; stack-local `depends_on` can order multiple operations within a stack.
-
-## Python API
+### Python API
 
 Stacksmith exposes a stable Python API for applications, automation, and CI systems that need the same behavior as the CLI without launching a subprocess. Import supported names directly from `stacksmith`; submodules and names that begin with an underscore are implementation details.
 
@@ -828,7 +891,7 @@ sys.exit(exit_code)
 
 The top-level package also exports Stacksmith's exception types, merge-policy models, `StacksmithTestRunner`, and the GitOps change helpers described below.
 
-### GitOps change helpers
+#### GitOps change helpers
 
 Stacksmith offers small, importable helpers for automated GitOps changes. They validate edited stack documents before leaving a change on disk, and `commit_and_push` stages and commits only the paths supplied by the caller.
 
@@ -879,12 +942,82 @@ The opinionated workflow resolves `STACKSMITH_ENV_FILE` from repository variable
 > 1. Enforce linear history or require branches to be up-to-date before merging in your repository settings (via GitHub Branch Protection)
 > 2. Ensure all remote resources, configurations, and provider mappings use **immutable version pins** (exact commits or tags) rather than moving refs (like `main` or `latest`).
 
-## CLI reference
+### Docker
+
+A Docker image is provided that bundles OpenTofu and Terragrunt so no local installation is required. It is also especially useful for CI environments.
+
+As this project is reliant on [Common Python Tasks](https://github.com/ci-sourcerer/common-python-tasks), you can build the image with a simple command: `poe build-image`. You can pass `--build-args TOFU_PROVIDER_SPEC="hashicorp/aws=6.41.0:hashicorp/random=3.8.1"`, for example, to pre-install some OpenTofu providers into the image. This can drastically speed up Stacksmith runs for your users, which is especially helpful in CI environments. By default, the image includes no providers, so OpenTofu will download them on demand during execution.
+
+> ⚠️ **WARNING:** `TOFU_PROVIDER_SPEC` is a shared provider cache keyed by provider version, not by OpenTofu version. If you build or run images with multiple OpenTofu versions, pre-cached providers may not be compatible with an older runtime unless you explicitly pin and pre-cache every provider version needed by those tool versions.
+
+#### Pre-installing modules
+
+Similarly to providers, you can pre-install OpenTofu modules into the image using the `TOFU_MODULE_SPEC` build arg. This is a colon-separated list of `source=version-or-ref` pairs that match the sources and exact versions or Git refs in your managed config.
+
+```shell
+poe build-image --build-args TOFU_MODULE_SPEC="https://github.com/org/terraform-aws-s3.git=v3.2.1:https://github.com/org/terraform-aws-ec2.git=v5.0.0"
+```
+
+When modules are vendored in the image, Stacksmith automatically rewrites module sources in the generated `stacksmith.tf.json` to point to the local vendored copies instead of remote URLs. This eliminates network fetches during `tofu init` and ensures immutable, reproducible builds.
+
+Each module is stored under a deterministic directory name derived from `sha256("<source>|<version>")[:16]`, and a `vendor-manifest.json` is written alongside the directories for reverse lookup.
+
+#### Controlling local module rewriting
+
+Local module rewriting (requiring local vendored modules) is controlled by the `STACKSMITH_ONLY_USE_LOCAL_MODULES` environment variable and the `--use-local-modules` / `--no-local-modules` CLI flags.
+
+| Control | Effect |
+| - | - |
+| `STACKSMITH_ONLY_USE_LOCAL_MODULES=1` | Enable local module rewriting |
+| `--use-local-modules` | Enable explicitly from the CLI |
+| `--no-local-modules` | Disable even when the env var is set |
+| `STACKSMITH_VENDOR_DIR=<path>` | Override the local vendored module root directory |
+
+If a vendored module directory is missing at generation time, Stacksmith fails fast with a clear error rather than silently falling back to remote fetching.
+
+#### Extracting the module and provider specs from config
+
+The following recipe uses `yq` to extract module and provider specs from a managed config file and pass them directly to `poe build-image`. `TOFU_PROVIDER_SPEC` uses colon-separated (`:`) `source=version` items, while `TOFU_MODULE_SPEC` uses `source=version-or-ref` items. Provider version ranges that include commas, such as `>= 6.39, < 7.0`, are supported. Local module mappings are excluded because they are already filesystem paths rather than dependencies that OpenTofu can pre-fetch.
+
+This extraction only includes explicit module mappings. A templated default mapping represents an open-ended set of sources and cannot be pre-vendored without knowing the stack components that will use it. When local-module-only execution is required, add explicit mappings for every component type that must be included in the image.
+
+```shell
+stacksmithConfigPath=<path to stacksmith-config.yaml>
+poe build-image \
+  --build-args \
+    "TOFU_MODULE_SPEC=$(yq -r '
+      .module_mappings
+      | to_entries
+      | map(
+          (
+            select(.value.source.source == "git")
+            | .value.source.data.repo
+              + ((.value.source.data.path | select(. != null) | "//" + .) // "")
+              + "=" + .value.source.data.ref
+          ),
+          (
+            select(.value.source.source == "registry")
+            | .value.source.data.address + "=" + .value.source.data.version
+          )
+        )
+      | join(":")
+    ' "$stacksmithConfigPath")" \
+    "TOFU_PROVIDER_SPEC=$(yq -r '
+      .provider_mappings
+      | to_entries
+      | map("\(.value.source.data.address)=\(.value.source.data.version)")
+      | join(":")
+    ' "$stacksmithConfigPath")"
+```
+
+## Reference
+
+### CLI reference
 
 <!-- BEGIN GENERATED CLI REFERENCE -->
 Single-stack commands default to `stack.yaml` in the current directory, with fallback to `stack.yml` then `stack.json`, when neither `--stack`, `STACKSMITH_STACK`, nor `stacksmith.yaml` supplies stack refs.
 
-### `stacksmith`
+#### `stacksmith`
 
 ```text
 stacksmith [-h] [--version]
@@ -897,7 +1030,7 @@ YAML/JSON-driven Terragrunt wrapper
 | - | - |
 | `--version` | show program's version number and exit |
 
-#### Commands
+##### Commands
 
 | Command | Description |
 | - | - |
@@ -913,7 +1046,7 @@ YAML/JSON-driven Terragrunt wrapper
 | `info` | Show stacksmith inspection and diagnostics commands |
 | `ci` | CI-focused validation and diagnostics commands |
 
-### `stacksmith validate`
+#### `stacksmith validate`
 
 ```text
 stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
@@ -945,7 +1078,7 @@ stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 | `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
 
-### `stacksmith generate`
+#### `stacksmith generate`
 
 ```text
 stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
@@ -976,7 +1109,7 @@ stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 
-### `stacksmith test`
+#### `stacksmith test`
 
 ```text
 stacksmith test [-h] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE] [--vars VARS_FILE]
@@ -1006,7 +1139,7 @@ stacksmith test [-h] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE] [--va
 | `test_path` | Optional tests.yaml paths or directories. Defaults to tests.yaml beside each selected config layer. |
 | `--dump-tests` | Write generated pytest code to this path before execution. |
 
-### `stacksmith run-all`
+#### `stacksmith run-all`
 
 ```text
 stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
@@ -1051,7 +1184,7 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
 | `--clean` | Remove existing build output directory before generation |
 | `--auto-approve` | Skip interactive approval for apply/destroy |
 
-### `stacksmith init`
+#### `stacksmith init`
 
 ```text
 stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
@@ -1081,7 +1214,7 @@ stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 
-### `stacksmith plan`
+#### `stacksmith plan`
 
 ```text
 stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
@@ -1119,7 +1252,7 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 | `--tag-expr` | JMESPath expression used to select resource targets. |
 | `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
 
-### `stacksmith apply`
+#### `stacksmith apply`
 
 ```text
 stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
@@ -1153,7 +1286,7 @@ stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-fil
 | `--tag-expr` | JMESPath expression used to select resource targets. |
 | `--auto-approve` | Skip interactive approval |
 
-### `stacksmith destroy`
+#### `stacksmith destroy`
 
 ```text
 stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
@@ -1187,7 +1320,7 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-f
 | `--tag-expr` | JMESPath expression used to select resource targets. |
 | `--auto-approve` | Skip interactive approval |
 
-### `stacksmith operation run`
+#### `stacksmith operation run`
 
 ```text
 stacksmith operation run [-h] [--force-rerun] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
@@ -1220,7 +1353,7 @@ stacksmith operation run [-h] [--force-rerun] [--stack STACK] [--runfile RUNFILE
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 
-### `stacksmith info inspect`
+#### `stacksmith info inspect`
 
 ```text
 stacksmith info inspect [-h] [--format {table,json}] [--basic] [--runfile RUNFILE] [-c CONFIG]
@@ -1252,7 +1385,7 @@ stacksmith info inspect [-h] [--format {table,json}] [--basic] [--runfile RUNFIL
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 
-### `stacksmith info diagnose`
+#### `stacksmith info diagnose`
 
 ```text
 stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}] [--runfile RUNFILE] [-c CONFIG]
@@ -1284,7 +1417,7 @@ stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}] [--runfile
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 
-### `stacksmith info environments`
+#### `stacksmith info environments`
 
 ```text
 stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
@@ -1306,7 +1439,7 @@ stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
 | `--after` | Current commit SHA used for push diff selection. |
 | `--format` | Output format for environment preview data. Choices: `table`, `json`. |
 
-### `stacksmith ci validate`
+#### `stacksmith ci validate`
 
 ```text
 stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
@@ -1327,7 +1460,7 @@ stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
 | `--workflow-validation-report-format` | Validation report format value to validate for CI plan runs. |
 | `--format` | Output format for CI validation results. Choices: `table`, `json`. |
 
-### `stacksmith ci prepare`
+#### `stacksmith ci prepare`
 
 ```text
 stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
@@ -1370,7 +1503,7 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
 | `--skip-branch-validation` | Skip shared branch and pull-request policy validation. |
 | `--format` | Output format for the CI execution manifest. Choices: `table`, `json`. |
 
-### `stacksmith ci execute`
+#### `stacksmith ci execute`
 
 ```text
 stacksmith ci execute [-h] --manifest MANIFEST --environment ENVIRONMENT
@@ -1383,7 +1516,7 @@ stacksmith ci execute [-h] --manifest MANIFEST --environment ENVIRONMENT
 | `--environment` | Environment row from the manifest to execute. |
 | `--validation-report-output` | Optional path for plan validation report output. When set, plan JSON report output is written to this file. |
 
-### `stacksmith ci prepare-from-env`
+#### `stacksmith ci prepare-from-env`
 
 ```text
 stacksmith ci prepare-from-env [-h] [--provider {generic,github-actions,jenkins}]
@@ -1396,7 +1529,7 @@ stacksmith ci prepare-from-env [-h] [--provider {generic,github-actions,jenkins}
 | `--manifest-file` | Optional file path where the generated manifest JSON is written. |
 | `--github-output` | Optional override path for GITHUB_OUTPUT when provider is github-actions. |
 
-### `stacksmith ci execute-from-env`
+#### `stacksmith ci execute-from-env`
 
 ```text
 stacksmith ci execute-from-env [-h] [--provider {generic,github-actions,jenkins}]
@@ -1413,7 +1546,7 @@ stacksmith ci execute-from-env [-h] [--provider {generic,github-actions,jenkins}
 
 <!-- END GENERATED CLI REFERENCE -->
 
-### Targeted execution
+#### Targeted execution
 
 `plan` already serves as the dry-run mode for targeted execution, so a separate target dry-run flag is not required.
 
@@ -1445,7 +1578,7 @@ If your expression evaluates to a non-boolean value for any component, stacksmit
 
 Targeted execution is additive. It does not replace normal multi-stack orchestration, and it may fail when omitted targets are required by selected components.
 
-### Validation report output
+#### Validation report output
 
 `validate`, `plan`, and `run-all plan` emit one machine-readable report block to stdout.
 
@@ -1488,7 +1621,7 @@ stacksmith plan stack.yaml --config ./stacksmith-config.yaml | jq '.status'
 stacksmith plan stack.yaml --config ./stacksmith-config.yaml --validation-report-format json > validation-report.json
 ```
 
-## Info commands
+### Info commands
 
 Use `info inspect` to review configured modules, mappings, and metadata.
 
@@ -1535,189 +1668,63 @@ stacksmith ci validate \
   --workflow-validation-report-format json
 ```
 
-## Monorepo orchestration
-
-In a monorepo, stacksmith recursively discovers all `stack.yaml`/`stack.yml`/`stack.json` files from a root directory and builds a dependency graph from `depends_on` declarations.
-
-### Inter-stack dependencies
-
-When a stack declares `depends_on`, all OpenTofu outputs from the dependency are automatically passed as inputs. Stack authors never write output or input declarations; the wiring is inferred. If you need to reference a created item's attribute in another program, it is recommended you do so by using the API or CLI of the target system (e.g. AWS CLI) rather than OpenTofu outputs, as this creates a more explicit and decoupled contract between stacks.
-
-For plan and apply stages, Terragrunt `mock_outputs` are used so that dependent stacks can be planned before dependencies have been applied. Define expected output shapes in the stack that *produces* them:
-
-```yaml
-# networking/vpc/stack.yaml
-stack:
-  name: vpc
-
-mock_outputs:
-  vpc_id: mock-vpc-id
-  subnet_ids:
-    - mock-subnet-1
-    - mock-subnet-2
-
-components:
-  main-vpc:
-    type: aws_vpc
-    properties:
-      cidr_block: "10.0.0.0/16"
-```
-
-```yaml
-# compute/web/stack.yaml
-stack:
-  name: web
-
-depends_on:
-  - vpc
-
-components:
-  web-server:
-    type: aws_ec2_instance
-    properties:
-      instance_type: t3.medium
-```
-
-### Monorepo commands
-
-```bash
-stacksmith run-all <action> [--root <dir>] [--config <config> ...] [--clean] [--auto-approve]
-```
-
-If `STACKSMITH_ROOT` is set, it is used as the default root path. If not, root defaults to the current working directory.
-
-`<action>` is one of `init`, `plan`, `apply`, `destroy`. Stacks are generated in topological dependency order and then Terragrunt is executed per generated stack directory in that order. For `destroy`, execution order is reversed so dependents are destroyed before dependencies.
-
-When `action` is `plan`, you can also pass `--destroy` to run `terragrunt plan -destroy` for every stack.
-
-When `action` is `plan`, you can also pass `--save-plan-json <dir>` to keep the rendered plan JSON for each discovered stack.
-
-Use `--clean` on `run-all` to remove the existing build directory before regeneration.
-
-## Docker
-
-A Docker image is provided that bundles OpenTofu and Terragrunt so no local installation is required. It is also especially useful for CI environments.
-
-As this project is reliant on [Common Python Tasks](https://github.com/ci-sourcerer/common-python-tasks), you can build the image with a simple command: `poe build-image`. You can pass `--build-args TOFU_PROVIDER_SPEC="hashicorp/aws=6.41.0:hashicorp/random=3.8.1"`, for example, to pre-install some OpenTofu providers into the image. This can drastically speed up Stacksmith runs for your users, which is especially helpful in CI environments. By default, the image includes no providers, so OpenTofu will download them on demand during execution.
-
-> ⚠️ **WARNING:** `TOFU_PROVIDER_SPEC` is a shared provider cache keyed by provider version, not by OpenTofu version. If you build or run images with multiple OpenTofu versions, pre-cached providers may not be compatible with an older runtime unless you explicitly pin and pre-cache every provider version needed by those tool versions.
-
-### Pre-installing modules
-
-Similarly to providers, you can pre-install OpenTofu modules into the image using the `TOFU_MODULE_SPEC` build arg. This is a colon-separated list of `source=version-or-ref` pairs that match the sources and exact versions or Git refs in your managed config.
-
-```shell
-poe build-image --build-args TOFU_MODULE_SPEC="https://github.com/org/terraform-aws-s3.git=v3.2.1:https://github.com/org/terraform-aws-ec2.git=v5.0.0"
-```
-
-When modules are vendored in the image, Stacksmith automatically rewrites module sources in the generated `stacksmith.tf.json` to point to the local vendored copies instead of remote URLs. This eliminates network fetches during `tofu init` and ensures immutable, reproducible builds.
-
-Each module is stored under a deterministic directory name derived from `sha256("<source>|<version>")[:16]`, and a `vendor-manifest.json` is written alongside the directories for reverse lookup.
-
-### Controlling local module rewriting
-
-Local module rewriting (requiring local vendored modules) is controlled by the `STACKSMITH_ONLY_USE_LOCAL_MODULES` environment variable and the `--use-local-modules` / `--no-local-modules` CLI flags.
-
-| Control | Effect |
-| - | - |
-| `STACKSMITH_ONLY_USE_LOCAL_MODULES=1` | Enable local module rewriting |
-| `--use-local-modules` | Enable explicitly from the CLI |
-| `--no-local-modules` | Disable even when the env var is set |
-| `STACKSMITH_VENDOR_DIR=<path>` | Override the local vendored module root directory |
-
-If a vendored module directory is missing at generation time, Stacksmith fails fast with a clear error rather than silently falling back to remote fetching.
-
-### Extracting the module and provider specs from config
-
-The following recipe uses `yq` to extract module and provider specs from a managed config file and pass them directly to `poe build-image`. `TOFU_PROVIDER_SPEC` uses colon-separated (`:`) `source=version` items, while `TOFU_MODULE_SPEC` uses `source=version-or-ref` items. Provider version ranges that include commas, such as `>= 6.39, < 7.0`, are supported. Local module mappings are excluded because they are already filesystem paths rather than dependencies that OpenTofu can pre-fetch.
-
-This extraction only includes explicit module mappings. A templated default mapping represents an open-ended set of sources and cannot be pre-vendored without knowing the stack components that will use it. When local-module-only execution is required, add explicit mappings for every component type that must be included in the image.
-
-```shell
-stacksmithConfigPath=<path to stacksmith-config.yaml>
-poe build-image \
-  --build-args \
-    "TOFU_MODULE_SPEC=$(yq -r '
-      .module_mappings
-      | to_entries
-      | map(
-          (
-            select(.value.source.source == "git")
-            | .value.source.data.repo
-              + ((.value.source.data.path | select(. != null) | "//" + .) // "")
-              + "=" + .value.source.data.ref
-          ),
-          (
-            select(.value.source.source == "registry")
-            | .value.source.data.address + "=" + .value.source.data.version
-          )
-        )
-      | join(":")
-    ' "$stacksmithConfigPath")" \
-    "TOFU_PROVIDER_SPEC=$(yq -r '
-      .provider_mappings
-      | to_entries
-      | map("\(.value.source.data.address)=\(.value.source.data.version)")
-      | join(":")
-    ' "$stacksmithConfigPath")"
-```
-
-## Tips
+### Tips
 
 - Using a monorepo and concerned about who can edit what? Use GitHub's [CODEOWNERS](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners) file to restrict write access to certain stack files while allowing broader read access. Similarly, the managed config can be locked down to a small team of platform engineers, while the validation policies themselves can be tightly controlled by a security team.
 - Doing a lot of `get` calls on dictionaries in your validation scripts? Try using `jmespath` instead to query complex nested structures with ease. For example, `jmespath.search("components.*.properties.bucket", stack)` would return a list of all bucket properties across all components in the stack.
 - Want to take existing resources into consideration for validation rules? Import `boto3` and use it to query AWS directly from your validation scripts. Just be mindful of latency implications.
 
-## Roadmap
+### Roadmap
 
 The roadmap is ordered roughly by expected impact. Reproducibility and deployment safety come first, followed by operability and developer-experience improvements.
 
-### Reproducible source locking and offline execution
+#### Reproducible source locking and offline execution
 
 Add a `stacksmith lock` command that resolves every remote input into an immutable identity and records the result in a lockfile. The lockfile should include Git commit SHAs, HTTP content hashes, module and provider versions, tool versions and checksums, and hashes for remotely loaded validation, transform, and provider configuration scripts.
 
 Runtime commands should support `--locked` to reject inputs that disagree with the lockfile and `--offline` to prohibit network access and require every locked artifact to be available locally. This would make a runfile reproducible across machines even when its authored references use mutable branches, tags, or HTTP URLs. The lock data should be deterministic so that teams can review and commit it alongside their runfiles.
 
-### Reviewed plan bundles and exact-plan application
+#### Reviewed plan bundles and exact-plan application
 
 Allow `plan` and `run-all plan` to save an applyable plan bundle rather than only rendered plan JSON. A bundle should contain the binary OpenTofu plan, its human- and machine-readable JSON, the generated Stacksmith files, target selection, relevant tool versions, and digests of every stack, config, variable layer, and remote source used to create it.
 
 Add an apply mode that accepts only such a bundle and verifies its digests before applying the saved binary plan. This would let CI planning, policy evaluation, human approval, and deployment happen in separate jobs without silently recalculating a different plan between review and apply. Bundles containing sensitive plan data must be clearly marked and stored with appropriately restricted permissions.
 
-### Resolution provenance and effective configuration inspection
+#### Resolution provenance and effective configuration inspection
 
 Add an `info explain` command that shows how a final input or component property was produced. Its output should identify each contributing vars file, environment variable, runfile value, and command-line override in precedence order, along with deep-merge decisions, templates, transforms, managed defaults, property renames, and automatic injection.
 
 The command should support table and JSON output, direct queries such as `inputs.region` or `components.api.properties.instance_type`, and redaction of sensitive values. A related effective-configuration view could render the fully merged stack, managed config, and resolved inputs without running OpenTofu, making configuration reviews and CI diagnostics substantially easier.
 
-### Secret-aware inputs and operation parameters
+#### Secret-aware inputs and operation parameters
 
 Complete the existing `secret` operation input metadata and extend the concept to ordinary Stacksmith inputs. Secret declarations should support environment-backed and file-backed values initially, with a pluggable interface for external secret managers later. Diagnostics, provenance output, validation errors, and normal logs must redact these values.
 
 Where the OpenTofu and Terragrunt execution models permit it, secrets should be passed through the process environment or temporary permission-restricted files instead of being serialized into generated configuration. Stacksmith should warn when a workflow necessarily places a secret in a plan or state file, and secret changes should still be able to affect operation execution identity without exposing the original value.
 
-### Dependency graph and execution previews
+#### Dependency graph and execution previews
 
 Expose the existing monorepo dependency graph through an `info graph` command with table, JSON, DOT, and Mermaid output. The view should include stack paths, dependencies, state keys, selected components, mock-output usage, build directories, and the computed plan/apply or destroy order.
 
 Add a `--dry-run` option to `run-all` that performs discovery, filtering, validation, targeting, and command construction without invoking Terragrunt. This would let users verify broad tag expressions and dependency changes before starting a long or destructive operation.
 
-### Dependency-aware parallel `run-all`
+#### Dependency-aware parallel `run-all`
 
 Add `--jobs N` to execute independent stacks concurrently while continuing to respect dependency order. The scheduler should release a stack only after all of its required predecessors have succeeded, reverse the graph correctly for destruction, and keep serial execution as the default.
 
 Parallel mode should provide grouped or prefixed logs, deterministic result summaries, and explicit fail-fast and continue-on-error policies. Plan JSON and validation results must remain isolated per stack so parallel workers cannot overwrite one another's artifacts.
 
-### Trusted execution controls for Python hooks
+#### Trusted execution controls for Python hooks
 
 Add a trust policy for Python validation, transform, and provider configuration hooks, especially remotely fetched scripts. The policy should support allowed hosts, required content hashes or lockfile entries, and a CI mode that rejects unpinned executable code. An optional isolated subprocess runner could add timeouts, a restricted environment, captured output, and resource limits while preserving an explicitly enabled in-process mode for compatibility.
 
 This work should share source verification with the lockfile rather than inventing a separate integrity mechanism. Documentation should make clear that managed Python hooks are executable code and define which repository owners are expected to approve them.
 
-### Additional validation report formats
+#### Additional validation report formats
 
 Add CSV output for validation reports while retaining JSON as the stable machine-oriented default. It should use one row per validation outcome with consistent columns for stack, rule, status, message, and origin.
 
-### Typer-based CLI
+#### Typer-based CLI
 
 Consider migrating the CLI from `argparse` to `typer` after the command and option model has stabilized. The migration should preserve current environment-variable behavior, generated CLI documentation, reusable Python API boundaries, exit codes, and stdout-versus-stderr guarantees. Its main goals would be clearer command composition, shell completion, and more maintainable help text rather than changing runtime semantics.
+
