@@ -20,7 +20,8 @@
         },
         {
             "fileMatch": [
-                "**/stack.json"
+                "**/stack.json",
+                "**/*.stack.json"
             ],
             "url": "./src/stacksmith/schemas/stack.schema.json"
         }
