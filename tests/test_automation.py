@@ -11,7 +11,7 @@ from stacksmith.gitops.changes import (
     update_component_properties,
     update_operation_rerun_token,
 )
-from stacksmith.loader import load_stack
+from stacksmith.loading import load_stack
 
 
 def _write_stack(path: Path) -> None:

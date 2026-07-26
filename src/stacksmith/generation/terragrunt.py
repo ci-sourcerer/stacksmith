@@ -4,9 +4,9 @@ from typing import Any
 
 from loguru import logger as LOGGER
 
-from .enums import TerragruntAction
-from .models import StackDefinition, ToolConfig
-from .utils import derive_stack_state_key
+from ..enums import TerragruntAction
+from ..models import StackDefinition, ToolConfig
+from ..utils import derive_stack_state_key
 
 
 def generate_terragrunt_json(

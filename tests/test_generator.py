@@ -11,8 +11,8 @@ from stacksmith.exceptions import (
     StacksmithTransformError,
     StacksmithValidationError,
 )
-from stacksmith.generator import generate_tf_json, write_tf_json
-from stacksmith.loader import load_config, load_stack
+from stacksmith.generation import generate_tf_json, write_tf_json
+from stacksmith.loading import load_config, load_stack
 from stacksmith.models import (
     DefaultModuleMapping,
     ModuleMapping,
@@ -95,7 +95,7 @@ class TestGenerateTfJson:
 
         with (
             patch(
-                "stacksmith.generator.render_module_source_for",
+                "stacksmith.generation.terraform.render_module_source_for",
                 side_effect=_module_formatter,
             ),
             patch(
@@ -587,7 +587,7 @@ class TestGenerateTfJson:
             )
         )
         monkeypatch.setattr(
-            "stacksmith.generator.get_current_git_repository",
+            "stacksmith.generation.terraform.get_current_git_repository",
             lambda path: "https://github.com/example/iac.git",
         )
 
@@ -1094,7 +1094,7 @@ class TestWriteTfJson:
 class TestAutoInjectVars:
     """Auto-inject tests — mock discover_module_variables to control the allowlist."""
 
-    _DISCOVER = "stacksmith.generator.discover_module_variables"
+    _DISCOVER = "stacksmith.generation.terraform.discover_module_variables"
 
     def test_auto_injects_platform_declared_properties(
         self, sample_stack_yaml: Path, sample_config_yaml: Path

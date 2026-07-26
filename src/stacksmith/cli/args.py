@@ -9,23 +9,26 @@ from ..enums import (
     ValidationReportFormat,
 )
 from ..exceptions import StacksmithConfigError
+from ..input_parsing import parse_var_assignment
 from ..utils import env_truthy, stacksmith_env, stacksmith_env_list
 
 CI_ADAPTER_PROVIDERS = ["generic", "github-actions", "jenkins"]
 
 STACKSMITH_LOG_CATEGORIES = (
     "stacksmith.api",
+    "stacksmith.ci",
     "stacksmith.cli.args",
     "stacksmith.cli.main",
-    "stacksmith.generator",
+    "stacksmith.generation",
     "stacksmith.gitops",
     "stacksmith.inspector",
     "stacksmith.introspection",
+    "stacksmith.loading",
     "stacksmith.remote",
     "stacksmith.runner",
-    "stacksmith.terragrunt",
+    "stacksmith.testing",
     "stacksmith.utils",
-    "stacksmith.validation",
+    "stacksmith.validations",
     "stacksmith.vendor",
 )
 
@@ -76,36 +79,6 @@ def is_quiet_enabled(args: argparse.Namespace | None = None) -> bool:
     return bool(args is not None and getattr(args, "quiet", False))
 
 
-def parse_var_args(var_list: list[str] | None) -> dict[str, str]:
-    """Parse a list of key=value strings into a dictionary.
-
-    Args:
-        var_list: List of strings in the format key=value.
-
-    Returns:
-        Dictionary of parsed key-value pairs.
-
-    Raises:
-        StacksmithConfigError: If an entry is not in `key=value` format.
-    """
-    if not var_list:
-        return {}
-    result = {}
-    for item in var_list:
-        key, val = _parse_var_assignment(item)
-        result[key] = val
-    return result
-
-
-def _parse_var_assignment(value: str) -> tuple[str, str]:
-    if "=" not in value:
-        raise StacksmithConfigError(
-            f"Invalid --var format: {value}. Expected key=value."
-        )
-    key, val = value.split("=", 1)
-    return key.strip(), val.strip()
-
-
 def parse_input_layers(
     input_layers: list[tuple[str, object]] | None,
 ) -> list[tuple[str, object]] | None:
@@ -130,7 +103,7 @@ def parse_input_layers(
                 raise StacksmithConfigError(
                     "Invalid --var value in input layer; expected key=value string."
                 )
-            _parse_var_assignment(value)
+            parse_var_assignment(value)
         normalized_layers.append((kind, value))
     return normalized_layers
 
@@ -158,14 +131,6 @@ def get_env_file_paths(argv: list[str] | None = None) -> list[Path] | None:
     if default_path.exists():
         return [default_path]
     return None
-
-
-def get_env_file_path(argv: list[str] | None = None) -> Path | None:
-    """Return the last `--env-file` path when callers only expect one."""
-    paths = get_env_file_paths(argv)
-    if not paths:
-        return None
-    return paths[-1]
 
 
 def get_default_run_file() -> str | None:

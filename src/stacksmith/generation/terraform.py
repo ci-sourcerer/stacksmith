@@ -5,35 +5,28 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
-from jinja2.sandbox import SandboxedEnvironment
 from loguru import logger as LOGGER
 
-from .exceptions import (
-    StacksmithTransformError,
-    StacksmithValidationError,
-)
-from .formatters import render_module_source_for
-from .generation.providers import (
-    _build_provider_blocks,
-    _build_required_providers,
-    _render_provider_reference,
-)
-from .introspection import discover_module_variables
-from .models import (
+from ..formatters import render_module_source_for
+from ..introspection import discover_module_variables
+from ..models import (
     LocalModuleSourceReference,
-    ModulePropertySpec,
     RemoteAuthConfig,
     StackDefinition,
     ToolConfig,
     render_module_source_identity,
 )
-from .module_mapping import resolve_module_mapping
+from ..module_mapping import resolve_module_mapping
+from ..utils import derive_stack_state_key, get_current_git_repository
+from ..vendor import get_vendor_dir, resolve_module_source
 from .operations import build_operation_module_spec
-from .utils import derive_stack_state_key, get_current_git_repository
-from .validation import InputValidationOutcome, apply_transform, validate_value
-from .vendor import get_vendor_dir, resolve_module_source
+from .properties import PropertyRenderer
+from .providers import (
+    _build_provider_blocks,
+    _build_required_providers,
+    _render_provider_reference,
+)
 
-_JINJA_ENV = SandboxedEnvironment()
 _OPERATION_RUNNER_ASSETS = ("main.tf", "local.py", "jenkins.py")
 
 
@@ -101,55 +94,6 @@ def _generate_operation_blocks(
     return modules
 
 
-def _looks_like_module_path_input(name: str) -> bool:
-    return name.endswith("_files") or name in {"cwd"}
-
-
-def _resolve_module_input_path(value: str, base_paths: list[Path]) -> str:
-    path = Path(value).expanduser()
-    if path.is_absolute():
-        return str(path)
-
-    for base_path in base_paths:
-        candidate = (base_path / path).resolve()
-        if candidate.exists():
-            return str(candidate)
-
-    return str((Path.cwd() / path).resolve())
-
-
-def _normalize_module_input_value(
-    name: str,
-    value: Any,
-    base_paths: list[Path],
-) -> Any:
-    if not _looks_like_module_path_input(name):
-        return value
-
-    if isinstance(value, str):
-        return _resolve_module_input_path(value, base_paths)
-
-    if isinstance(value, list):
-        return [
-            (
-                _resolve_module_input_path(item, base_paths)
-                if isinstance(item, str)
-                else item
-            )
-            for item in value
-        ]
-
-    return value
-
-
-def _render_transform_jinja(template: str, value: Any, context: dict[str, Any]) -> Any:
-    rendered = _JINJA_ENV.from_string(template).render({"value": value, **context})
-    try:
-        return json.loads(rendered)
-    except json.JSONDecodeError:
-        return rendered
-
-
 def _stack_context(stack: StackDefinition) -> dict[str, Any]:
     return {
         "name": stack.name,
@@ -174,91 +118,6 @@ def _generate_terraform_block(
             formatter_options=provider_source_formatter_options,
         ),
     }
-
-
-def _apply_property_spec(
-    value: Any,
-    property_spec: ModulePropertySpec | None,
-    property_context: dict[str, Any],
-    config: ToolConfig,
-    cache_dir: Path | None = None,
-    auth_config: RemoteAuthConfig | None = None,
-) -> Any:
-    rendered = value
-    if property_spec is None:
-        return rendered
-
-    transform_spec = property_spec.transform
-    if transform_spec is not None:
-        try:
-            if transform_spec.jinja is not None:
-                rendered = _render_transform_jinja(
-                    transform_spec.jinja,
-                    rendered,
-                    property_context,
-                )
-            else:
-                rendered = apply_transform(
-                    transform_spec,
-                    rendered,
-                    base_path=(
-                        config.source_path.parent
-                        if config.source_path is not None
-                        else None
-                    ),
-                    context=property_context,
-                    cache_dir=cache_dir,
-                    auth_config=auth_config,
-                )
-        except Exception as exc:
-            raise StacksmithTransformError(
-                f"Component '{property_context['component_name']}' property '{property_context['name']}' transform {exc}"
-            ) from exc
-
-    validation_code = property_spec.validation
-    if validation_code is not None:
-        outcome, error_msg = validate_value(
-            validation_code,
-            rendered,
-            base_path=(
-                config.source_path.parent if config.source_path is not None else None
-            ),
-            context=property_context,
-            cache_dir=cache_dir,
-            auth_config=auth_config,
-        )
-        if outcome != InputValidationOutcome.PASS:
-            raise StacksmithValidationError(
-                f"Component '{property_context['component_name']}' property '{property_context['name']}': {error_msg}"
-            )
-
-    return rendered
-
-
-def _build_property_context(
-    name: str,
-    kind: str,
-    component_name: str,
-    component_type: str,
-    output_name: str,
-    inputs: dict[str, Any] | None = None,
-    stack: dict[str, Any] | None = None,
-    git_repository: str | None = None,
-) -> dict[str, Any]:
-    context = {
-        "name": name,
-        "kind": kind,
-        "component_name": component_name,
-        "component_type": component_type,
-        "output_name": output_name,
-    }
-    if inputs is not None:
-        context["inputs"] = inputs
-    if stack is not None:
-        context["stack"] = stack
-    if git_repository is not None:
-        context["git_repository"] = git_repository
-    return context
 
 
 def _generate_module_blocks(
@@ -353,42 +212,24 @@ def _generate_module_blocks(
                 for module_provider_name, provider_reference in mapping.providers.items()
             }
 
+        property_renderer = PropertyRenderer(
+            config=config,
+            resolved_inputs=resolved_inputs,
+            stack=_stack_context(stack),
+            component_name=component_name,
+            component_type=component.type,
+            base_paths=path_bases,
+            git_repository=git_repository,
+            cache_dir=cache_dir,
+            auth_config=auth_config,
+        )
         for prop_name, prop_value in component.properties.items():
-            rendered = prop_value
             property_spec = mapping.properties.get(prop_name)
-            output_name = (
-                property_spec.mapped_to
-                if property_spec and property_spec.mapped_to
-                else prop_name
-            )
-            if output_name != prop_name:
-                LOGGER.debug(
-                    "Component '{component_name}' property '{prop_name}' is mapped to module input '{output_name}'",
-                    component_name=component_name,
-                    prop_name=prop_name,
-                    output_name=output_name,
-                )
-            property_context = _build_property_context(
-                name=prop_name,
-                kind="component_property",
-                component_name=component_name,
-                component_type=component.type,
-                output_name=output_name,
-                inputs=resolved_inputs,
-                stack=_stack_context(stack),
-                git_repository=git_repository,
-            )
-
-            rendered = _apply_property_spec(
-                rendered,
+            output_name, module_block[output_name] = property_renderer.render(
+                prop_name,
+                prop_value,
                 property_spec,
-                property_context,
-                config,
-                cache_dir=cache_dir,
-                auth_config=auth_config,
             )
-            rendered = _normalize_module_input_value(output_name, rendered, path_bases)
-            module_block[output_name] = rendered
 
         injected_keys = []
         if mapping.auto_inject:
@@ -414,11 +255,7 @@ def _generate_module_blocks(
                 if property_spec is not None and property_spec.auto_inject is False:
                     continue
 
-                output_name = (
-                    property_spec.mapped_to
-                    if property_spec and property_spec.mapped_to
-                    else input_name
-                )
+                output_name = property_renderer.output_name(input_name, property_spec)
 
                 if (
                     output_name not in discovered_vars
@@ -429,30 +266,11 @@ def _generate_module_blocks(
                 if output_name in reserved_output_names:
                     continue
 
-                rendered = input_value
-                property_context = _build_property_context(
-                    name=input_name,
-                    kind="component_property",
-                    component_name=component_name,
-                    component_type=component.type,
-                    output_name=output_name,
-                    inputs=resolved_inputs,
-                    stack=_stack_context(stack),
-                    git_repository=git_repository,
-                )
-
-                rendered = _apply_property_spec(
-                    rendered,
+                output_name, module_block[output_name] = property_renderer.render(
+                    input_name,
+                    input_value,
                     property_spec,
-                    property_context,
-                    config,
-                    cache_dir=cache_dir,
-                    auth_config=auth_config,
                 )
-                rendered = _normalize_module_input_value(
-                    output_name, rendered, path_bases
-                )
-                module_block[output_name] = rendered
                 injected_keys.append(input_name)
                 reserved_output_names.add(output_name)
 
@@ -464,32 +282,15 @@ def _generate_module_blocks(
             )
 
         for prop_name, prop_spec in mapping.properties.items():
-            output_name = prop_spec.mapped_to if prop_spec.mapped_to else prop_name
+            output_name = property_renderer.output_name(prop_name, prop_spec)
             if output_name in module_block or prop_spec.default is None:
                 continue
 
-            property_context = _build_property_context(
-                name=prop_name,
-                kind="module_property_default",
-                component_name=component_name,
-                component_type=component.type,
-                output_name=output_name,
-                inputs=resolved_inputs,
-                stack=_stack_context(stack),
-                git_repository=git_repository,
-            )
-            module_block[output_name] = _apply_property_spec(
+            output_name, module_block[output_name] = property_renderer.render(
+                prop_name,
                 prop_spec.default,
                 prop_spec,
-                property_context,
-                config,
-                cache_dir=cache_dir,
-                auth_config=auth_config,
-            )
-            module_block[output_name] = _normalize_module_input_value(
-                output_name,
-                module_block[output_name],
-                path_bases,
+                kind="module_property_default",
             )
 
         modules[component_name] = module_block

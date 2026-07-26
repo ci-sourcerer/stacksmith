@@ -6,9 +6,14 @@ import pytest
 from loguru import logger as LOGGER
 from stacksmith import api
 from stacksmith.exceptions import StacksmithConfigError
-from stacksmith.loader import load_config, load_stack
+from stacksmith.loading import load_config, load_stack
 from stacksmith.models import ComponentDefinition, DefaultModuleMapping, StackDefinition
-from stacksmith.validation import PlanValidationOutcome
+from stacksmith.targeting import (
+    compile_tag_expression,
+    compute_stack_target_modules,
+    extract_tag_references,
+)
+from stacksmith.validations import PlanValidationOutcome
 
 
 def _build_stack(
@@ -98,19 +103,19 @@ def _setup_run_all_stacks_mocks(
 
 def test_compile_tag_expression_rejects_invalid_syntax():
     with pytest.raises(StacksmithConfigError, match="Invalid --tag-expr"):
-        api._compile_tag_expression("contains(tags")
+        compile_tag_expression("contains(tags")
 
 
 def test_extract_tag_references_supports_dot_style():
-    assert api._extract_tag_references("tag.prod") == {"prod"}
-    assert api._extract_tag_references(
-        "tag.experimental && contains(tags, 'prod')"
-    ) == {"experimental"}
+    assert extract_tag_references("tag.prod") == {"prod"}
+    assert extract_tag_references("tag.experimental && contains(tags, 'prod')") == {
+        "experimental"
+    }
 
 
 def test_compile_tag_expression_rejects_bracket_style_syntax():
     with pytest.raises(StacksmithConfigError, match="Invalid --tag-expr"):
-        api._compile_tag_expression("tag['prod']")
+        compile_tag_expression("tag['prod']")
 
 
 def test_compute_stack_target_modules_uses_effective_tag_union(
@@ -123,10 +128,10 @@ def test_compute_stack_target_modules_uses_effective_tag_union(
     stack.components["my-bucket"].tags = {"prod"}
     config.module_mappings["aws_s3_bucket"].tags = {"shared"}
 
-    expression = api._compile_tag_expression(
+    expression = compile_tag_expression(
         "contains(tags, 'prod') && contains(tags, 'shared')"
     )
-    targets = api._compute_stack_target_modules(stack, config, expression)
+    targets = compute_stack_target_modules(stack, config, expression)
 
     assert targets == ["module.my-bucket"]
 
@@ -152,11 +157,11 @@ def test_compute_stack_target_modules_uses_default_mapping_tags(
         }
     )
 
-    expression = api._compile_tag_expression(
+    expression = compile_tag_expression(
         "contains(tags, 'prod') && contains(tags, 'shared')"
     )
 
-    assert api._compute_stack_target_modules(stack, config, expression) == [
+    assert compute_stack_target_modules(stack, config, expression) == [
         "module.my-bucket"
     ]
 
@@ -170,8 +175,8 @@ def test_compute_stack_target_modules_filters_with_dot_style_tag_expression(
 
     stack.components["my-bucket"].tags = {"prod", "shared"}
 
-    expression = api._compile_tag_expression("tag.prod && tag.shared")
-    targets = api._compute_stack_target_modules(stack, config, expression)
+    expression = compile_tag_expression("tag.prod && tag.shared")
+    targets = compute_stack_target_modules(stack, config, expression)
 
     assert targets == ["module.my-bucket"]
 
@@ -185,9 +190,9 @@ def test_compute_stack_target_modules_requires_boolean_results(
 
     stack.components["my-bucket"].tags = {"prod"}
 
-    expression = api._compile_tag_expression("tag.prod && tag.shared")
+    expression = compile_tag_expression("tag.prod && tag.shared")
     with pytest.raises(StacksmithConfigError, match="must evaluate to a boolean"):
-        api._compute_stack_target_modules(stack, config, expression)
+        compute_stack_target_modules(stack, config, expression)
 
 
 def test_compute_stack_target_modules_filters_with_required_tags(
@@ -199,7 +204,7 @@ def test_compute_stack_target_modules_filters_with_required_tags(
 
     stack.components["my-bucket"].tags = {"prod", "shared"}
 
-    targets = api._compute_stack_target_modules(
+    targets = compute_stack_target_modules(
         stack,
         config,
         required_tags={"prod", "shared"},
@@ -929,30 +934,3 @@ def test_run_all_plan_emits_json_report_block_when_requested(
     assert report["results"][0]["name"] == "fail_rule"
     assert report["results"][0]["message"] == "policy failure"
     assert report["results"][0]["detail"] == "plan values: redacted"
-
-
-def test_diagnose_cache_writes_human_output_to_stderr(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    sample_config_yaml: Path,
-    capsys: pytest.CaptureFixture[str],
-):
-    config = load_config(sample_config_yaml)
-    stack = _build_stack("sample", "bucket", "aws_s3_bucket", set())
-
-    monkeypatch.setattr(
-        api,
-        "_load_runtime_config",
-        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
-    )
-    monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
-    monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
-    monkeypatch.setattr(api, "load_stack_metadata", lambda *args, **kwargs: stack)
-    monkeypatch.setattr(api, "get_vendor_dir", lambda: tmp_path / "vendor")
-
-    exit_code = api.diagnose_cache(tmp_path / "stack.yaml")
-
-    captured = capsys.readouterr()
-    assert exit_code == 0
-    assert captured.out == ""
-    assert "Stacksmith diagnostics" in captured.err

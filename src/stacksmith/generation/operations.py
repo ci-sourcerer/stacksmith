@@ -1,12 +1,10 @@
-"""Compilation helpers for Stacksmith-native operation modules."""
-
 import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
-from .exceptions import StacksmithConfigError
-from .models import (
+from ..exceptions import StacksmithConfigError
+from ..models import (
     LocalOperationDefinition,
     OperationDefinition,
     OperationInvocation,

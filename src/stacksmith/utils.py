@@ -2,8 +2,7 @@ import hashlib
 import os
 import shutil
 import subprocess
-import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -17,36 +16,6 @@ def _load_dotenv_values(path: Path) -> dict[str, str | None]:
     if not path.exists():
         raise FileNotFoundError(f"Env file not found: {path}")
     return dotenv_values(path)
-
-
-def render_jinja_template_values(
-    value: Any,
-    context: Mapping[str, Any],
-    jinja_env: Any,
-) -> Any:
-    """Render Jinja templates recursively in dict/list structures.
-
-    Args:
-        value: Value to render.
-        context: Rendering context available to Jinja templates.
-        jinja_env: Jinja environment used to render template strings.
-
-    Returns:
-        Rendered value with the same nested structure as the input.
-    """
-    if isinstance(value, str) and any(marker in value for marker in ("{{", "{%", "{#")):
-        return jinja_env.from_string(value).render(context)
-    if isinstance(value, dict):
-        return {
-            key: render_jinja_template_values(nested, context, jinja_env=jinja_env)
-            for key, nested in value.items()
-        }
-    if isinstance(value, list):
-        return [
-            render_jinja_template_values(item, context, jinja_env=jinja_env)
-            for item in value
-        ]
-    return value
 
 
 def normalize_path_input(
@@ -106,6 +75,21 @@ def load_env_files(paths: Sequence[Path]) -> None:
             os.environ[key] = value
 
 
+def parse_bool(value: str | None, default: bool = False) -> bool:
+    """Parse a truthy string value.
+
+    Args:
+        value: Raw string value.
+        default: Value returned for `None` or an empty string.
+
+    Returns:
+        `True` for `1`, `true`, `yes`, or `on`, ignoring case; otherwise `False`.
+    """
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
 def env_truthy(name: str, default: bool = False, prefix: str | None = None) -> bool:
     """Return `True` for truthy environment variables.
 
@@ -120,10 +104,7 @@ def env_truthy(name: str, default: bool = False, prefix: str | None = None) -> b
     env_name = name
     if prefix is not None and not name.startswith(prefix):
         env_name = f"{prefix}{name}"
-    value = os.getenv(env_name, "")
-    if not value:
-        return default
-    return value.strip().lower() in ("1", "true", "yes", "on")
+    return parse_bool(os.getenv(env_name), default=default)
 
 
 def stacksmith_env(
@@ -351,12 +332,3 @@ def env_vars(prefix: str = "STACKSMITH_") -> dict[str, str]:
         start with the prefix.
     """
     return {key: value for key, value in os.environ.items() if key.startswith(prefix)}
-
-
-def print_to_stderr(message: str) -> None:
-    """Print a message to standard error.
-
-    Args:
-        message: The message to print.
-    """
-    print(message, file=sys.stderr)

@@ -694,14 +694,14 @@ def test_is_quiet_enabled_reads_namespace_flag():
     assert cli_args.is_quiet_enabled(None) is False
 
 
-def test_parse_var_args_raises_stacksmith_config_error_on_invalid_format():
-    with pytest.raises(StacksmithConfigError, match="Invalid --var format"):
-        cli_args.parse_var_args(["missing_equals"])
-
-
 def test_parse_input_layers_raises_stacksmith_config_error_on_invalid_var_layer():
     with pytest.raises(StacksmithConfigError, match="Invalid --var format"):
         cli_args.parse_input_layers([("var", "missing_equals")])
+
+
+def test_parse_input_layers_rejects_empty_var_name():
+    with pytest.raises(StacksmithConfigError, match="Invalid --var format"):
+        cli_args.parse_input_layers([("var", "=value")])
 
 
 def test_validate_help_lists_stacksmith_log_categories(parser, capsys):
@@ -1639,7 +1639,7 @@ def test_ci_execute_from_env_has_adapter_inputs(parser):
 
 
 def test_cmd_ci_prepare_emits_manifest(monkeypatch, parser, capsys):
-    from stacksmith.gitops.contracts import CiExecutionManifest, CiExecutionRow
+    from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
 
     monkeypatch.setattr(
         cli_main,
@@ -1674,12 +1674,12 @@ def test_cmd_ci_prepare_emits_manifest(monkeypatch, parser, capsys):
 
 
 def test_cmd_ci_prepare_from_env_emits_manifest(monkeypatch, parser, capsys):
-    from stacksmith.gitops.contracts import CiExecutionManifest, CiExecutionRow
+    from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
 
     monkeypatch.setattr(
         cli_main,
-        "prepare_ci_execution",
-        lambda **kwargs: CiExecutionManifest(
+        "prepare_ci_manifest_from_env",
+        lambda: CiExecutionManifest(
             command="plan",
             config_ref="platform/stacksmith-config.yaml",
             matrix=[
@@ -1702,12 +1702,12 @@ def test_cmd_ci_prepare_from_env_emits_manifest(monkeypatch, parser, capsys):
 
 
 def test_cmd_ci_prepare_from_env_writes_github_outputs(monkeypatch, parser, tmp_path):
-    from stacksmith.gitops.contracts import CiExecutionManifest, CiExecutionRow
+    from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
 
     monkeypatch.setattr(
         cli_main,
-        "prepare_ci_execution",
-        lambda **kwargs: CiExecutionManifest(
+        "prepare_ci_manifest_from_env",
+        lambda: CiExecutionManifest(
             command="plan",
             config_ref="platform/stacksmith-config.yaml",
             matrix=[
@@ -1735,7 +1735,7 @@ def test_cmd_ci_prepare_from_env_writes_github_outputs(monkeypatch, parser, tmp_
 
 
 def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path):
-    from stacksmith.gitops.contracts import CiExecutionManifest, CiExecutionRow
+    from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
 
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(
@@ -1770,7 +1770,7 @@ def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path)
 
 
 def test_cmd_ci_execute_from_env_uses_manifest_env(monkeypatch, parser, tmp_path: Path):
-    from stacksmith.gitops.contracts import CiExecutionManifest, CiExecutionRow
+    from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
 
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(

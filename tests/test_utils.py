@@ -8,6 +8,7 @@ from stacksmith.utils import (
     get_current_git_repository,
     load_env_file,
     load_env_files,
+    parse_bool,
     stacksmith_env,
     stacksmith_env_list,
 )
@@ -64,6 +65,13 @@ def test_stacksmith_env_returns_default_when_missing():
 def test_env_truthy_with_prefix(monkeypatch):
     monkeypatch.setenv("STACKSMITH_DEBUG", "true")
     assert env_truthy("DEBUG", prefix="STACKSMITH_") is True
+
+
+def test_parse_bool_handles_raw_and_missing_values():
+    assert parse_bool(" YES ") is True
+    assert parse_bool("false") is False
+    assert parse_bool(None) is False
+    assert parse_bool("", default=True) is True
 
 
 def test_load_env_file_preserves_existing_variables(monkeypatch, tmp_path):

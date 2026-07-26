@@ -10,6 +10,7 @@ from jinja2.sandbox import SandboxedEnvironment
 
 from .enums import MergeMode
 from .exceptions import StacksmithConfigError, StacksmithValidationError
+from .input_parsing import coerce_input_value, parse_var_assignment
 from .merging import AddressAwareMerger
 from .models import (
     FileReference,
@@ -20,20 +21,14 @@ from .models import (
     VariableReference,
 )
 from .remote import resolve_if_remote
+from .templating import render_jinja_template_values
 from .utils import get_current_git_repository, stacksmith_env_list
-from .validation import InputValidationOutcome, validate_value
+from .validations import InputValidationOutcome, validate_value
 
 _JINJA_ENV = SandboxedEnvironment()
 
 _ENV_PREFIX = "STACKSMITH_VAR_"
 InputLayer: TypeAlias = tuple[Literal["vars", "var"], str | VariableReference]
-
-
-def _coerce_value(raw: str) -> Any:
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return raw
 
 
 def _merge_resolved_value(
@@ -90,21 +85,6 @@ def _iter_vars_files(
             return list(vars_file)
 
 
-def _parse_var_item(raw_item: str) -> tuple[str, str]:
-    if "=" not in raw_item:
-        raise StacksmithConfigError(
-            f"Invalid --var format: {raw_item}. Expected key=value."
-        )
-
-    key, raw_value = raw_item.split("=", 1)
-    key = key.strip()
-    if not key:
-        raise StacksmithConfigError(
-            f"Invalid --var format: {raw_item}. Expected key=value."
-        )
-    return key, raw_value.strip()
-
-
 def _apply_vars_source(
     resolved: dict[str, Any],
     source: str | Path | VariableReference,
@@ -135,29 +115,13 @@ def _apply_cli_var_item(
     raw_item: str,
     merger: AddressAwareMerger,
 ) -> None:
-    name, raw_value = _parse_var_item(raw_item)
+    name, raw_value = parse_var_assignment(raw_item)
     _merge_resolved_value(
         resolved,
         name,
-        _coerce_value(raw_value),
+        coerce_input_value(raw_value),
         merger,
     )
-
-
-def _render_stage_two_input_templates(value: Any, context: dict[str, Any]) -> Any:
-    match value:
-        case str() if any(marker in value for marker in ("{{", "{%", "{#")):
-            return _JINJA_ENV.from_string(value).render(context)
-        case dict():
-            for key, nested in value.items():
-                value[key] = _render_stage_two_input_templates(nested, context)
-            return value
-        case list():
-            for index, item in enumerate(value):
-                value[index] = _render_stage_two_input_templates(item, context)
-            return value
-        case _:
-            return value
 
 
 def _with_git_repository_context(context: dict[str, Any]) -> dict[str, Any]:
@@ -227,7 +191,7 @@ def resolve_inputs(
             continue
 
         name = env_key.removeprefix(_ENV_PREFIX).lower()
-        coerced = _coerce_value(env_val)
+        coerced = coerce_input_value(env_val)
         _merge_resolved_value(resolved, name, coerced, merger)
 
     # Layer 3: Explicit ordered CLI inputs.
@@ -249,8 +213,11 @@ def resolve_inputs(
     context = _with_git_repository_context(context or {})
     rendered_inputs = deepcopy(resolved)
     render_context = {"inputs": rendered_inputs, **context}
-    _render_stage_two_input_templates(rendered_inputs, render_context)
-    resolved = rendered_inputs
+    resolved = render_jinja_template_values(
+        rendered_inputs,
+        render_context,
+        jinja_env=_JINJA_ENV,
+    )
 
     # Config-level validations run after input resolution.
     if config_validations:

@@ -2,7 +2,7 @@ from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
 from .exceptions import StacksmithConfigError
-from .loader import load_stack_metadata
+from .loading import load_stack_metadata
 from .models import StackDefinition
 
 _STACK_FILENAMES = {

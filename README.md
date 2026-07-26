@@ -1017,7 +1017,7 @@ poe build-image \
 <!-- BEGIN GENERATED CLI REFERENCE -->
 Single-stack commands default to `stack.yaml` in the current directory, with fallback to `stack.yml` then `stack.json`, when neither `--stack`, `STACKSMITH_STACK`, nor `stacksmith.yaml` supplies stack refs.
 
-#### `stacksmith`
+### `stacksmith`
 
 ```text
 stacksmith [-h] [--version]
@@ -1030,7 +1030,7 @@ YAML/JSON-driven Terragrunt wrapper
 | - | - |
 | `--version` | show program's version number and exit |
 
-##### Commands
+#### Commands
 
 | Command | Description |
 | - | - |
@@ -1046,7 +1046,7 @@ YAML/JSON-driven Terragrunt wrapper
 | `info` | Show stacksmith inspection and diagnostics commands |
 | `ci` | CI-focused validation and diagnostics commands |
 
-#### `stacksmith validate`
+### `stacksmith validate`
 
 ```text
 stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
@@ -1068,7 +1068,7 @@ stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-
 | `--var` | Variable override in key=value format (repeatable) |
 | `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
 | `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
-| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
@@ -1078,7 +1078,7 @@ stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 | `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
 
-#### `stacksmith generate`
+### `stacksmith generate`
 
 ```text
 stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
@@ -1100,7 +1100,7 @@ stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-
 | `--var` | Variable override in key=value format (repeatable) |
 | `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
 | `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
-| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
@@ -1109,7 +1109,7 @@ stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 
-#### `stacksmith test`
+### `stacksmith test`
 
 ```text
 stacksmith test [-h] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE] [--vars VARS_FILE]
@@ -1128,7 +1128,7 @@ stacksmith test [-h] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE] [--va
 | `--var` | Variable override in key=value format (repeatable) |
 | `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
 | `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
-| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
@@ -1139,7 +1139,7 @@ stacksmith test [-h] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE] [--va
 | `test_path` | Optional tests.yaml paths or directories. Defaults to tests.yaml beside each selected config layer. |
 | `--dump-tests` | Write generated pytest code to this path before execution. |
 
-#### `stacksmith run-all`
+### `stacksmith run-all`
 
 ```text
 stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
@@ -1165,7 +1165,7 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
 | `--var` | Variable override in key=value format (repeatable) |
 | `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
 | `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
-| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
@@ -1184,7 +1184,7 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
 | `--clean` | Remove existing build output directory before generation |
 | `--auto-approve` | Skip interactive approval for apply/destroy |
 
-#### `stacksmith init`
+### `stacksmith init`
 
 ```text
 stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
@@ -1205,7 +1205,7 @@ stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 | `--var` | Variable override in key=value format (repeatable) |
 | `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
 | `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
-| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
@@ -1214,7 +1214,7 @@ stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 
-#### `stacksmith plan`
+### `stacksmith plan`
 
 ```text
 stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
@@ -1237,7 +1237,7 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 | `--var` | Variable override in key=value format (repeatable) |
 | `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
 | `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
-| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
@@ -1252,7 +1252,7 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 | `--tag-expr` | JMESPath expression used to select resource targets. |
 | `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
 
-#### `stacksmith apply`
+### `stacksmith apply`
 
 ```text
 stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
@@ -1274,7 +1274,7 @@ stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-fil
 | `--var` | Variable override in key=value format (repeatable) |
 | `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
 | `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
-| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
@@ -1286,7 +1286,7 @@ stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-fil
 | `--tag-expr` | JMESPath expression used to select resource targets. |
 | `--auto-approve` | Skip interactive approval |
 
-#### `stacksmith destroy`
+### `stacksmith destroy`
 
 ```text
 stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
@@ -1308,7 +1308,7 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-f
 | `--var` | Variable override in key=value format (repeatable) |
 | `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
 | `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
-| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
@@ -1320,7 +1320,7 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-f
 | `--tag-expr` | JMESPath expression used to select resource targets. |
 | `--auto-approve` | Skip interactive approval |
 
-#### `stacksmith operation run`
+### `stacksmith operation run`
 
 ```text
 stacksmith operation run [-h] [--force-rerun] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
@@ -1344,7 +1344,7 @@ stacksmith operation run [-h] [--force-rerun] [--stack STACK] [--runfile RUNFILE
 | `--var` | Variable override in key=value format (repeatable) |
 | `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
 | `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
-| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
@@ -1353,7 +1353,7 @@ stacksmith operation run [-h] [--force-rerun] [--stack STACK] [--runfile RUNFILE
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 
-#### `stacksmith info inspect`
+### `stacksmith info inspect`
 
 ```text
 stacksmith info inspect [-h] [--format {table,json}] [--basic] [--runfile RUNFILE] [-c CONFIG]
@@ -1376,7 +1376,7 @@ stacksmith info inspect [-h] [--format {table,json}] [--basic] [--runfile RUNFIL
 | `--var` | Variable override in key=value format (repeatable) |
 | `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
 | `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
-| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
@@ -1385,7 +1385,7 @@ stacksmith info inspect [-h] [--format {table,json}] [--basic] [--runfile RUNFIL
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 
-#### `stacksmith info diagnose`
+### `stacksmith info diagnose`
 
 ```text
 stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}] [--runfile RUNFILE] [-c CONFIG]
@@ -1408,7 +1408,7 @@ stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}] [--runfile
 | `--var` | Variable override in key=value format (repeatable) |
 | `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
 | `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
-| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generator, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.remote, stacksmith.runner, stacksmith.terragrunt, stacksmith.utils, stacksmith.validation, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
 | `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
 | `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
 | `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
@@ -1417,7 +1417,7 @@ stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}] [--runfile
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 
-#### `stacksmith info environments`
+### `stacksmith info environments`
 
 ```text
 stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
@@ -1439,7 +1439,7 @@ stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
 | `--after` | Current commit SHA used for push diff selection. |
 | `--format` | Output format for environment preview data. Choices: `table`, `json`. |
 
-#### `stacksmith ci validate`
+### `stacksmith ci validate`
 
 ```text
 stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
@@ -1460,7 +1460,7 @@ stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
 | `--workflow-validation-report-format` | Validation report format value to validate for CI plan runs. |
 | `--format` | Output format for CI validation results. Choices: `table`, `json`. |
 
-#### `stacksmith ci prepare`
+### `stacksmith ci prepare`
 
 ```text
 stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
@@ -1503,7 +1503,7 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
 | `--skip-branch-validation` | Skip shared branch and pull-request policy validation. |
 | `--format` | Output format for the CI execution manifest. Choices: `table`, `json`. |
 
-#### `stacksmith ci execute`
+### `stacksmith ci execute`
 
 ```text
 stacksmith ci execute [-h] --manifest MANIFEST --environment ENVIRONMENT
@@ -1516,7 +1516,7 @@ stacksmith ci execute [-h] --manifest MANIFEST --environment ENVIRONMENT
 | `--environment` | Environment row from the manifest to execute. |
 | `--validation-report-output` | Optional path for plan validation report output. When set, plan JSON report output is written to this file. |
 
-#### `stacksmith ci prepare-from-env`
+### `stacksmith ci prepare-from-env`
 
 ```text
 stacksmith ci prepare-from-env [-h] [--provider {generic,github-actions,jenkins}]
@@ -1529,7 +1529,7 @@ stacksmith ci prepare-from-env [-h] [--provider {generic,github-actions,jenkins}
 | `--manifest-file` | Optional file path where the generated manifest JSON is written. |
 | `--github-output` | Optional override path for GITHUB_OUTPUT when provider is github-actions. |
 
-#### `stacksmith ci execute-from-env`
+### `stacksmith ci execute-from-env`
 
 ```text
 stacksmith ci execute-from-env [-h] [--provider {generic,github-actions,jenkins}]

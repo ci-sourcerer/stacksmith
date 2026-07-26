@@ -2,9 +2,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from stacksmith import runner
-from stacksmith.loader import load_config
+from stacksmith.loading import load_config
 from stacksmith.models import PlanValidation, ValidationSpec
-from stacksmith.validation import PlanValidationOutcome
+from stacksmith.validations import PlanValidationOutcome
 
 
 class FakeVersionResult:

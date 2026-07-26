@@ -3,12 +3,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 from stacksmith.exceptions import StacksmithConfigError
-from stacksmith.loader import (
-    _merge_config_locations,
-    load_runfile,
-    load_runfiles,
-    load_stacks,
-)
+from stacksmith.loading import load_runfile, load_runfiles, load_stacks
+from stacksmith.loading.service import _merge_config_locations
 from stacksmith.merging import AddressAwareMerger
 from stacksmith.models import InlineReference, MergePolicy, MergeRule
 from stacksmith.variables import resolve_inputs

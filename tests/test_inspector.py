@@ -15,7 +15,7 @@ from stacksmith.inspector import (
     inspect_component_type,
 )
 from stacksmith.introspection import parse_module_variables
-from stacksmith.loader import load_config_with_locations
+from stacksmith.loading import load_config_with_locations
 from stacksmith.models import (
     DefaultModuleMapping,
     ModuleMapping,
@@ -478,7 +478,7 @@ def test_inspect_component_type_introspection_failure(_simple_mapping):
 
 
 def test_inspect_all_filters_by_component_type(sample_config_yaml):
-    from stacksmith.loader import load_config
+    from stacksmith.loading import load_config
 
     config = load_config([sample_config_yaml])
     with patch("stacksmith.inspector.discover_module_variables", return_value=set()):
@@ -489,7 +489,7 @@ def test_inspect_all_filters_by_component_type(sample_config_yaml):
 
 
 def test_inspect_all_unknown_type_raises(sample_config_yaml):
-    from stacksmith.loader import load_config
+    from stacksmith.loading import load_config
 
     config = load_config([sample_config_yaml])
     with pytest.raises(StacksmithConfigError, match="not configured"):
@@ -500,7 +500,7 @@ def test_inspect_all_unknown_type_raises(sample_config_yaml):
 
 
 def test_inspect_all_resolves_requested_type_with_default_mapping(sample_config_yaml):
-    from stacksmith.loader import load_config
+    from stacksmith.loading import load_config
 
     config = load_config([sample_config_yaml])
     config.default_module_mapping = DefaultModuleMapping.model_validate(
@@ -528,7 +528,7 @@ def test_inspect_all_resolves_requested_type_with_default_mapping(sample_config_
 
 
 def test_inspect_all_no_filter(sample_config_yaml):
-    from stacksmith.loader import load_config
+    from stacksmith.loading import load_config
 
     config = load_config([sample_config_yaml])
     with patch("stacksmith.inspector.discover_module_variables", return_value=set()):

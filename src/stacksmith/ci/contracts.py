@@ -1,10 +1,12 @@
+"""Provider-neutral continuous-integration contracts."""
+
 import json
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 from ..enums import ValidationReportFormat
-from ..exceptions import StacksmithConfigError
+from ..exceptions import StacksmithConfigError, StacksmithError
 
 CiCommand = Literal["plan", "apply", "operation"]
 
@@ -170,3 +172,74 @@ def validate_ci_policy(
             "Operations are only allowed on the primary branch or pull requests to it. "
             f"Current branch: {ref_name}"
         )
+
+
+def build_ci_execution_argv(
+    manifest: CiExecutionManifest,
+    environment: str,
+) -> list[str]:
+    """Build Stacksmith command arguments for one CI manifest environment.
+
+    Args:
+        manifest: Provider-neutral CI execution manifest.
+        environment: Environment row to execute.
+
+    Returns:
+        Stacksmith command arguments for the selected environment.
+
+    Raises:
+        StacksmithError: If the manifest does not contain the environment.
+    """
+    row = next(
+        (
+            candidate
+            for candidate in manifest.matrix
+            if candidate.environment == environment
+        ),
+        None,
+    )
+    if row is None:
+        raise StacksmithError(
+            f"CI execution manifest does not contain environment '{environment}'."
+        )
+    runfiles = ["--runfile", row.runfile]
+    if row.environment_runfile:
+        runfiles.extend(["--runfile", row.environment_runfile])
+    common_args = [
+        "--config",
+        manifest.config_ref,
+        *manifest.stacksmith_args,
+        "--var",
+        f"environment={row.environment}",
+        "--env-file",
+        manifest.env_file,
+        *runfiles,
+        "--build-dir",
+        f".stacksmith-ci/{row.environment}",
+    ]
+    if manifest.no_cas:
+        common_args.append("--no-cas")
+    if manifest.command == "plan":
+        return [
+            "plan",
+            *common_args,
+            "--save-plan-json",
+            f".stacksmith-ci/{row.environment}/plan.json",
+            "--validation-report-format",
+            manifest.validation_report_format,
+            *(["--fail-on-changes"] if manifest.fail_on_changes else []),
+            *(
+                ["--strict-validation-warnings"]
+                if manifest.strict_validation_warnings
+                else []
+            ),
+        ]
+    if manifest.command == "apply":
+        return ["apply", *common_args, "--auto-approve"]
+    return [
+        "operation",
+        "run",
+        manifest.operation_name,
+        *common_args,
+        *(["--force-rerun"] if manifest.force_rerun else []),
+    ]

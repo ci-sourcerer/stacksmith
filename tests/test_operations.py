@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 from stacksmith import api
-from stacksmith.generator import generate_tf_json, write_tf_json
+from stacksmith.generation import generate_tf_json, write_tf_json
 from stacksmith.models import ModuleMapping, StackDefinition, ToolConfig
 
 

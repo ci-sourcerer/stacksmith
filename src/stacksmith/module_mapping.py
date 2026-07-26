@@ -7,7 +7,8 @@ from pydantic import TypeAdapter, ValidationError
 
 from .exceptions import StacksmithConfigError
 from .models import ModuleMapping, ModuleSourceReference, ToolConfig
-from .utils import get_current_git_repository, render_jinja_template_values
+from .templating import render_jinja_template_values
+from .utils import get_current_git_repository
 
 _JINJA_ENV = SandboxedEnvironment(undefined=StrictUndefined)
 _MODULE_SOURCE_ADAPTER = TypeAdapter(ModuleSourceReference)

@@ -10,7 +10,7 @@ from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from pydantic import ValidationError as PydanticValidationError
 
 from ..exceptions import StacksmithConfigError
-from ..loader import load_stack
+from ..loading import load_stack
 
 
 @dataclass(frozen=True)

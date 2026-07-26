@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from pprint import pformat
 
-from .models import StacksmithTestManifest, render_file_reference
+from ..models import StacksmithTestManifest, render_file_reference
 
 
 @dataclass(frozen=True)

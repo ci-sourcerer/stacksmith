@@ -6,7 +6,8 @@ import jmespath
 from jmespath import exceptions as jmespath_exceptions
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .enums import MergeMode
+from ..enums import MergeMode
+from ..templating import contains_jinja_template
 
 _GIT_REPO_PREFIXES = ("https://", "http://", "ssh://", "git://", "git@")
 
@@ -221,10 +222,6 @@ ModuleSourceReference: TypeAlias = Annotated[
 ]
 
 
-def _contains_jinja_template(value: str) -> bool:
-    return "{{" in value or "{%" in value or "{#" in value
-
-
 class RegistrySourceTemplateData(BaseModel):
     """Template-capable registry module source payload."""
 
@@ -237,7 +234,7 @@ class RegistrySourceTemplateData(BaseModel):
             raise ValueError("Registry source address must be a non-empty string")
         if not self.version.strip():
             raise ValueError("Registry source version must be a non-empty string")
-        if not _contains_jinja_template(self.address):
+        if not contains_jinja_template(self.address):
             RegistrySourceData(address=self.address, version=self.version)
         return self
 
@@ -253,7 +250,7 @@ class ModuleGitSourceTemplateData(BaseModel):
     def _validate_module_git_fields(self) -> "ModuleGitSourceTemplateData":
         if not self.repo.strip():
             raise ValueError("Git module source repo must be a non-empty string")
-        if not _contains_jinja_template(self.repo) and not self.repo.startswith(
+        if not contains_jinja_template(self.repo) and not self.repo.startswith(
             _GIT_REPO_PREFIXES
         ):
             raise ValueError(
@@ -380,128 +377,6 @@ class ValidationSpec(BaseModel):
         return self
 
 
-def _normalize_input_validation_expectation(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized not in {"pass", "fail"}:
-        raise ValueError("Input test expectation must be one of: pass, fail")
-    return normalized
-
-
-def _normalize_plan_validation_expectation(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized not in {"pass", "warn", "fail"}:
-        raise ValueError("Plan test expectation must be one of: pass, warn, fail")
-    return normalized
-
-
-class FixtureSpec(BaseModel):
-    """Reusable test fixture setup or teardown definition."""
-
-    inline: str | None = None
-    script: FileReference | None = None
-
-    @model_validator(mode="after")
-    def _exactly_one_source(self) -> "FixtureSpec":
-        if (self.inline is None) == (self.script is None):
-            raise ValueError(
-                "Exactly one of 'inline' or 'script' must be set for a fixture"
-            )
-        return self
-
-
-class StacksmithTestFixtures(BaseModel):
-    """Optional setup and teardown hooks for generated pytest suites."""
-
-    mode: Literal["per-suite", "per-test-case"] = "per-suite"
-    setup: FixtureSpec | None = None
-    teardown: FixtureSpec | None = None
-
-    @model_validator(mode="after")
-    def _at_least_one_fixture(self) -> "StacksmithTestFixtures":
-        if self.setup is None and self.teardown is None:
-            raise ValueError(
-                "At least one of setup or teardown must be set when fixtures are configured"
-            )
-        return self
-
-
-class VariablePolicyTestCase(BaseModel):
-    """One variable validation test case."""
-
-    name: str | None = None
-    value: Any
-    expect: str
-
-    @field_validator("expect")
-    @classmethod
-    def _validate_expect(cls, value: str) -> str:
-        return _normalize_input_validation_expectation(value)
-
-
-class PlanPolicyTestCase(BaseModel):
-    """One plan validation test case."""
-
-    name: str | None = None
-    plan: dict[str, Any] | None = None
-    resources: list[dict[str, Any]] | None = None
-    context: dict[str, Any] = Field(default_factory=dict)
-    expect: str
-
-    @field_validator("expect")
-    @classmethod
-    def _validate_expect(cls, value: str) -> str:
-        return _normalize_plan_validation_expectation(value)
-
-    @model_validator(mode="after")
-    def _validate_payload(self) -> "PlanPolicyTestCase":
-        if (self.plan is None) == (self.resources is None):
-            raise ValueError("Exactly one of 'plan' or 'resources' must be set")
-        return self
-
-
-class ComponentPropertyExpectation(BaseModel):
-    """Expected output for a configured component property test case."""
-
-    value: Any
-    output_name: str | None = None
-
-
-class ComponentPropertyTestCase(BaseModel):
-    """One configured component-property transform/validation test case."""
-
-    name: str | None = None
-    value: Any
-    inputs: dict[str, Any] = Field(default_factory=dict)
-    expect: ComponentPropertyExpectation
-
-
-class StacksmithTestManifest(BaseModel):
-    """Declarative test suite for `stacksmith test` YAML manifests."""
-
-    fixtures: StacksmithTestFixtures | None = None
-    variable_policies: dict[str, list[VariablePolicyTestCase]] = Field(
-        default_factory=dict
-    )
-    plan_policies: dict[str, list[PlanPolicyTestCase]] = Field(default_factory=dict)
-    component_properties: dict[str, dict[str, list[ComponentPropertyTestCase]]] = Field(
-        default_factory=dict
-    )
-    source_path: Path | None = Field(default=None, exclude=True)
-
-    @model_validator(mode="after")
-    def _at_least_one_test_case(self) -> "StacksmithTestManifest":
-        if (
-            not self.variable_policies
-            and not self.plan_policies
-            and not self.component_properties
-        ):
-            raise ValueError(
-                "A test manifest must define at least one test in variable_policies, "
-                "plan_policies, or component_properties"
-            )
-        return self
-
-
 class TransformSpec(BaseModel):
     """Reusable property transform rule defined as Python or Jinja."""
 
@@ -529,51 +404,6 @@ class ModulePropertySpec(BaseModel):
     transform: TransformSpec | None = None
     validation: ValidationSpec | None = None
     auto_inject: bool | None = None
-
-
-class StackMeta(BaseModel):
-    """Metadata identifying a stack."""
-
-    name: str
-
-
-class ComponentDefinition(BaseModel):
-    """Definition of a single component within a stack."""
-
-    type: str
-    tags: set[str] = Field(default_factory=set)
-    properties: dict[str, Any] = Field(default_factory=dict)
-
-
-class OperationInvocation(BaseModel):
-    """A stack's request to run an operation approved in managed config."""
-
-    use: str
-    with_: dict[str, Any] = Field(default_factory=dict, alias="with")
-    rerun_token: str | None = None
-    depends_on: list[str] = Field(default_factory=list)
-
-
-class StackDefinition(BaseModel):
-    """Complete parsed stack definition from a YAML or JSON file."""
-
-    name: str
-    tags: set[str] = Field(default_factory=set)
-    depends_on: list[str] = Field(default_factory=list)
-    mock_outputs: dict[str, Any] = Field(default_factory=dict)
-    components: dict[str, ComponentDefinition] = Field(default_factory=dict)
-    operations: dict[str, OperationInvocation] = Field(default_factory=dict)
-    source_path: Path | None = Field(default=None, exclude=True)
-
-
-class RunFile(BaseModel):
-    """Stacksmith invocation manifest describing input layers."""
-
-    merge_mode: MergeMode | None = None
-    merge_rules: list[MergeRule] = Field(default_factory=list)
-    stacks: list[FileReference] = Field(default_factory=list)
-    configs: list[FileReference] = Field(default_factory=list)
-    vars: list[VariableReference] = Field(default_factory=list)
 
 
 class BackendConfig(BaseModel):

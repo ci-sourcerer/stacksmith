@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from .enums import MergeMode
-from .models import MergeConfig, MergePolicy, MergeRule
-from .testing import StacksmithTestRunner
+from ..enums import MergeMode
+from ..models import MergeConfig, MergePolicy, MergeRule
+from .runner import StacksmithTestRunner
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

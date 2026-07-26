@@ -8,30 +8,15 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
-from importlib.metadata import version as metadata_version
 from pathlib import Path
 
 from loguru import logger as LOGGER
 from stacksmith.cli.args import (
-    _add_common_args,
-    _add_plan_output_args,
-    _add_stack_arg,
-    _add_target_selection_args,
-    _add_validation_report_format_arg,
-    _configure_ci_execute_from_env_parser,
-    _configure_ci_execute_parser,
-    _configure_ci_prepare_from_env_parser,
-    _configure_ci_prepare_parser,
-    _configure_ci_validate_parser,
-    _configure_diagnose_parser,
-    _configure_info_environments_parser,
-    _configure_inspect_parser,
-    _path_type,
     get_default_run_file,
     get_default_stack_refs,
 )
 from stacksmith.enums import MergeMode
-from stacksmith.loader import load_runfiles, load_test_manifests
+from stacksmith.loading import load_runfiles, load_test_manifests
 from stacksmith.models import (
     FileReference,
     MergeConfig,
@@ -39,8 +24,8 @@ from stacksmith.models import (
     StacksmithTestManifest,
 )
 from stacksmith.remote import is_remote_url, resolve_if_remote
-from stacksmith.test_generation import StacksmithTestGenerator
-from stacksmith.utils import env_truthy, stacksmith_env
+from stacksmith.testing import StacksmithTestGenerator
+from stacksmith.utils import parse_bool
 
 from ..api import (
     _load_runtime_config,
@@ -55,9 +40,19 @@ from ..api import (
     validate_ci_inputs,
     validate_stack,
 )
+from ..ci.adapters import (
+    load_ci_execution_manifest,
+    manifest_output_json,
+    prepare_ci_manifest_from_env,
+    resolve_ci_environment,
+    resolve_ci_execution_manifest_path,
+    resolve_validation_report_output,
+    write_github_output_manifest,
+    write_ssh_key_material,
+)
+from ..ci.contracts import CiExecutionManifest, build_ci_execution_argv
 from ..enums import InspectOutputFormat, TerragruntAction, ValidationReportFormat
 from ..exceptions import StacksmithConfigError, StacksmithError
-from ..gitops.contracts import CiExecutionManifest
 from ..inspector import format_json, format_table
 from ..utils import load_env_files
 from .args import (
@@ -66,8 +61,7 @@ from .args import (
     is_quiet_enabled,
     parse_input_layers,
 )
-
-_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+from .parser import build_parser as _build_parser
 
 
 def _make_category_filter(name: str, root_level_no: int):
@@ -298,15 +292,6 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         merge_mode=_merge_mode_arg(args),
     )
     return 0
-
-
-def _test_directories(config_paths: list[Path]) -> list[Path]:
-    test_directories = []
-    for config_path in config_paths:
-        candidate = config_path.parent / "tests"
-        if candidate.is_dir() and candidate not in test_directories:
-            test_directories.append(candidate)
-    return test_directories
 
 
 def _default_test_manifest_paths(config_paths: list[Path]) -> list[Path]:
@@ -738,7 +723,9 @@ def _cmd_ci_prepare(args: argparse.Namespace) -> int:
         ref_name=args.ref_name,
         default_branch=args.default_branch,
         is_primary_branch=(
-            None if args.is_primary_branch is None else args.is_primary_branch == "true"
+            None
+            if args.is_primary_branch is None
+            else parse_bool(args.is_primary_branch)
         ),
         skip_branch_validation=args.skip_branch_validation,
     )
@@ -762,70 +749,11 @@ def _cmd_ci_prepare(args: argparse.Namespace) -> int:
     return 0
 
 
-def _is_truthy(value: str | None) -> bool:
-    return value is not None and value.strip().lower() in _TRUTHY_ENV_VALUES
-
-
-def _optional_env_bool(name: str) -> bool | None:
-    raw_value = os.getenv(name)
-    if raw_value is None or not raw_value.strip():
-        return None
-    return _is_truthy(raw_value)
-
-
-def _prepare_ci_manifest_from_env() -> CiExecutionManifest:
-    return prepare_ci_execution(
-        command=os.getenv("INPUT_COMMAND", ""),
-        operation_name=os.getenv("INPUT_OPERATION_NAME", ""),
-        config_ref=os.getenv("INPUT_CONFIG_REF", ""),
-        workdir=os.getenv("INPUT_WORKDIR", "."),
-        env_file=os.getenv("INPUT_ENV_FILE", "/dev/null"),
-        stacksmith_args_json=os.getenv("INPUT_STACKSMITH_ARGS_JSON", "[]"),
-        no_cas=_is_truthy(os.getenv("INPUT_NO_CAS")),
-        force_rerun=_is_truthy(os.getenv("INPUT_FORCE_RERUN")),
-        validation_report_format=os.getenv("INPUT_VALIDATION_REPORT_FORMAT", "json"),
-        fail_on_changes=_is_truthy(os.getenv("INPUT_FAIL_ON_CHANGES")),
-        strict_validation_warnings=_is_truthy(
-            os.getenv("INPUT_STRICT_VALIDATION_WARNINGS")
-        ),
-        gitops_root=os.getenv("INPUT_GITOPS_ROOT", "."),
-        discovery_mode=os.getenv("INPUT_DISCOVERY_MODE", "auto"),
-        environments=os.getenv("INPUT_ENVIRONMENTS", ""),
-        event_name=os.getenv("CALLER_EVENT_NAME", ""),
-        base_ref=os.getenv("CALLER_BASE_REF", ""),
-        before=os.getenv("CALLER_EVENT_BEFORE", ""),
-        after=os.getenv("CALLER_SHA", ""),
-        ref_name=os.getenv("CALLER_REF_NAME", ""),
-        default_branch=os.getenv("CALLER_DEFAULT_BRANCH", ""),
-        is_primary_branch=_optional_env_bool("CALLER_IS_PRIMARY_BRANCH"),
-        skip_branch_validation=_is_truthy(os.getenv("SKIP_BRANCH_VALIDATION")),
-    )
-
-
-def _manifest_output_json(manifest: CiExecutionManifest, compact: bool = False) -> str:
-    if compact:
-        return json.dumps(manifest.model_dump(mode="json"), separators=(",", ":"))
-    return manifest.model_dump_json(indent=2)
-
-
-def _write_github_output_manifest(
-    manifest: CiExecutionManifest,
-    github_output_path: Path,
-) -> None:
-    matrix = [row.model_dump(mode="json") for row in manifest.matrix]
-    with github_output_path.open("a", encoding="utf-8") as output_stream:
-        output_stream.write(
-            f"manifest={_manifest_output_json(manifest, compact=True)}\n"
-        )
-        output_stream.write(f"matrix={json.dumps(matrix, separators=(",", ":"))}\n")
-        output_stream.write(f"count={len(matrix)}\n")
-
-
 def _cmd_ci_prepare_from_env(args: argparse.Namespace) -> int:
-    manifest = _prepare_ci_manifest_from_env()
+    manifest = prepare_ci_manifest_from_env()
     if args.manifest_file is not None:
         args.manifest_file.parent.mkdir(parents=True, exist_ok=True)
-        args.manifest_file.write_text(_manifest_output_json(manifest), encoding="utf-8")
+        args.manifest_file.write_text(manifest_output_json(manifest), encoding="utf-8")
 
     if args.provider == "github-actions":
         output_path = args.github_output or (
@@ -835,78 +763,15 @@ def _cmd_ci_prepare_from_env(args: argparse.Namespace) -> int:
             raise StacksmithError(
                 "GITHUB_OUTPUT is required for provider github-actions"
             )
-        _write_github_output_manifest(manifest, output_path)
+        write_github_output_manifest(manifest, output_path)
         return 0
 
-    print(_manifest_output_json(manifest))
+    print(manifest_output_json(manifest))
     return 0
 
 
-def _load_ci_execution_manifest(path: Path) -> CiExecutionManifest:
-    try:
-        return CiExecutionManifest.model_validate_json(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise StacksmithError(f"Invalid CI execution manifest '{path}': {exc}") from exc
-
-
-def _ci_execution_argv(manifest: CiExecutionManifest, environment: str) -> list[str]:
-    row = next(
-        (
-            candidate
-            for candidate in manifest.matrix
-            if candidate.environment == environment
-        ),
-        None,
-    )
-    if row is None:
-        raise StacksmithError(
-            f"CI execution manifest does not contain environment '{environment}'."
-        )
-    runfiles = ["--runfile", row.runfile]
-    if row.environment_runfile:
-        runfiles.extend(["--runfile", row.environment_runfile])
-    common_args = [
-        "--config",
-        manifest.config_ref,
-        *manifest.stacksmith_args,
-        "--var",
-        f"environment={row.environment}",
-        "--env-file",
-        manifest.env_file,
-        *runfiles,
-        "--build-dir",
-        f".stacksmith-ci/{row.environment}",
-    ]
-    if manifest.no_cas:
-        common_args.append("--no-cas")
-    if manifest.command == "plan":
-        return [
-            "plan",
-            *common_args,
-            "--save-plan-json",
-            f".stacksmith-ci/{row.environment}/plan.json",
-            "--validation-report-format",
-            manifest.validation_report_format,
-            *(["--fail-on-changes"] if manifest.fail_on_changes else []),
-            *(
-                ["--strict-validation-warnings"]
-                if manifest.strict_validation_warnings
-                else []
-            ),
-        ]
-    if manifest.command == "apply":
-        return ["apply", *common_args, "--auto-approve"]
-    return [
-        "operation",
-        "run",
-        manifest.operation_name,
-        *common_args,
-        *(["--force-rerun"] if manifest.force_rerun else []),
-    ]
-
-
 def _cmd_ci_execute(args: argparse.Namespace) -> int:
-    manifest = _load_ci_execution_manifest(args.manifest)
+    manifest = load_ci_execution_manifest(args.manifest)
     return _run_ci_execute(
         manifest,
         args.environment,
@@ -921,7 +786,7 @@ def _execute_ci_manifest(manifest: CiExecutionManifest, environment: str) -> int
     try:
         os.chdir(manifest.workdir)
         execution_args = _build_parser().parse_args(
-            _ci_execution_argv(manifest, environment)
+            build_ci_execution_argv(manifest, environment)
         )
         if manifest.command == "operation":
             return _cmd_operation_run(execution_args)
@@ -944,101 +809,22 @@ def _run_ci_execute(
             return _execute_ci_manifest(manifest, environment)
 
 
-def _write_ssh_key_material(environment: str) -> Path | None:
-    key_material = os.getenv("STACKSMITH_GIT_SSH_KEY_MATERIAL", "")
-    if not key_material.strip():
-        return None
-
-    file_descriptor, key_path = tempfile.mkstemp(
-        prefix=f"stacksmith_git_ssh_key_{environment}_"
-    )
-    os.close(file_descriptor)
-    path = Path(key_path)
-    path.chmod(0o600)
-    path.write_text(f"{key_material.rstrip()}\n", encoding="utf-8")
-    os.environ["STACKSMITH_GIT_SSH_KEY"] = str(path)
-    return path
-
-
-def _resolve_ci_execution_manifest_path(
-    explicit_manifest_file: Path | None,
-) -> tuple[Path, Path | None]:
-    if explicit_manifest_file is not None:
-        return explicit_manifest_file, None
-
-    env_manifest_file = os.getenv("CI_MANIFEST_FILE")
-    if env_manifest_file:
-        return Path(env_manifest_file), None
-
-    manifest_json = os.getenv("STACKSMITH_CI_MANIFEST", "")
-    if not manifest_json.strip():
-        raise StacksmithError(
-            "Provide --manifest-file, CI_MANIFEST_FILE, or STACKSMITH_CI_MANIFEST"
-        )
-
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        delete=False,
-        suffix=".json",
-    ) as temporary_manifest:
-        temporary_manifest.write(manifest_json)
-
-    path = Path(temporary_manifest.name)
-    return path, path
-
-
-def _resolve_ci_environment(explicit_environment: str) -> str:
-    environment = (
-        explicit_environment.strip()
-        or os.getenv("STACKSMITH_ENVIRONMENT", "").strip()
-        or os.getenv("ENVIRONMENT", "").strip()
-    )
-    if not environment:
-        raise StacksmithError(
-            "Provide --environment, STACKSMITH_ENVIRONMENT, or ENVIRONMENT"
-        )
-    return environment
-
-
-def _resolve_validation_report_output(
-    args: argparse.Namespace,
-    manifest: CiExecutionManifest,
-    environment: str,
-) -> Path | None:
-    if args.validation_report_output is not None:
-        return args.validation_report_output
-
-    env_output_path = (
-        os.getenv("STACKSMITH_VALIDATION_REPORT_PATH", "").strip()
-        or os.getenv("VALIDATION_REPORT_PATH", "").strip()
-    )
-    if env_output_path:
-        return Path(env_output_path)
-
-    if manifest.command != "plan":
-        return None
-
-    return (
-        Path(manifest.workdir)
-        / ".stacksmith-ci"
-        / environment
-        / f"validation-report.{manifest.validation_report_format}"
-    )
-
-
 def _cmd_ci_execute_from_env(args: argparse.Namespace) -> int:
-    manifest_path, temporary_manifest_path = _resolve_ci_execution_manifest_path(
+    manifest_path, temporary_manifest_path = resolve_ci_execution_manifest_path(
         args.manifest_file
     )
-    environment = _resolve_ci_environment(args.environment)
-    ssh_key_path = _write_ssh_key_material(environment)
+    environment = resolve_ci_environment(args.environment)
+    ssh_key_path = write_ssh_key_material(environment)
     try:
-        manifest = _load_ci_execution_manifest(manifest_path)
+        manifest = load_ci_execution_manifest(manifest_path)
         return _run_ci_execute(
             manifest,
             environment,
-            _resolve_validation_report_output(args, manifest, environment),
+            resolve_validation_report_output(
+                args.validation_report_output,
+                manifest,
+                environment,
+            ),
         )
     finally:
         if temporary_manifest_path is not None:
@@ -1112,220 +898,6 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
         merge_mode=_merge_mode_arg(args),
         validation_report_format=_validation_report_format(args),
     )
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="stacksmith", description="YAML/JSON-driven Terragrunt wrapper"
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"{parser.prog} {metadata_version('stacksmith')}",
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    # validate
-    p_validate = subparsers.add_parser(
-        "validate", help="Validate stack schema and variables"
-    )
-    _add_stack_arg(p_validate)
-    _add_common_args(p_validate)
-    _add_validation_report_format_arg(p_validate)
-
-    # generate
-    p_generate = subparsers.add_parser(
-        "generate", help="Generate .tf.json and terragrunt.hcl.json"
-    )
-    _add_stack_arg(p_generate)
-    _add_common_args(p_generate)
-
-    # test
-    p_test = subparsers.add_parser(
-        "test", help="Run declarative tests.yaml manifests for managed config layers"
-    )
-    _add_common_args(p_test)
-    p_test.add_argument(
-        "test_path",
-        nargs="*",
-        type=_path_type,
-        help=(
-            "Optional tests.yaml paths or directories. Defaults to tests.yaml "
-            "beside each selected config layer."
-        ),
-    )
-    p_test.add_argument(
-        "--dump-tests",
-        type=_path_type,
-        default=None,
-        help="Write generated pytest code to this path before execution.",
-    )
-
-    # run-all
-    p_run_all = subparsers.add_parser(
-        "run-all", help="Discover all stacks and run terragrunt run-all"
-    )
-    p_run_all.add_argument(
-        "action",
-        choices=[action.value for action in TerragruntAction],
-        help="Terragrunt action to run across all stacks",
-    )
-    root_default = Path(stacksmith_env("ROOT", str(Path.cwd())))
-    p_run_all.add_argument(
-        "--root",
-        type=_path_type,
-        default=root_default,
-        required=False,
-        help="Root directory to discover stacks in (default: current working directory)",
-    )
-    _add_stack_arg(p_run_all, include_positional=False)
-    _add_common_args(p_run_all)
-    _add_validation_report_format_arg(p_run_all)
-    _add_plan_output_args(p_run_all)
-    _add_target_selection_args(
-        p_run_all,
-        tag_help=(
-            "Select components by tag. Repeat to require multiple tags. "
-            "Supported for run-all plan/apply/destroy."
-        ),
-        tag_expr_help=(
-            "JMESPath expression used to select resource targets. "
-            "Supported for run-all plan/apply/destroy."
-        ),
-    )
-    p_run_all.add_argument(
-        "--include-tag",
-        action="append",
-        help="Include stacks that have this tag. Repeatable.",
-    )
-    p_run_all.add_argument(
-        "--exclude-tag",
-        action="append",
-        help="Exclude stacks that have this tag. Repeatable.",
-    )
-    p_run_all.add_argument(
-        "--clean",
-        action="store_true",
-        help="Remove existing build output directory before generation",
-    )
-    p_run_all.add_argument(
-        "--auto-approve",
-        action="store_true",
-        help="Skip interactive approval for apply/destroy",
-    )
-
-    # init / plan / apply / destroy
-    for action in TerragruntAction:
-        action_name = action.value
-        p_action = subparsers.add_parser(
-            action_name,
-            help=f"Generate + terragrunt {action_name}",
-        )
-        _add_stack_arg(p_action)
-        _add_common_args(p_action)
-        p_action.set_defaults(
-            auto_approve=False,
-            destroy=False,
-            tag=None,
-            tag_expr=None,
-        )
-        match action:
-            case TerragruntAction.PLAN:
-                _add_plan_output_args(p_action)
-                _add_target_selection_args(p_action)
-                _add_validation_report_format_arg(p_action)
-            case TerragruntAction.APPLY | TerragruntAction.DESTROY:
-                _add_target_selection_args(
-                    p_action,
-                    include_auto_approve=True,
-                )
-
-    p_operation = subparsers.add_parser(
-        "operation", help="Run native operations approved by managed configuration"
-    )
-    operation_subparsers = p_operation.add_subparsers(
-        dest="operation_command", required=True
-    )
-    p_operation_run = operation_subparsers.add_parser(
-        "run", help="Run one approved operation declared by a stack"
-    )
-    p_operation_run.add_argument("operation_name", help="Stack-local operation name")
-    p_operation_run.add_argument(
-        "--force-rerun",
-        action="store_true",
-        default=env_truthy("FORCE_RERUN", prefix="STACKSMITH_"),
-        help=(
-            "Force the operation runner resource to be replaced even when its "
-            "execution identity has not changed. Can also be enabled with "
-            "STACKSMITH_FORCE_RERUN=1."
-        ),
-    )
-    _add_stack_arg(p_operation_run)
-    _add_common_args(p_operation_run)
-
-    # info group
-    p_info = subparsers.add_parser(
-        "info",
-        help="Show stacksmith inspection and diagnostics commands",
-    )
-    info_subparsers = p_info.add_subparsers(dest="info_command", required=True)
-
-    p_info_inspect = info_subparsers.add_parser(
-        "inspect",
-        help="Inspect configured modules: variables, mappings, and metadata",
-    )
-    _configure_inspect_parser(p_info_inspect)
-
-    p_info_diagnose = info_subparsers.add_parser(
-        "diagnose",
-        help="Show cache and module diagnostics",
-    )
-    _configure_diagnose_parser(p_info_diagnose)
-
-    p_info_environments = info_subparsers.add_parser(
-        "environments",
-        help="Preview GitOps environment discovery and selection",
-    )
-    _configure_info_environments_parser(p_info_environments)
-
-    # ci group
-    p_ci = subparsers.add_parser(
-        "ci",
-        help="CI-focused validation and diagnostics commands",
-    )
-    ci_subparsers = p_ci.add_subparsers(dest="ci_command", required=True)
-
-    p_ci_validate = ci_subparsers.add_parser(
-        "validate",
-        help="Validate CI workflow inputs using Stacksmith semantics",
-    )
-    _configure_ci_validate_parser(p_ci_validate)
-
-    p_ci_prepare = ci_subparsers.add_parser(
-        "prepare",
-        help="Validate GitOps policy and emit a provider-neutral execution manifest",
-    )
-    _configure_ci_prepare_parser(p_ci_prepare)
-
-    p_ci_execute = ci_subparsers.add_parser(
-        "execute",
-        help="Execute one environment from a manifest emitted by ci prepare",
-    )
-    _configure_ci_execute_parser(p_ci_execute)
-
-    p_ci_prepare_from_env = ci_subparsers.add_parser(
-        "prepare-from-env",
-        help="Build a CI manifest from adapter environment variables",
-    )
-    _configure_ci_prepare_from_env_parser(p_ci_prepare_from_env)
-
-    p_ci_execute_from_env = ci_subparsers.add_parser(
-        "execute-from-env",
-        help="Execute CI manifest adapter inputs from environment variables",
-    )
-    _configure_ci_execute_from_env_parser(p_ci_execute_from_env)
-
-    return parser
 
 
 def main() -> None:

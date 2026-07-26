@@ -3,8 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 from jsonschema import ValidationError
-from stacksmith import loader
-from stacksmith.loader import (
+from stacksmith.loading import (
     load_config,
     load_runfile,
     load_runfiles,
@@ -14,6 +13,7 @@ from stacksmith.loader import (
     load_test_manifest,
     load_test_manifests,
 )
+from stacksmith.loading import service as loader_service
 from stacksmith.models import MergePolicy, MergeRule
 
 
@@ -218,7 +218,7 @@ class TestLoadStack:
 
     def test_stack_template_renders_git_repository(self, monkeypatch, tmp_path: Path):
         monkeypatch.setattr(
-            loader,
+            loader_service,
             "get_current_git_repository",
             lambda path: "https://github.com/example/iac.git",
         )
@@ -614,7 +614,7 @@ vars:
 
     def test_load_runfile_renders_git_repository(self, monkeypatch, tmp_path: Path):
         monkeypatch.setattr(
-            loader,
+            loader_service,
             "get_current_git_repository",
             lambda path: "https://github.com/example/iac.git",
         )

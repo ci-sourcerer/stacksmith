@@ -1,64 +1,27 @@
-import json
 from copy import deepcopy
-from importlib.resources import files
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-import yaml
-from jinja2 import ChainableUndefined, StrictUndefined, TemplateError
 from jinja2.sandbox import SandboxedEnvironment
 from jsonschema import validate
 
-from .enums import MergeMode
-from .exceptions import StacksmithConfigError, StacksmithNotFoundError
-from .merging import AddressAwareMerger
-from .models import (
+from ..enums import MergeMode
+from ..merging import AddressAwareMerger
+from ..models import (
     MergeConfig,
     RunFile,
     StackDefinition,
     StacksmithTestManifest,
     ToolConfig,
 )
-from .utils import (
-    get_current_git_repository,
-    normalize_path_input,
-    render_jinja_template_values,
+from ..templating import render_jinja_template_values
+from ..utils import get_current_git_repository, normalize_path_input
+from .files import load_json_schema, load_object_file, load_object_file_with_locations
+from .references import (
+    resolve_config_local_references,
+    resolve_runfile_local_references,
+    resolve_test_manifest_local_references,
 )
-
-_STACK_SCHEMA: dict[str, Any] | None = None
-_CONFIG_SCHEMA: dict[str, Any] | None = None
-_RUNFILE_SCHEMA: dict[str, Any] | None = None
-_TEST_MANIFEST_SCHEMA: dict[str, Any] | None = None
-
-
-def _resolve_runfile_local_references(
-    data: dict[str, Any],
-    runfile_dir: Path,
-) -> dict[str, Any]:
-    result = deepcopy(data)
-    for key in ("stacks", "configs", "vars"):
-        items = result.get(key)
-        if not isinstance(items, list):
-            continue
-
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            if item.get("source") != "local":
-                continue
-
-            payload = item.get("data")
-            if not isinstance(payload, dict):
-                continue
-
-            local_path_raw = payload.get("path")
-            if not isinstance(local_path_raw, str) or not local_path_raw:
-                continue
-
-            local_path = Path(local_path_raw).expanduser()
-            if not local_path.is_absolute():
-                payload["path"] = str((runfile_dir / local_path).resolve())
-    return result
 
 
 def _merge_layer(
@@ -67,26 +30,6 @@ def _merge_layer(
     merger: AddressAwareMerger,
 ) -> dict[str, Any]:
     return merger.merge(merged, deepcopy(layer))
-
-
-def _load_json_schema(name: str) -> dict[str, Any]:
-    return json.loads(
-        files("stacksmith.schemas").joinpath(name).read_text(encoding="utf-8")
-    )
-
-
-def _get_stack_schema() -> dict[str, Any]:
-    global _STACK_SCHEMA
-    if _STACK_SCHEMA is None:
-        _STACK_SCHEMA = _load_json_schema("stack.schema.json")
-    return _STACK_SCHEMA
-
-
-def _get_config_schema() -> dict[str, Any]:
-    global _CONFIG_SCHEMA
-    if _CONFIG_SCHEMA is None:
-        _CONFIG_SCHEMA = _load_json_schema("config.schema.json")
-    return _CONFIG_SCHEMA
 
 
 _JINJA_ENV = SandboxedEnvironment()
@@ -118,134 +61,6 @@ def _render_runfile_stage_one_templates(
     )
 
 
-def _get_runfile_schema() -> dict[str, Any]:
-    global _RUNFILE_SCHEMA
-    if _RUNFILE_SCHEMA is None:
-        _RUNFILE_SCHEMA = _load_json_schema("runfile.schema.json")
-    return _RUNFILE_SCHEMA
-
-
-def _get_test_manifest_schema() -> dict[str, Any]:
-    global _TEST_MANIFEST_SCHEMA
-    if _TEST_MANIFEST_SCHEMA is None:
-        _TEST_MANIFEST_SCHEMA = _load_json_schema("test_manifest.schema.json")
-    return _TEST_MANIFEST_SCHEMA
-
-
-def _read_file_text(path: Path) -> tuple[str, str]:
-    if not path.exists():
-        raise StacksmithNotFoundError(f"File not found: {path}")
-
-    return path.suffix.lower(), path.read_text(encoding="utf-8")
-
-
-def _parse_object_file(path: Path, suffix: str, text: str) -> dict[str, Any]:
-    match suffix:
-        case ".yaml" | ".yml":
-            loaded = yaml.safe_load(text)
-            if loaded is None:
-                return {}
-            if not isinstance(loaded, dict):
-                raise StacksmithConfigError(
-                    f"File must contain a top-level object: {path}"
-                )
-            return loaded
-        case ".json":
-            loaded = json.loads(text)
-            if not isinstance(loaded, dict):
-                raise StacksmithConfigError(
-                    f"File must contain a top-level object: {path}"
-                )
-            return loaded
-        case _:
-            raise StacksmithConfigError(
-                f"Unsupported file extension '{suffix}'. Use .yaml, .yml, or .json."
-            )
-
-
-def _render_stack_template(
-    text: str,
-    path: Path,
-    context: Mapping[str, Any],
-    strict: bool,
-) -> str:
-    undefined = StrictUndefined if strict else ChainableUndefined
-    environment = SandboxedEnvironment(undefined=undefined)
-    try:
-        return environment.from_string(text).render(context)
-    except TemplateError as exc:
-        raise StacksmithConfigError(
-            f"Could not render stack template '{path}': {exc}"
-        ) from exc
-
-
-def _load_file(
-    path: Path,
-    template_context: Mapping[str, Any] | None = None,
-    strict_template_context: bool = False,
-) -> dict[str, Any]:
-    suffix, text = _read_file_text(path)
-    if template_context is not None:
-        text = _render_stack_template(
-            text,
-            path,
-            template_context,
-            strict=strict_template_context,
-        )
-    return _parse_object_file(path, suffix, text)
-
-
-def _extract_yaml_locations(text: str, path: Path) -> dict[tuple[str, ...], str]:
-    root = yaml.compose(text)
-    locations: dict[tuple[str, ...], str] = {}
-
-    def _format_range(node: yaml.nodes.Node) -> str:
-        start = node.start_mark.line + 1
-        end = node.end_mark.line + 1
-        return f"{path.name}:{start}-{end}"
-
-    def _walk(node: yaml.nodes.Node, current_path: tuple[str, ...]) -> None:
-        if isinstance(node, yaml.nodes.MappingNode):
-            for key_node, value_node in node.value:
-                if not isinstance(key_node, yaml.nodes.ScalarNode):
-                    continue
-                key = key_node.value
-                next_path = (*current_path, key)
-                if key in {"validation", "transform"} and isinstance(
-                    value_node, yaml.nodes.MappingNode
-                ):
-                    locations[next_path] = _format_range(value_node)
-                if current_path == ("var_validations",) and isinstance(
-                    value_node, yaml.nodes.MappingNode
-                ):
-                    locations[next_path] = _format_range(value_node)
-                if (
-                    len(current_path) == 2
-                    and current_path[0] == "plan_validations"
-                    and key == "rule"
-                    and isinstance(value_node, yaml.nodes.MappingNode)
-                ):
-                    locations[next_path] = _format_range(value_node)
-                _walk(value_node, next_path)
-        elif isinstance(node, yaml.nodes.SequenceNode):
-            for item in node.value:
-                _walk(item, current_path)
-
-    if root is not None:
-        _walk(root, ())
-    return locations
-
-
-def _load_file_with_locations(
-    path: Path,
-) -> tuple[dict[str, Any], dict[tuple[str, ...], str]]:
-    suffix, text = _read_file_text(path)
-    loaded = _parse_object_file(path, suffix, text)
-    if suffix in {".yaml", ".yml"}:
-        return loaded, _extract_yaml_locations(text, path)
-    return loaded, {}
-
-
 def _merge_config_layers_with_locations(
     config_paths: list[Path],
     merge_mode: MergeConfig = MergeMode.DEEP,
@@ -255,8 +70,8 @@ def _merge_config_layers_with_locations(
     merger = AddressAwareMerger(merge_mode, "config")
     for config_path in config_paths:
         resolved_path = config_path.resolve()
-        layer, locations = _load_file_with_locations(resolved_path)
-        normalized_layer = _resolve_config_script_paths(
+        layer, locations = load_object_file_with_locations(resolved_path)
+        normalized_layer = resolve_config_local_references(
             layer,
             resolved_path.parent,
         )
@@ -284,124 +99,6 @@ def _merge_config_locations(
     return result
 
 
-def _absolutize_module_source(source: Any, config_dir: Path) -> None:
-    if not isinstance(source, dict) or source.get("source") != "local":
-        return
-
-    payload = source.get("data")
-    if not isinstance(payload, dict):
-        return
-
-    module_path_raw = payload.get("path")
-    if not isinstance(module_path_raw, str) or not module_path_raw:
-        return
-
-    module_path = Path(module_path_raw).expanduser()
-    if not module_path.is_absolute():
-        payload["path"] = str((config_dir / module_path).resolve())
-
-
-def _absolutize_script(spec: dict[str, Any], config_dir: Path) -> None:
-    script = spec.get("script")
-    if not isinstance(script, dict) or script.get("source") != "local":
-        return
-
-    payload = script.get("data")
-    if not isinstance(payload, dict):
-        return
-
-    script_path_raw = payload.get("path")
-    if not isinstance(script_path_raw, str) or not script_path_raw:
-        return
-
-    script_path = Path(script_path_raw)
-    if not script_path.is_absolute():
-        payload["path"] = str((config_dir / script_path).resolve())
-
-
-def _resolve_module_mapping_paths(module: Any, config_dir: Path) -> None:
-    if not isinstance(module, dict):
-        return
-
-    _absolutize_module_source(module.get("source"), config_dir)
-
-    properties = module.get("properties")
-    if not isinstance(properties, dict):
-        return
-    for prop_spec in properties.values():
-        if not isinstance(prop_spec, dict):
-            continue
-        transform = prop_spec.get("transform")
-        if isinstance(transform, dict):
-            _absolutize_script(transform, config_dir)
-        validation = prop_spec.get("validation")
-        if isinstance(validation, dict):
-            _absolutize_script(validation, config_dir)
-
-
-def _resolve_config_script_paths(
-    data: dict[str, Any],
-    config_dir: Path,
-) -> dict[str, Any]:
-    result = deepcopy(data)
-
-    var_validations = result.get("var_validations")
-    if isinstance(var_validations, dict):
-        for spec in var_validations.values():
-            if isinstance(spec, dict):
-                _absolutize_script(spec, config_dir)
-
-    module_mappings = result.get("module_mappings")
-    if isinstance(module_mappings, dict):
-        for module in module_mappings.values():
-            _resolve_module_mapping_paths(module, config_dir)
-
-    _resolve_module_mapping_paths(result.get("default_module_mapping"), config_dir)
-
-    provider_mappings = result.get("provider_mappings")
-    if isinstance(provider_mappings, dict):
-        for provider in provider_mappings.values():
-            if not isinstance(provider, dict):
-                continue
-            instances = provider.get("instances")
-            if not isinstance(instances, dict):
-                continue
-            for instance in instances.values():
-                if not isinstance(instance, dict):
-                    continue
-                provider_config = instance.get("config")
-                if isinstance(provider_config, dict):
-                    _absolutize_script(provider_config, config_dir)
-
-    plan_validations = result.get("plan_validations")
-    if isinstance(plan_validations, dict):
-        for plan_spec in plan_validations.values():
-            if not isinstance(plan_spec, dict):
-                continue
-            rule = plan_spec.get("rule")
-            if isinstance(rule, dict):
-                _absolutize_script(rule, config_dir)
-
-    return result
-
-
-def _resolve_test_manifest_script_paths(
-    data: dict[str, Any],
-    manifest_dir: Path,
-) -> dict[str, Any]:
-    result = deepcopy(data)
-    fixtures = result.get("fixtures")
-    if not isinstance(fixtures, dict):
-        return result
-
-    for fixture_name in ("setup", "teardown"):
-        fixture_spec = fixtures.get(fixture_name)
-        if isinstance(fixture_spec, dict):
-            _absolutize_script(fixture_spec, manifest_dir)
-
-    return result
-
-
 def _merge_config_layers(
     config_paths: list[Path],
     merge_mode: MergeConfig = MergeMode.DEEP,
@@ -410,8 +107,8 @@ def _merge_config_layers(
     merger = AddressAwareMerger(merge_mode, "config")
     for config_path in config_paths:
         resolved_path = config_path.resolve()
-        normalized_layer = _resolve_config_script_paths(
-            _load_file(resolved_path),
+        normalized_layer = resolve_config_local_references(
+            load_object_file(resolved_path),
             resolved_path.parent,
         )
         merged = _merge_layer(merged, normalized_layer, merger)
@@ -445,7 +142,7 @@ def _dedupe_unique_ordered_list(items: list[Any]) -> list[Any]:
 
 
 def _build_stack(data: dict[str, Any], stack_paths: list[Path]) -> StackDefinition:
-    validate(instance=data, schema=_get_stack_schema())
+    validate(instance=data, schema=load_json_schema("stack.schema.json"))
     stack = StackDefinition.model_validate(data)
     stack.source_path = stack_paths[-1].resolve()
     return stack
@@ -479,7 +176,7 @@ def _merge_stack_layers(
     )
     for stack_path in stack_paths:
         resolved_path = stack_path.resolve()
-        layer = _load_file(
+        layer = load_object_file(
             resolved_path,
             template_context=template_context,
             strict_template_context=strict_template_context,
@@ -489,7 +186,7 @@ def _merge_stack_layers(
 
 
 def _build_config(data: dict[str, Any], config_paths: list[Path]) -> ToolConfig:
-    validate(instance=data, schema=_get_config_schema())
+    validate(instance=data, schema=load_json_schema("config.schema.json"))
     config = ToolConfig.model_validate(data)
     config.source_path = config_paths[-1].resolve()
     return config
@@ -664,12 +361,15 @@ def _merge_runfile_layers(
     merger = AddressAwareMerger(merge_mode, "runfile")
     for runfile_path in runfile_paths:
         resolved_path = runfile_path.resolve()
-        loaded_layer = _load_file(resolved_path)
+        loaded_layer = load_object_file(resolved_path)
         rendered_layer = _render_runfile_stage_one_templates(
             loaded_layer,
             resolved_path,
         )
-        layer = _resolve_runfile_local_references(rendered_layer, resolved_path.parent)
+        layer = resolve_runfile_local_references(
+            rendered_layer,
+            resolved_path.parent,
+        )
         merged = _merge_layer(merged, layer, merger)
     return merged
 
@@ -682,8 +382,8 @@ def _merge_test_manifest_layers(
     merger = AddressAwareMerger(merge_mode, "config")
     for manifest_path in manifest_paths:
         resolved_path = manifest_path.resolve()
-        layer = _resolve_test_manifest_script_paths(
-            _load_file(resolved_path),
+        layer = resolve_test_manifest_local_references(
+            load_object_file(resolved_path),
             resolved_path.parent,
         )
         merged = _merge_layer(merged, layer, merger)
@@ -694,7 +394,7 @@ def _build_test_manifest(
     data: dict[str, Any],
     manifest_paths: list[Path],
 ) -> StacksmithTestManifest:
-    validate(instance=data, schema=_get_test_manifest_schema())
+    validate(instance=data, schema=load_json_schema("test_manifest.schema.json"))
     manifest = StacksmithTestManifest.model_validate(data)
     manifest.source_path = manifest_paths[-1].resolve()
     return manifest
@@ -784,5 +484,5 @@ def load_runfiles(
         empty_error="At least one runfile path must be provided",
     )
     data = _merge_runfile_layers(runfile_paths, merge_mode=merge_mode)
-    validate(instance=data, schema=_get_runfile_schema())
+    validate(instance=data, schema=load_json_schema("runfile.schema.json"))
     return RunFile.model_validate(data)

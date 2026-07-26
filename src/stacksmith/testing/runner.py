@@ -5,12 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .exceptions import StacksmithNotFoundError
-from .generator import _apply_property_spec, _build_property_context
-from .loader import load_config
-from .models import MergeConfig, RemoteAuthConfig, ToolConfig
-from .module_mapping import resolve_module_mapping
-from .validation import (
+from ..exceptions import StacksmithNotFoundError
+from ..generation.properties import apply_property_spec, build_property_context
+from ..loading import load_config
+from ..models import MergeConfig, RemoteAuthConfig, ToolConfig
+from ..module_mapping import resolve_module_mapping
+from ..validations import (
     InputValidationOutcome,
     PlanValidationOutcome,
     validate_value,
@@ -213,10 +213,10 @@ class StacksmithTestRunner:
             )
 
         output_name = property_spec.mapped_to or property_name
-        rendered = _apply_property_spec(
+        rendered = apply_property_spec(
             value,
             property_spec,
-            _build_property_context(
+            build_property_context(
                 name=property_name,
                 kind="component_property",
                 component_name=component_name,

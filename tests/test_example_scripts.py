@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
 
-from stacksmith.loader import load_config
+from stacksmith.loading import load_config
 from stacksmith.models import TransformSpec
 from stacksmith.module_mapping import resolve_module_mapping
-from stacksmith.validation import apply_transform
+from stacksmith.validations import apply_transform
 
 
 def test_shared_config_demonstrates_convention_based_module_mapping() -> None:

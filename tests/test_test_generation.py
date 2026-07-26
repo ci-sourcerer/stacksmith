@@ -1,5 +1,5 @@
 from stacksmith.models import StacksmithTestManifest
-from stacksmith.test_generation import StacksmithTestGenerator
+from stacksmith.testing import StacksmithTestGenerator
 
 
 def test_generate_pytest_module_includes_all_test_types() -> None:

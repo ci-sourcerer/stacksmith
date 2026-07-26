@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from stacksmith.loader import load_config, load_stack
-from stacksmith.terragrunt import generate_terragrunt_json, write_terragrunt_json
+from stacksmith.generation import generate_terragrunt_json, write_terragrunt_json
+from stacksmith.loading import load_config, load_stack
 
 
 class TestGenerateTerragruntJson:

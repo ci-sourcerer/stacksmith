@@ -1,44 +1,33 @@
 import json
 import shutil
-import subprocess
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-import jmespath
-from jmespath import exceptions as jmespath_exceptions
 from jsonschema import exceptions as jsonschema_exceptions
 from loguru import logger as LOGGER
 
+from .ci.service import (
+    inspect_environments,
+    prepare_ci_execution,
+    validate_ci_inputs,
+)
 from .discovery import (
     build_dependency_graph,
     discover_stacks,
     filter_stacks_by_tags,
     topological_sort,
 )
-from .enums import (
-    DiscoveryMode,
-    MergeMode,
-    TerragruntAction,
-    ValidationReportFormat,
-)
+from .enums import MergeMode, TerragruntAction, ValidationReportFormat
 from .exceptions import StacksmithConfigError, StacksmithError
-from .generator import operation_module_name, write_tf_json
-from .gitops import evaluate_environment_selection
-from .gitops.contracts import (
-    CiExecutionManifest,
-    CiExecutionRow,
-    parse_ci_stacksmith_args,
-    validate_ci_policy,
-)
+from .generation import operation_module_name, write_terragrunt_json, write_tf_json
 from .inspector import (
     ComponentTypeInfo,
     PlanPolicyInfo,
     inspect_all,
     inspect_plan_policies,
 )
-from .loader import (
+from .loading import (
     load_config,
     load_config_with_locations,
     load_stack,
@@ -51,345 +40,28 @@ from .models import (
     StackDefinition,
     ToolConfig,
 )
-from .module_mapping import resolve_module_mapping
 from .remote import is_remote_url, resolve_references
 from .runner import run_terragrunt, run_terragrunt_all_ordered
-from .terragrunt import write_terragrunt_json
-from .utils import get_current_git_repository, print_to_stderr, stacksmith_env_list
-from .validation import PlanValidationResult
-from .validations.outcomes import PlanValidationOutcome
+from .targeting import build_terragrunt_args as _build_terragrunt_args
+from .targeting import resolve_tag_targets as _resolve_tag_targets
+from .targeting import validate_action_options as _validate_action_options
+from .utils import get_current_git_repository, stacksmith_env_list
+from .validations import PlanValidationOutcome, PlanValidationResult
 from .variables import InputLayer, resolve_inputs
 from .vendor import get_vendor_dir, load_vendor_manifest
 
-
-@dataclass(frozen=True)
-class CiValidationCheckResult:
-    """Result for one `stacksmith ci validate` check."""
-
-    name: str
-    status: str
-    message: str
-    detail: dict[str, Any] | None = None
-
-
-def _ci_report_status(results: Sequence[CiValidationCheckResult]) -> str:
-    return "fail" if any(result.status == "fail" for result in results) else "pass"
-
-
-def _ci_report_summary(results: Sequence[CiValidationCheckResult]) -> dict[str, int]:
-    passed = sum(1 for result in results if result.status == "pass")
-    failed = sum(1 for result in results if result.status == "fail")
-    return {
-        "pass": passed,
-        "fail": failed,
-        "total": len(results),
-    }
-
-
-def _file_exists(path: str | None) -> bool:
-    if not path:
-        return False
-    return Path(path).expanduser().exists()
-
-
-def inspect_environments(
-    gitops_root: str = ".",
-    discovery_mode: str = "auto",
-    environments: str = "",
-    event_name: str = "",
-    changed_paths: Sequence[str] | None = None,
-    base_ref: str = "",
-    before: str = "",
-    after: str = "",
-) -> dict[str, Any]:
-    """Return GitOps environment-selection details for local preview/debugging.
-
-    Args:
-        gitops_root: Relative GitOps root path.
-        discovery_mode: Environment discovery mode.
-        environments: Optional comma-separated manual environment targets.
-        event_name: Caller event name for event-aware selection.
-        changed_paths: Optional explicit changed paths for selection simulation.
-        base_ref: Base branch for pull-request diff mode.
-        before: Previous commit SHA for push diff mode.
-        after: Current commit SHA for push diff mode.
-
-    Returns:
-        Structured environment-selection payload.
-    """
-    raw_changed_paths = list(changed_paths) if changed_paths is not None else None
-
-    if discovery_mode == "auto":
-        last_error: ValueError | None = None
-        for candidate_mode in (
-            DiscoveryMode.FOLDERS.value,
-            DiscoveryMode.ENV_FILES.value,
-            DiscoveryMode.FLAT_FILES.value,
-        ):
-            try:
-                selection = evaluate_environment_selection(
-                    gitops_root=gitops_root,
-                    discovery_mode=candidate_mode,
-                    manual_environments=environments,
-                    event_name=event_name,
-                    changed_paths=raw_changed_paths,
-                    base_ref=base_ref,
-                    before=before,
-                    after=after,
-                )
-            except ValueError as exc:
-                last_error = exc
-                continue
-            break
-        else:
-            raise last_error or ValueError("Unable to discover environments.")
-    else:
-        selection = evaluate_environment_selection(
-            gitops_root=gitops_root,
-            discovery_mode=discovery_mode,
-            manual_environments=environments,
-            event_name=event_name,
-            changed_paths=raw_changed_paths,
-            base_ref=base_ref,
-            before=before,
-            after=after,
-        )
-    return {
-        "gitops_root": selection.gitops_root,
-        "discovery_mode": selection.discovery_mode,
-        "common_runfile": selection.common_runfile,
-        "all_environments": selection.all_environments,
-        "selected_environments": selection.selected_environments,
-        "changed_paths": selection.changed_paths,
-        "matrix": selection.matrix,
-    }
-
-
-def prepare_ci_execution(
-    *,
-    command: str,
-    operation_name: str = "",
-    config_ref: str,
-    workdir: str = ".",
-    env_file: str = "/dev/null",
-    stacksmith_args_json: str = "[]",
-    no_cas: bool = False,
-    force_rerun: bool = False,
-    validation_report_format: str = ValidationReportFormat.JSON.value,
-    fail_on_changes: bool = False,
-    strict_validation_warnings: bool = False,
-    gitops_root: str = ".",
-    discovery_mode: str = "auto",
-    environments: str = "",
-    event_name: str = "",
-    changed_paths: Sequence[str] | None = None,
-    base_ref: str = "",
-    before: str = "",
-    after: str = "",
-    ref_name: str = "",
-    default_branch: str = "",
-    is_primary_branch: bool | None = None,
-    skip_branch_validation: bool = False,
-) -> CiExecutionManifest:
-    """Prepare one versioned, provider-neutral GitOps CI execution manifest.
-
-    Args:
-        command: Stacksmith command to execute.
-        operation_name: Stack-local operation name for native operation runs.
-        config_ref: Platform-managed Stacksmith config reference.
-        workdir: Working directory relative to the checked-out repository.
-        env_file: Environment file path, or `/dev/null` to disable implicit loading.
-        stacksmith_args_json: JSON array of additional safe Stacksmith arguments.
-        no_cas: Whether to disable content-addressable caching.
-        force_rerun: Whether operations must force execution.
-        validation_report_format: Plan validation report format.
-        fail_on_changes: Whether plans fail when changes are detected.
-        strict_validation_warnings: Whether plan validation warnings fail a plan.
-        gitops_root: Relative GitOps root path.
-        discovery_mode: Environment discovery mode.
-        environments: Optional comma-separated manual environment targets.
-        event_name: Normalized provider event name.
-        changed_paths: Optional explicit changed paths for selection simulation.
-        base_ref: Pull-request target branch name.
-        before: Previous push commit SHA.
-        after: Current push commit SHA.
-        ref_name: Branch name for non-pull-request policy validation.
-        default_branch: Repository default branch name.
-        is_primary_branch: Provider primary-branch indicator when available.
-        skip_branch_validation: Whether branch policy should be skipped.
-
-    Returns:
-        A validated manifest that both CI providers can execute.
-
-    Raises:
-        StacksmithConfigError: If inputs or policy are invalid.
-    """
-    validate_ci_policy(
-        command=command,
-        operation_name=operation_name,
-        event_name=event_name,
-        ref_name=ref_name,
-        base_ref=base_ref,
-        default_branch=default_branch,
-        is_primary_branch=is_primary_branch,
-        skip_branch_validation=skip_branch_validation,
-    )
-    selection = inspect_environments(
-        gitops_root=gitops_root,
-        discovery_mode=discovery_mode,
-        environments=environments,
-        event_name=event_name,
-        changed_paths=changed_paths,
-        base_ref=base_ref,
-        before=before,
-        after=after,
-    )
-    return CiExecutionManifest(
-        command=command,
-        operation_name=operation_name,
-        config_ref=config_ref,
-        workdir=workdir,
-        env_file=env_file,
-        stacksmith_args=parse_ci_stacksmith_args(stacksmith_args_json),
-        no_cas=no_cas,
-        force_rerun=force_rerun,
-        validation_report_format=validation_report_format,
-        fail_on_changes=fail_on_changes,
-        strict_validation_warnings=strict_validation_warnings,
-        matrix=[CiExecutionRow.model_validate(row) for row in selection["matrix"]],
-    )
-
-
-def validate_ci_inputs(
-    gitops_root: str = ".",
-    discovery_mode: str = "auto",
-    runfile: str | None = None,
-    env_file: str | None = None,
-    validation_report_format: str = ValidationReportFormat.JSON.value,
-) -> dict[str, Any]:
-    """Validate CI-oriented workflow inputs using an extensible check pipeline.
-
-    Args:
-        gitops_root: Relative GitOps root path.
-        discovery_mode: Environment discovery mode.
-        runfile: Optional explicit runfile path to validate.
-        env_file: Optional env file path to validate.
-        validation_report_format: Validation report output format.
-
-    Returns:
-        Structured check report suitable for future check expansion.
-    """
-    results: list[CiValidationCheckResult] = []
-
-    try:
-        discovery = inspect_environments(
-            gitops_root=gitops_root,
-            discovery_mode=discovery_mode,
-        )
-        results.append(
-            CiValidationCheckResult(
-                name="discovery",
-                status="pass",
-                message="Discovery mode and GitOps root are valid.",
-                detail={
-                    "discovery_mode": discovery["discovery_mode"],
-                    "gitops_root": discovery["gitops_root"],
-                    "common_runfile": discovery["common_runfile"],
-                    "environment_count": len(discovery["all_environments"]),
-                },
-            )
-        )
-    except (ValueError, subprocess.CalledProcessError) as exc:
-        results.append(
-            CiValidationCheckResult(
-                name="discovery",
-                status="fail",
-                message=str(exc),
-            )
-        )
-        discovery = None
-
-    if runfile:
-        exists = _file_exists(runfile)
-        results.append(
-            CiValidationCheckResult(
-                name="runfile_path",
-                status="pass" if exists else "fail",
-                message=(
-                    "Runfile path exists."
-                    if exists
-                    else f"Runfile path not found: {Path(runfile).expanduser()}"
-                ),
-                detail={"path": str(Path(runfile).expanduser())},
-            )
-        )
-    elif discovery is not None:
-        common_runfile_path = Path(discovery["common_runfile"]).expanduser()
-        if not common_runfile_path.is_absolute():
-            common_runfile_path = (
-                Path(discovery["gitops_root"] or ".") / common_runfile_path
-            )
-        common_runfile = str(common_runfile_path)
-        exists = common_runfile_path.exists()
-        results.append(
-            CiValidationCheckResult(
-                name="common_runfile",
-                status="pass" if exists else "fail",
-                message=(
-                    "Discovered common runfile exists."
-                    if exists
-                    else f"Discovered common runfile not found: {common_runfile}"
-                ),
-                detail={"path": common_runfile},
-            )
-        )
-
-    env_file_path = env_file or "/dev/null"
-    env_exists = env_file_path == "/dev/null" or _file_exists(env_file_path)
-    results.append(
-        CiValidationCheckResult(
-            name="env_file",
-            status="pass" if env_exists else "fail",
-            message=(
-                "Environment file configuration is valid."
-                if env_exists
-                else f"Environment file path not found: {Path(env_file_path).expanduser()}"
-            ),
-            detail={"path": env_file_path},
-        )
-    )
-
-    try:
-        resolved_format = ValidationReportFormat(validation_report_format).value
-        results.append(
-            CiValidationCheckResult(
-                name="validation_report_format",
-                status="pass",
-                message="Validation report format is supported.",
-                detail={"format": resolved_format},
-            )
-        )
-    except ValueError:
-        supported = ", ".join(item.value for item in ValidationReportFormat)
-        results.append(
-            CiValidationCheckResult(
-                name="validation_report_format",
-                status="fail",
-                message=(
-                    "Unsupported validation report format "
-                    f"'{validation_report_format}'. Supported values: {supported}."
-                ),
-            )
-        )
-
-    status = _ci_report_status(results)
-    return {
-        "command": "ci validate",
-        "status": status,
-        "exit_code": 0 if status == "pass" else 1,
-        "summary": _ci_report_summary(results),
-        "results": [asdict(result) for result in results],
-    }
+__all__ = [
+    "generate_stack",
+    "inspect_cache_diagnostics",
+    "inspect_environments",
+    "inspect_modules",
+    "prepare_ci_execution",
+    "run_all_stacks",
+    "run_stack_action",
+    "run_stack_operation",
+    "validate_ci_inputs",
+    "validate_stack",
+]
 
 
 def _default_config_paths() -> list[str]:
@@ -647,129 +319,6 @@ def _load_runtime_config(
     return cache_dir, config_paths, load_config(config_paths, merge_mode=merge_mode)
 
 
-def _compile_tag_expression(tag_expr: str):
-    try:
-        return jmespath.compile(tag_expr)
-    except jmespath_exceptions.JMESPathError as exc:
-        raise StacksmithConfigError(f"Invalid --tag-expr: {exc}") from exc
-
-
-def _extract_tag_references(tag_expr: str) -> set[str]:
-    try:
-        parsed = jmespath.parser.Parser().parse(tag_expr).parsed
-    except jmespath_exceptions.JMESPathError:
-        return set()
-
-    refs = set()
-
-    def _collect(node: Any) -> None:
-        if not isinstance(node, dict):
-            return
-
-        if node.get("type") == "subexpression":
-            children = node.get("children", []) or []
-            if (
-                len(children) == 2
-                and children[0].get("type") == "field"
-                and children[0].get("value") == "tag"
-            ):
-                value = children[1].get("value")
-                if isinstance(value, str):
-                    refs.add(value)
-
-        for child in node.get("children", []) or []:
-            _collect(child)
-        for value in node.values():
-            if isinstance(value, dict):
-                _collect(value)
-            elif isinstance(value, list):
-                for item in value:
-                    if isinstance(item, dict):
-                        _collect(item)
-
-    _collect(parsed)
-    return refs
-
-
-def _build_component_tag_context(
-    stack: StackDefinition,
-    component_name: str,
-    component_effective_tags: set[str],
-    all_stack_tags: set[str],
-) -> dict[str, Any]:
-    return {
-        "tags": sorted(component_effective_tags),
-        "tag": {tag: tag in component_effective_tags for tag in all_stack_tags},
-        "component_name": component_name,
-        "component_type": stack.components[component_name].type,
-        "stack_name": stack.name,
-        "stack_tags": sorted(stack.tags),
-    }
-
-
-def _evaluate_tag_expression(
-    expression, context: dict[str, Any], component_name: str
-) -> bool:
-    result = expression.search(context)
-    if not isinstance(result, bool):
-        result_type = type(result).__name__
-        raise StacksmithConfigError(
-            "Tag expression must evaluate to a boolean value for every component. "
-            f"Component '{component_name}' produced type '{result_type}' with value {result!r}."
-        )
-    return result
-
-
-def _compute_stack_target_modules(
-    stack: StackDefinition,
-    config: ToolConfig,
-    expression=None,
-    referenced_tags: set[str] | None = None,
-    required_tags: set[str] | None = None,
-) -> list[str]:
-    effective_tags_by_component = {}
-    all_stack_tags = set()
-
-    for component_name, component in stack.components.items():
-        mapping = resolve_module_mapping(
-            config,
-            component.type,
-            component_name,
-            repository_path=(
-                stack.source_path.parent if stack.source_path is not None else None
-            ),
-        )
-
-        effective_tags = set(component.tags)
-        effective_tags.update(mapping.tags)
-        effective_tags_by_component[component_name] = effective_tags
-        all_stack_tags.update(effective_tags)
-
-    all_stack_tags.update(referenced_tags or set())
-    required_tags = required_tags or set()
-
-    targets = []
-    for component_name in stack.components:
-        effective_tags = effective_tags_by_component[component_name]
-        if required_tags and not required_tags.issubset(effective_tags):
-            continue
-
-        if expression is None:
-            targets.append(f"module.{component_name}")
-            continue
-
-        context = _build_component_tag_context(
-            stack,
-            component_name,
-            effective_tags,
-            all_stack_tags,
-        )
-        if _evaluate_tag_expression(expression, context, component_name=component_name):
-            targets.append(f"module.{component_name}")
-
-    return targets
-
-
 def _resolve_stacks_for_generation(
     root: Path,
     stack_refs: Sequence[Path | str] | None,
@@ -795,62 +344,6 @@ def _resolve_stacks_for_generation(
         return stacks
 
     return discover_stacks(root)
-
-
-def _validate_action_options(
-    action: str | TerragruntAction,
-    tags: list[str] | None,
-    tag_expr: str | None,
-    save_plan_json: Path | None,
-    tag_support_label: str,
-    save_plan_label: str,
-) -> TerragruntAction:
-    action_enum = TerragruntAction(action)
-    if (tags or tag_expr) and action_enum not in {
-        TerragruntAction.PLAN,
-        TerragruntAction.APPLY,
-        TerragruntAction.DESTROY,
-    }:
-        raise StacksmithConfigError(
-            f"--tag and --tag-expr are only supported for {tag_support_label}"
-        )
-    if save_plan_json is not None and action_enum != TerragruntAction.PLAN:
-        raise StacksmithConfigError(
-            f"--save-plan-json is only supported for {save_plan_label}"
-        )
-    return action_enum
-
-
-def _resolve_tag_targets(
-    stack: StackDefinition,
-    config: ToolConfig,
-    tags: list[str] | None,
-    tag_expr: str | None,
-) -> tuple[None | object, set[str], list[str]]:
-    expression = _compile_tag_expression(tag_expr) if tag_expr else None
-    referenced_tags = _extract_tag_references(tag_expr) if tag_expr else None
-    targets = _compute_stack_target_modules(
-        stack,
-        config,
-        expression,
-        referenced_tags=referenced_tags,
-        required_tags=set(tags or []),
-    )
-    return expression, referenced_tags, targets
-
-
-def _build_terragrunt_args(
-    action: str | TerragruntAction,
-    destroy: bool = False,
-    targets: list[str] | None = None,
-) -> list[str]:
-    action_enum = TerragruntAction(action)
-    terragrunt_args = [action_enum.value]
-    if action_enum == TerragruntAction.PLAN and destroy:
-        terragrunt_args.append("-destroy")
-    for target in targets or []:
-        terragrunt_args.extend(["-target", target])
-    return terragrunt_args
 
 
 def _resolve_stack_inputs(
@@ -1129,25 +622,6 @@ def validate_stack(
     return report
 
 
-def diagnose_cache(
-    stack_file: Path | str | Sequence[Path | str],
-    config: list[str] | None = None,
-    build_dir: Path | None = None,
-    no_cache: bool = False,
-    merge_mode: MergeConfig = MergeMode.DEEP,
-) -> int:
-    """Display stacksmith cache and vendor diagnostics."""
-    payload = inspect_cache_diagnostics(
-        stack_file,
-        config=config,
-        build_dir=build_dir,
-        no_cache=no_cache,
-        merge_mode=merge_mode,
-    )
-    _render_cache_diagnostics_to_stderr(payload)
-    return 0
-
-
 def inspect_cache_diagnostics(
     stack_file: Path | str | Sequence[Path | str],
     config: list[str] | None = None,
@@ -1226,45 +700,6 @@ def inspect_cache_diagnostics(
         "vendored_modules": vendored_modules,
         "vendor_directories": vendor_directories,
     }
-
-
-def _render_cache_diagnostics_to_stderr(payload: dict[str, Any]) -> None:
-    print_to_stderr("Stacksmith diagnostics")
-    print_to_stderr("======================")
-    print_to_stderr(f"Stack file: {payload['stack_file']}")
-    print_to_stderr(f"Config paths: {', '.join(payload['config_paths'])}")
-    print_to_stderr(f"Build directory: {payload['build_directory']}")
-    print_to_stderr(f"Remote cache directory: {payload['remote_cache_directory']}")
-
-    remote_cache_entries = payload.get("remote_cache_entries", [])
-    if payload.get("remote_cache_exists", False):
-        print_to_stderr("Remote cache contents:")
-        for entry in remote_cache_entries:
-            print_to_stderr(f"  {entry['name']} ({entry['type']})")
-    else:
-        print_to_stderr("Remote cache not found.")
-
-    print_to_stderr(f"Vendor directory: {payload['vendor_directory']}")
-    vendored_modules = payload.get("vendored_modules", [])
-    vendor_manifest_path = payload.get("vendor_manifest_path")
-    if payload.get("vendor_directory_exists", False):
-        if vendor_manifest_path:
-            print_to_stderr(f"Vendor manifest: {vendor_manifest_path}")
-            print_to_stderr(f"Vendored modules: {len(vendored_modules)}")
-            for item in vendored_modules:
-                print_to_stderr(
-                    f"  {item['key']}: {item['source']} @ {item['version']}"
-                )
-        else:
-            print_to_stderr("Vendor manifest not found.")
-        if payload["vendor_directories"]:
-            print_to_stderr("Vendored module directories:")
-            for name in payload["vendor_directories"]:
-                print_to_stderr(f"  {name}")
-        else:
-            print_to_stderr("No vendored module directories found.")
-    else:
-        print_to_stderr("Vendor directory not found.")
 
 
 def generate_stack(

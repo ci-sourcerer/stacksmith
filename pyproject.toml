@@ -59,7 +59,7 @@ include = ["src/stacksmith", "README.md", "LICENSE"]
 stacksmith = "stacksmith.cli.main:main"
 
 [project.entry-points.pytest11]
-stacksmith = "stacksmith.pytest_plugin"
+stacksmith = "stacksmith.testing.pytest_plugin"
 
 [dependency-groups]
 debug = ["debugpy (>=1.8.16,<2.0.0)", "jmespath (>=1.1.0,<2.0.0)"]

@@ -13,7 +13,7 @@ from .models import RemoteAuthConfig, ToolConfig
 from .remote import apply_terragrunt_auth_env
 from .tooling import ResolvedToolchain, resolve_toolchain
 from .utils import env_truthy
-from .validation import (
+from .validations import (
     PlanValidationExitCode,
     PlanValidationResult,
     evaluate_plan_validations_with_results,
