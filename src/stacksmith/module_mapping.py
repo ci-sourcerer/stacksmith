@@ -18,13 +18,15 @@ def _mapping_context(
     component_type: str,
     component_name: str | None,
     repository_path: Path | None = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     context = {
-        "component_name": component_name or component_type,
-        "component_type": component_type,
+        "component": {
+            "name": component_name or component_type,
+            "type": component_type,
+        }
     }
     if repository := get_current_git_repository(repository_path):
-        context["git_repository"] = repository
+        context["env"] = {"git_repository": repository}
     return context
 
 

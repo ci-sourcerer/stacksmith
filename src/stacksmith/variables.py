@@ -126,9 +126,9 @@ def _apply_cli_var_item(
 
 def _with_git_repository_context(context: dict[str, Any]) -> dict[str, Any]:
     repository = get_current_git_repository()
-    if repository is None or "git_repository" in context:
+    if repository is None or "env" in context:
         return context
-    return {**context, "git_repository": repository}
+    return {**context, "env": {"git_repository": repository}}
 
 
 def resolve_inputs(

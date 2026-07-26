@@ -211,7 +211,7 @@ class TestResolveInputs:
         )
 
         result = resolve_inputs(
-            input_layers=[("var", "repository={{ git_repository }}")],
+            input_layers=[("var", "repository={{ env.git_repository }}")],
         )
 
         assert result["repository"] == "https://github.com/example/iac.git"

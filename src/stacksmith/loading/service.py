@@ -46,7 +46,7 @@ def _runfile_template_context(runfile_path: Path) -> dict[str, Any]:
         }
     }
     if repository := get_current_git_repository(resolved_path.parent):
-        context["git_repository"] = repository
+        context["env"] = {"git_repository": repository}
     return context
 
 
@@ -153,13 +153,9 @@ def _with_git_repository_template_context(
     stack_source_path: Path,
 ) -> Mapping[str, Any] | None:
     repository = get_current_git_repository(stack_source_path.parent)
-    if (
-        template_context is None
-        or repository is None
-        or "git_repository" in template_context
-    ):
+    if template_context is None or repository is None or "env" in template_context:
         return template_context
-    return {**template_context, "git_repository": repository}
+    return {**template_context, "env": {"git_repository": repository}}
 
 
 def _merge_stack_layers(

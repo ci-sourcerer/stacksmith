@@ -113,7 +113,7 @@ default_module_mapping:
   source:
     source: git
     data:
-      repo: https://github.com/my-org/{{ component_type | replace("-", "_") }}
+      repo: https://github.com/my-org/{{ component.type | replace("-", "_") }}
       ref: latest
   auto_inject: true
 # Map component types to their Terraform or local module implementations.

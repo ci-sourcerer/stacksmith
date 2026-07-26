@@ -54,8 +54,8 @@ def test_resolve_module_mapping_renders_type_and_name():
     config = _config(
         default_module_mapping={
             **_git_mapping(
-                "https://github.com/org/{{ component_type | replace('-', '_') }}"
-                "-{{ component_name }}.git"
+                "https://github.com/org/{{ component.type | replace('-', '_') }}"
+                "-{{ component.name }}.git"
             ),
             "auto_inject": True,
             "tags": ["default"],
@@ -75,7 +75,7 @@ def test_resolve_module_mapping_renders_type_and_name():
 def test_resolve_module_mapping_uses_type_as_name_for_inspection():
     config = _config(
         default_module_mapping=_git_mapping(
-            "https://github.com/org/{{ component_name }}.git"
+            "https://github.com/org/{{ component.name }}.git"
         )
     )
 
@@ -96,7 +96,7 @@ def test_resolve_module_mapping_rejects_undefined_template_value():
 
 
 def test_resolve_module_mapping_revalidates_rendered_source():
-    config = _config(default_module_mapping=_git_mapping("{{ component_type }}"))
+    config = _config(default_module_mapping=_git_mapping("{{ component.type }}"))
 
     with pytest.raises(StacksmithConfigError, match="must start with"):
         resolve_module_mapping(config, "service", "checkout")

@@ -62,17 +62,32 @@ def _format_validation_error(
     value_summary: str | None = None,
 ) -> str:
     if context:
-        kind = context.get("kind")
-        name = context.get("name")
+        prop = context.get("property") or {}
+        kind = prop.get("kind") or context.get("kind")
+        name = prop.get("name") or context.get("name")
         details = []
         if kind:
             details.append(kind)
         if name:
             details.append(f"'{name}'")
-        for key in ("stack_name", "component_name", "component_type", "output_name"):
-            value = context.get(key)
-            if value is not None:
-                details.append(f"{key}={value}")
+
+        stack_name = context.get("stack", {}).get("name") or context.get("stack_name")
+        if stack_name is not None:
+            details.append(f"stack_name={stack_name}")
+
+        comp = context.get("component") or {}
+        comp_name = comp.get("name") or context.get("component_name")
+        comp_type = comp.get("type") or context.get("component_type")
+        if comp_name is not None:
+            details.append(f"component_name={comp_name}")
+        if comp_type is not None:
+            details.append(f"component_type={comp_type}")
+
+        prop = context.get("property") or {}
+        output_name = prop.get("output_name") or context.get("output_name")
+        if output_name is not None:
+            details.append(f"output_name={output_name}")
+
         if details:
             message = f"{message} [{' '.join(details)}]"
     if value_summary:

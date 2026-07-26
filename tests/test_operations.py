@@ -20,7 +20,7 @@ def _config() -> ToolConfig:
                 "source": {
                     "source": "registry",
                     "data": {
-                        "address": "example/{{ component_type }}",
+                        "address": "example/{{ component.type }}",
                         "version": "1.0.0",
                     },
                 }

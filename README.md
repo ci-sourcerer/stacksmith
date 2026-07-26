@@ -148,7 +148,7 @@ default_module_mapping:
   source:
     source: git
     data:
-      repo: https://github.com/my-org/{{ component_type | replace("-", "_") }}
+      repo: https://github.com/my-org/{{ component.type | replace("-", "_") }}
       ref: latest
   auto_inject: true
 
@@ -161,7 +161,7 @@ module_mappings:
         ref: v1.2.3
 ```
 
-Explicit mappings always take precedence. When no explicit mapping exists, Stacksmith renders string fields within the default mapping's `source` using strict, sandboxed Jinja and then validates the result as an ordinary local, Git, or registry module source. Templates can reference `component_type`, which is the component's declared type, and `component_name`, which is the component instance key in the stack. For `stacksmith info inspect <component-type>`, no component instance exists, so `component_name` is set to the requested component type. An unfiltered `info inspect` lists only explicit mappings because a default mapping represents an open-ended set of possible types.
+Explicit mappings always take precedence. When no explicit mapping exists, Stacksmith renders string fields within the default mapping's `source` using strict, sandboxed Jinja and then validates the result as an ordinary local, Git, or registry module source. Templates can reference `component.type`, which is the component's declared type, and `component.name`, which is the component instance key in the stack. For `stacksmith info inspect <component-type>`, no component instance exists, so `component.name` is set to the requested component type. An unfiltered `info inspect` lists only explicit mappings because a default mapping represents an open-ended set of possible types.
 
 `module_mappings` may be empty or omitted when `default_module_mapping` is configured. A managed config must provide at least one explicit mapping or a default mapping.
 
@@ -381,8 +381,8 @@ Stacksmith supports Jinja in specific surfaces rather than as a global feature.
 | Resolved input values | After vars, env vars, runfile vars, and CLI vars are merged | `inputs`, `stack`, `git_repository` when available | Value-level render across merged inputs. |
 | Runfile stage 1 (`stacksmith.yaml`) | During runfile load before schema validation | `runfile.path`, `runfile.dir`, `runfile.name`, `runfile.stem`, `git_repository` when available | Primarily for structured references and inline vars source data. |
 | Runfile stage 2 (runfile inline vars after merge) | During input resolution | `inputs`, `stack`, `git_repository` when available | Lets runfile-provided values compose with final merged inputs and stack metadata. |
-| `default_module_mapping.source` | During module mapping resolution when no explicit mapping exists | `component_type`, `component_name`, `git_repository` when available | Strict sandboxed render with post-render source validation. |
-| `transform.jinja` | During property transform execution | `value` plus transform context (`name`, `kind`, `component_name`, `component_type`, `output_name`, `inputs`, `stack`, `git_repository` when available) | Use when a property transform is declarative and local to one mapped field. |
+| `default_module_mapping.source` | During module mapping resolution when no explicit mapping exists | `component.type`, `component.name`, `env.git_repository` when available | Strict sandboxed render with post-render source validation. |
+| `transform.jinja` | During property transform execution | `property.value` plus transform context (`property.name`, `property.kind`, `property.output_name`, `component.name`, `component.type`, `inputs`, `stack`, `env.git_repository` when available) | Use when a property transform is declarative and local to one mapped field. |
 
 Ordinary managed-config fields are intentionally non-templated.
 

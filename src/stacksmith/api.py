@@ -175,7 +175,7 @@ def _prepare_stack_definition(
     if metadata.source_path is not None and (
         repository := get_current_git_repository(metadata.source_path.parent)
     ):
-        template_context["git_repository"] = repository
+        template_context["env"] = {"git_repository": repository}
     stack = _load_stack_definition(
         stack_file,
         cache_dir,
@@ -363,7 +363,7 @@ def _resolve_stack_inputs(
     if stack.source_path is not None and (
         repository := get_current_git_repository(stack.source_path.parent)
     ):
-        context["git_repository"] = repository
+        context["env"] = {"git_repository": repository}
     return resolve_inputs(
         vars_file=vars_path,
         input_layers=input_layers,

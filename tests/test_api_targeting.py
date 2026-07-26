@@ -149,7 +149,7 @@ def test_compute_stack_target_modules_uses_default_mapping_tags(
             "source": {
                 "source": "git",
                 "data": {
-                    "repo": "https://github.com/org/{{ component_type }}.git",
+                    "repo": "https://github.com/org/{{ component.type }}.git",
                     "ref": "latest",
                 },
             },
@@ -442,7 +442,7 @@ def test_generate_stack_exposes_git_repository_to_stack_templates(
         "    type: aws_s3_bucket\n"
         "    properties:\n"
         "      tags:\n"
-        "        repository: '{{ git_repository }}'\n",
+        "        repository: '{{ env.git_repository }}'\n",
         encoding="utf-8",
     )
     config = load_config(sample_config_yaml)

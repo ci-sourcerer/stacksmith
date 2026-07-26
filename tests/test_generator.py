@@ -482,8 +482,8 @@ class TestGenerateTfJson:
                     "data": {
                         "repo": (
                             "https://github.com/org/"
-                            "{{ component_type | replace('-', '_') }}"
-                            "-{{ component_name }}.git"
+                            "{{ component.type | replace('-', '_') }}"
+                            "-{{ component.name }}.git"
                         ),
                         "ref": "latest",
                     },
@@ -583,7 +583,7 @@ class TestGenerateTfJson:
         config.module_mappings["aws_s3_bucket"].properties["bucket_name"] = (
             ModulePropertySpec(
                 mapped_to="bucket",
-                transform=TransformSpec(jinja="{{ git_repository }}"),
+                transform=TransformSpec(jinja="{{ env.git_repository }}"),
             )
         )
         monkeypatch.setattr(
@@ -879,7 +879,7 @@ class TestPropertyTransform:
         config = load_config(sample_config_yaml)
         config.module_mappings["aws_s3_bucket"].properties["acl"] = ModulePropertySpec(
             mapped_to="bucket_acl",
-            transform=TransformSpec(jinja="{{ value | upper }}"),
+            transform=TransformSpec(jinja="{{ property.value | upper }}"),
         )
 
         result = generate_tf_json(stack, config, {"bucket_name": "my-bucket-test"})
@@ -893,7 +893,7 @@ class TestPropertyTransform:
         config = load_config(sample_config_yaml)
         config.module_mappings["aws_s3_bucket"].properties["acl"] = ModulePropertySpec(
             mapped_to="bucket_acl",
-            transform=TransformSpec(jinja="{{ value | }}"),
+            transform=TransformSpec(jinja="{{ property.value | }}"),
         )
 
         with pytest.raises(

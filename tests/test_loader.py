@@ -229,7 +229,7 @@ class TestLoadStack:
             "  bucket:\n"
             "    type: aws_s3_bucket\n"
             "    properties:\n"
-            "      repository: '{{ git_repository }}'\n",
+            "      repository: '{{ env.git_repository }}'\n",
             encoding="utf-8",
         )
 
@@ -623,7 +623,7 @@ vars:
             "vars:\n"
             "  - source: inline\n"
             "    data:\n"
-            "      repository: '{{ git_repository }}'\n",
+            "      repository: '{{ env.git_repository }}'\n",
             encoding="utf-8",
         )
 
@@ -692,7 +692,7 @@ class TestLoadConfig:
                 "data": {
                     "repo": (
                         "https://github.com/org/"
-                        "terraform-{{ component_type | replace('-', '_') }}.git"
+                        "terraform-{{ component.type | replace('-', '_') }}.git"
                     ),
                     "ref": "latest",
                 },
@@ -707,7 +707,7 @@ class TestLoadConfig:
 
         assert config.module_mappings == {}
         assert config.default_module_mapping is not None
-        assert "{{ component_type" in config.default_module_mapping.source.data.repo
+        assert "{{ component.type" in config.default_module_mapping.source.data.repo
 
     def test_load_config_rejects_default_mapping_description(
         self,
@@ -721,7 +721,7 @@ class TestLoadConfig:
             "source": {
                 "source": "git",
                 "data": {
-                    "repo": "https://github.com/org/{{ component_type }}.git",
+                    "repo": "https://github.com/org/{{ component.type }}.git",
                     "ref": "latest",
                 },
             },
@@ -747,7 +747,7 @@ class TestLoadConfig:
         config_data["default_module_mapping"] = {
             "source": {
                 "source": "local",
-                "data": {"path": "../modules/{{ component_type }}"},
+                "data": {"path": "../modules/{{ component.type }}"},
             },
             "properties": {
                 "name": {
@@ -769,7 +769,7 @@ class TestLoadConfig:
 
         assert config.default_module_mapping is not None
         assert config.default_module_mapping.source.data.path == str(
-            (config_dir / "../modules/{{ component_type }}").resolve()
+            (config_dir / "../modules/{{ component.type }}").resolve()
         )
         assert config.default_module_mapping.properties[
             "name"

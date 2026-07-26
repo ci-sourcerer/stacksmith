@@ -124,7 +124,7 @@ class TestModuleSourceValidation:
             "source": {
                 "source": "git",
                 "data": {
-                    "repo": "https://github.com/org/{{ component_type }}.git",
+                    "repo": "https://github.com/org/{{ component.type }}.git",
                     "ref": "latest",
                 },
             },

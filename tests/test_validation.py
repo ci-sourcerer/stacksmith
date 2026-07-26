@@ -365,11 +365,15 @@ else:
             ValidationSpec(inline="def validate(value, **context): return 'fail'"),
             "ignored",
             context={
-                "kind": "component_property",
-                "name": "bucket_name",
-                "component_name": "web",
-                "component_type": "aws_s3_bucket",
-                "output_name": "bucket",
+                "property": {
+                    "kind": "component_property",
+                    "name": "bucket_name",
+                    "output_name": "bucket",
+                },
+                "component": {
+                    "name": "web",
+                    "type": "aws_s3_bucket",
+                },
             },
         )
 

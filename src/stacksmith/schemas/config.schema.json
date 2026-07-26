@@ -428,7 +428,7 @@
       "properties": {
         "source": {
           "$ref": "#/$defs/moduleSourceTemplateReference",
-          "description": "Template-capable fallback module source. String fields may reference `component_type` and `component_name`."
+          "description": "Template-capable fallback module source. String fields may reference `component.type` and `component.name`."
         },
         "auto_inject": {
           "type": "boolean",

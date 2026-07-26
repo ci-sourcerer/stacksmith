@@ -509,8 +509,8 @@ def test_inspect_all_resolves_requested_type_with_default_mapping(sample_config_
                 "source": "git",
                 "data": {
                     "repo": (
-                        "https://github.com/org/{{ component_type }}"
-                        "-{{ component_name }}.git"
+                        "https://github.com/org/{{ component.type }}"
+                        "-{{ component.name }}.git"
                     ),
                     "ref": "latest",
                 },

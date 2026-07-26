@@ -55,7 +55,11 @@ def _render_transform_jinja(
     value: Any,
     context: dict[str, Any],
 ) -> Any:
-    rendered = _JINJA_ENV.from_string(template).render({"value": value, **context})
+    property_context = context.get("property", {}).copy()
+    property_context["value"] = value
+    new_context = context.copy()
+    new_context["property"] = property_context
+    rendered = _JINJA_ENV.from_string(template).render(new_context)
     try:
         return json.loads(rendered)
     except json.JSONDecodeError:
@@ -114,8 +118,8 @@ def apply_property_spec(
                 )
         except Exception as exc:
             raise StacksmithTransformError(
-                f"Component '{property_context['component_name']}' property "
-                f"'{property_context['name']}' transform {exc}"
+                f"Component '{property_context['component']['name']}' property "
+                f"'{property_context['property']['name']}' transform {exc}"
             ) from exc
 
     if property_spec.validation is None:
@@ -133,8 +137,8 @@ def apply_property_spec(
     )
     if outcome != InputValidationOutcome.PASS:
         raise StacksmithValidationError(
-            f"Component '{property_context['component_name']}' property "
-            f"'{property_context['name']}': {error_msg}"
+            f"Component '{property_context['component']['name']}' property "
+            f"'{property_context['property']['name']}': {error_msg}"
         )
     return rendered
 
@@ -165,18 +169,22 @@ def build_property_context(
         Property processing context.
     """
     context = {
-        "name": name,
-        "kind": kind,
-        "component_name": component_name,
-        "component_type": component_type,
-        "output_name": output_name,
+        "property": {
+            "name": name,
+            "kind": kind,
+            "output_name": output_name,
+        },
+        "component": {
+            "name": component_name,
+            "type": component_type,
+        },
     }
     if inputs is not None:
         context["inputs"] = inputs
     if stack is not None:
         context["stack"] = stack
     if git_repository is not None:
-        context["git_repository"] = git_repository
+        context["env"] = {"git_repository": git_repository}
     return context
 
 

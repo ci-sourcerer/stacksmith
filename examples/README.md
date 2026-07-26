@@ -81,7 +81,7 @@ The `app` component is tagged with `web`, so you can combine stack-level and com
 
 The managed config file is [`shared-config-repo/stacksmith-config.yaml`](shared-config-repo/stacksmith-config.yaml).
 
-The config demonstrates `default_module_mapping` with the convention `https://github.com/my-org/{{ component_type | replace("-", "_") }}`. Its explicit mappings keep every bundled component runnable and take precedence over this placeholder fallback.
+The config demonstrates `default_module_mapping` with the convention `https://github.com/my-org/{{ component.type | replace("-", "_") }}`. Its explicit mappings keep every bundled component runnable and take precedence over this placeholder fallback.
 
 The transform script directory is [`shared-config-repo/scripts/transforms`](shared-config-repo/scripts/transforms).
 
