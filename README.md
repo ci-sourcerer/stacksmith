@@ -74,24 +74,69 @@ Stacksmith supports Python-based validation and transform hooks.
 - Transforms use `inline`, `script`, or `jinja` depending on context.
 - Relative script paths resolve from the declaring file.
 
-### Testing policies and transforms with pytest
+### Testing policies and transforms
 
-Stacksmith provides `StacksmithTestRunner` and a pytest fixture so managed-config repositories can test the same policies and transforms that run in production. Use `stacksmith test` to launch pytest using Stacksmith's config, runfile, cache, and layered-configuration behavior. The fixture loads the nearest `stacksmith-config.yaml`; use one or more `--stacksmith-config path/to/stacksmith-config.yaml` options when the configuration is elsewhere.
+Stacksmith tests are declared in `tests.yaml` manifests. `stacksmith test` compiles those manifests into an ephemeral pytest module and runs it with Stacksmith's managed-config fixture wiring, cache behavior, and layered merge behavior.
 
-```python
-from stacksmith.validations.outcomes import PlanValidationOutcome
+When `--config` points at one or more managed config layers, Stacksmith discovers `tests.yaml` beside each selected config and merges them in order. You can also pass explicit manifest paths after Stacksmith options.
 
-
-def test_requires_imdsv2(stacksmith_test_runner):
-    outcome, _ = stacksmith_test_runner.run_plan_policy(
-        "ec2_requires_imdsv2",
-        {"resource_changes": []},
-    )
-
-    assert outcome == PlanValidationOutcome.PASS
+```shell
+stacksmith test \
+  --config examples/shared-config-repo/stacksmith-config.yaml
 ```
 
-The plugin is auto-discovered when Stacksmith is installed. If pytest plugin auto-loading is disabled, enable it explicitly with `pytest -p stacksmith.pytest_plugin`. `run_plan_policy` executes the named rule even when it is disabled in managed config, so a policy can be tested before it is enabled. `run_variable_policy` tests a configured variable rule, and `run_component_property` runs a mapped property through its production transform and validation path.
+```shell
+stacksmith test \
+  --config platform/base-config.yaml \
+  --config platform/prod-config.yaml \
+  platform/tests.yaml \
+  -- -k imdsv2
+```
+
+Use `--dump-tests` when you want to inspect the generated pytest code.
+
+```shell
+stacksmith test \
+  --config examples/shared-config-repo/stacksmith-config.yaml \
+  --dump-tests /tmp/stacksmith-generated-tests.py
+```
+
+Manifest test cases cover variable policies, plan policies, and component properties. Plan policy cases can include optional context (for example stack metadata), and manifests can define optional setup/teardown fixtures using either inline Python or script references. Fixture execution mode can be set to `per-suite` (default) or `per-test-case`.
+
+```yaml
+fixtures:
+  mode: per-test-case
+  setup:
+    inline: |
+      fixture_state["ready"] = True
+
+variable_policies:
+  aws_region:
+    - value: us-east-1
+      expect: pass
+
+plan_policies:
+  ec2_t3_micro_warning:
+    - resources:
+        - address: aws_instance.web
+          type: aws_instance
+          change:
+            after:
+              instance_type: t3.micro
+      context:
+        stack_name: production
+      expect: warn
+
+component_properties:
+  aws_s3_bucket:
+    bucket_name:
+      - value: My_Bucket
+        inputs:
+          environment: prod
+        expect:
+          output_name: bucket
+          value: prod-my-bucket
+```
 
 ### Local path resolution
 
@@ -858,7 +903,7 @@ YAML/JSON-driven Terragrunt wrapper
 | - | - |
 | `validate` | Validate stack schema and variables |
 | `generate` | Generate .tf.json and terragrunt.hcl.json |
-| `test` | Run pytest tests for one or more managed config layers |
+| `test` | Run declarative tests.yaml manifests for managed config layers |
 | `run-all` | Discover all stacks and run terragrunt run-all |
 | `init` | Generate + terragrunt init |
 | `plan` | Generate + terragrunt plan |
@@ -937,7 +982,7 @@ stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-
 stacksmith test [-h] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE] [--vars VARS_FILE]
                        [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
                        [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
-                       --no-local-modules] [--debug | -q]
+                       --no-local-modules] [--debug | -q] [--dump-tests DUMP_TESTS]
                        [test_path ...]
 ```
 
@@ -958,7 +1003,8 @@ stacksmith test [-h] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE] [--va
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
-| `test_path` | Optional pytest test paths. Defaults to tests/ beside each config layer. |
+| `test_path` | Optional tests.yaml paths or directories. Defaults to tests.yaml beside each selected config layer. |
+| `--dump-tests` | Write generated pytest code to this path before execution. |
 
 ### `stacksmith run-all`
 

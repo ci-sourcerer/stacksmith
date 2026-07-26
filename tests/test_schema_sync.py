@@ -6,9 +6,13 @@ from pydantic import BaseModel
 from stacksmith.models import (
     BackendConfig,
     ComponentDefinition,
+    ComponentPropertyExpectation,
+    ComponentPropertyTestCase,
     DefaultModuleMapping,
+    FixtureSpec,
     ModuleMapping,
     ModulePropertySpec,
+    PlanPolicyTestCase,
     PlanValidation,
     ProviderConfigSpec,
     ProviderFamily,
@@ -16,11 +20,14 @@ from stacksmith.models import (
     RunFile,
     StackDefinition,
     StackMeta,
+    StacksmithTestFixtures,
+    StacksmithTestManifest,
     ToolBinaryConfig,
     ToolConfig,
     ToolsConfig,
     TransformSpec,
     ValidationSpec,
+    VariablePolicyTestCase,
 )
 
 
@@ -207,6 +214,41 @@ def test_runfile_fields_match_runfile_schema():
     }
 
 
+def test_test_manifest_fields_match_schema():
+    schema = _load_schema("test_manifest.schema.json")
+
+    assert _field_names(StacksmithTestManifest) - {"source_path"} == {
+        "fixtures",
+        "variable_policies",
+        "plan_policies",
+        "component_properties",
+    }
+    assert set(schema["properties"]) == {
+        "fixtures",
+        "variable_policies",
+        "plan_policies",
+        "component_properties",
+    }
+
+    assert _field_names(FixtureSpec) == {"inline", "script"}
+    assert _field_names(StacksmithTestFixtures) == {"mode", "setup", "teardown"}
+    assert _field_names(VariablePolicyTestCase) == {"name", "value", "expect"}
+    assert _field_names(PlanPolicyTestCase) == {
+        "name",
+        "plan",
+        "resources",
+        "context",
+        "expect",
+    }
+    assert _field_names(ComponentPropertyExpectation) == {"value", "output_name"}
+    assert _field_names(ComponentPropertyTestCase) == {
+        "name",
+        "value",
+        "inputs",
+        "expect",
+    }
+
+
 @pytest.mark.parametrize(
     "schema_name, model, expected_properties",
     [
@@ -241,6 +283,16 @@ def test_runfile_fields_match_runfile_schema():
             "runfile.schema.json",
             RunFile,
             {"merge_mode", "merge_rules", "stacks", "configs", "vars"},
+        ),
+        (
+            "test_manifest.schema.json",
+            StacksmithTestManifest,
+            {
+                "fixtures",
+                "variable_policies",
+                "plan_policies",
+                "component_properties",
+            },
         ),
     ],
 )

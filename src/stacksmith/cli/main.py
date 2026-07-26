@@ -31,9 +31,15 @@ from stacksmith.cli.args import (
     get_default_stack_refs,
 )
 from stacksmith.enums import MergeMode
-from stacksmith.loader import load_runfiles
-from stacksmith.models import FileReference, MergeConfig, MergePolicy
+from stacksmith.loader import load_runfiles, load_test_manifests
+from stacksmith.models import (
+    FileReference,
+    MergeConfig,
+    MergePolicy,
+    StacksmithTestManifest,
+)
 from stacksmith.remote import is_remote_url, resolve_if_remote
+from stacksmith.test_generation import StacksmithTestGenerator
 from stacksmith.utils import env_truthy, stacksmith_env
 
 from ..api import (
@@ -303,6 +309,66 @@ def _test_directories(config_paths: list[Path]) -> list[Path]:
     return test_directories
 
 
+def _default_test_manifest_paths(config_paths: list[Path]) -> list[Path]:
+    manifest_paths: list[Path] = []
+    for config_path in config_paths:
+        for filename in ("tests.yaml", "tests.yml", "tests.json"):
+            candidate = config_path.parent / filename
+            if candidate.is_file() and candidate not in manifest_paths:
+                manifest_paths.append(candidate)
+                break
+    return manifest_paths
+
+
+def _resolve_test_manifest_path(path: Path) -> Path:
+    candidate = path.expanduser()
+    if candidate.is_dir():
+        for filename in ("tests.yaml", "tests.yml", "tests.json"):
+            manifest = candidate / filename
+            if manifest.is_file():
+                return manifest
+        raise StacksmithConfigError(
+            "No tests manifest was found in directory "
+            f"'{candidate}'. Expected one of tests.yaml, tests.yml, or tests.json."
+        )
+
+    if candidate.suffix.lower() not in {".yaml", ".yml", ".json"}:
+        raise StacksmithConfigError(
+            "Test manifest paths must be YAML or JSON files with one of the "
+            "following extensions: .yaml, .yml, .json"
+        )
+    if not candidate.is_file():
+        raise StacksmithConfigError(f"Test manifest not found: {candidate}")
+
+    return candidate
+
+
+def _resolve_test_manifest_paths(test_paths: list[Path]) -> list[Path]:
+    manifests: list[Path] = []
+    for path in test_paths:
+        manifest = _resolve_test_manifest_path(path)
+        if manifest not in manifests:
+            manifests.append(manifest)
+    return manifests
+
+
+def _write_generated_test_module(
+    generated_source: str,
+    cache_dir: Path,
+    dump_tests_path: Path | None,
+) -> tuple[Path, contextlib.AbstractContextManager[object]]:
+    if dump_tests_path is not None:
+        dump_tests_path.parent.mkdir(parents=True, exist_ok=True)
+        dump_tests_path.write_text(generated_source, encoding="utf-8")
+        return dump_tests_path, contextlib.nullcontext()
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir = tempfile.TemporaryDirectory(prefix="stacksmith-tests-", dir=cache_dir)
+    module_path = Path(temp_dir.name) / "test_stacksmith_generated.py"
+    module_path.write_text(generated_source, encoding="utf-8")
+    return module_path, temp_dir
+
+
 def _split_test_paths_and_pytest_args(
     paths_and_args: list[Path],
 ) -> tuple[list[Path], list[str]]:
@@ -335,11 +401,16 @@ def _cmd_test(args: argparse.Namespace) -> int:
     specified_test_paths, forwarded_pytest_args = _split_test_paths_and_pytest_args(
         args.test_path
     )
-    test_paths = specified_test_paths or _test_directories(config_paths)
-    if not test_paths:
+    manifest_paths = (
+        _resolve_test_manifest_paths(specified_test_paths)
+        if specified_test_paths
+        else _default_test_manifest_paths(config_paths)
+    )
+    if not manifest_paths:
         raise StacksmithConfigError(
-            "No tests directory was found beside the selected config layers. "
-            "Provide one or more test paths after the Stacksmith options."
+            "No tests manifest was found beside the selected config layers. "
+            "Create tests.yaml beside stacksmith-config.yaml or pass one or more "
+            "manifest paths after the Stacksmith options."
         )
     if importlib.util.find_spec("pytest") is None:
         raise StacksmithConfigError(
@@ -347,7 +418,30 @@ def _cmd_test(args: argparse.Namespace) -> int:
             "Python environment."
         )
 
-    pytest_args = [str(test_path) for test_path in test_paths]
+    test_manifest: StacksmithTestManifest = load_test_manifests(
+        manifest_paths,
+        merge_mode=merge_mode,
+    )
+    generated_module = StacksmithTestGenerator(test_manifest).generate_pytest_module()
+    if generated_module.test_count == 0:
+        raise StacksmithConfigError("No test cases were generated from test manifests.")
+
+    dump_tests_path = (
+        args.dump_tests.expanduser().resolve() if args.dump_tests is not None else None
+    )
+    generated_test_path, manager = _write_generated_test_module(
+        generated_module.source,
+        cache_dir,
+        dump_tests_path,
+    )
+
+    LOGGER.info(
+        "Generated {count} test(s) from {manifests} manifest file(s)",
+        count=generated_module.test_count,
+        manifests=len(manifest_paths),
+    )
+
+    pytest_args = [str(generated_test_path)]
     for config_path in config_paths:
         pytest_args.extend(["--stacksmith-config", str(config_path)])
     pytest_args.extend(
@@ -358,9 +452,10 @@ def _cmd_test(args: argparse.Namespace) -> int:
             *forwarded_pytest_args,
         ]
     )
-    return subprocess.run(
-        [sys.executable, "-m", "pytest", *pytest_args], check=False
-    ).returncode
+    with manager:
+        return subprocess.run(
+            [sys.executable, "-m", "pytest", *pytest_args], check=False
+        ).returncode
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
@@ -1047,14 +1142,23 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # test
     p_test = subparsers.add_parser(
-        "test", help="Run pytest tests for one or more managed config layers"
+        "test", help="Run declarative tests.yaml manifests for managed config layers"
     )
     _add_common_args(p_test)
     p_test.add_argument(
         "test_path",
         nargs="*",
         type=_path_type,
-        help="Optional pytest test paths. Defaults to tests/ beside each config layer.",
+        help=(
+            "Optional tests.yaml paths or directories. Defaults to tests.yaml "
+            "beside each selected config layer."
+        ),
+    )
+    p_test.add_argument(
+        "--dump-tests",
+        type=_path_type,
+        default=None,
+        help="Write generated pytest code to this path before execution.",
     )
 
     # run-all

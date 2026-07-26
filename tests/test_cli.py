@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import sys
@@ -143,7 +144,16 @@ def test_test_command_forwards_merged_config_to_pytest(
     base_config = tmp_path / "base" / "stacksmith-config.yaml"
     override_config = tmp_path / "override" / "stacksmith-config.yaml"
     cache_dir = tmp_path / ".stacksmith" / ".cache"
-    selected_test = tmp_path / "selected" / "test_policy.py"
+    selected_manifest = tmp_path / "selected" / "tests.yaml"
+    selected_manifest.parent.mkdir(parents=True)
+    selected_manifest.write_text(
+        "variable_policies:\n"
+        "  aws_region:\n"
+        "    - value: us-east-1\n"
+        "      expect: pass\n",
+        encoding="utf-8",
+    )
+    generated_test = tmp_path / "generated" / "test_stacksmith_generated.py"
     calls: dict[str, object] = {}
 
     def _fake_load_runtime_config(*args, **kwargs):
@@ -155,6 +165,23 @@ def test_test_command_forwards_merged_config_to_pytest(
         return SimpleNamespace(returncode=7)
 
     monkeypatch.setattr(cli_main, "_load_runtime_config", _fake_load_runtime_config)
+    monkeypatch.setattr(
+        cli_main, "load_test_manifests", lambda *args, **kwargs: object()
+    )
+
+    class _FakeGenerator:
+        def __init__(self, manifest):
+            calls["manifest"] = manifest
+
+        def generate_pytest_module(self):
+            return SimpleNamespace(source="# generated\n", test_count=1)
+
+    monkeypatch.setattr(cli_main, "StacksmithTestGenerator", _FakeGenerator)
+    monkeypatch.setattr(
+        cli_main,
+        "_write_generated_test_module",
+        lambda source, cache, dump: (generated_test, contextlib.nullcontext()),
+    )
     monkeypatch.setattr(cli_main.subprocess, "run", _fake_run)
     args = parser.parse_args(
         [
@@ -165,7 +192,7 @@ def test_test_command_forwards_merged_config_to_pytest(
             str(override_config),
             "--merge-mode",
             "override",
-            str(selected_test),
+            str(selected_manifest),
             "--",
             "-k",
             "policy",
@@ -185,7 +212,7 @@ def test_test_command_forwards_merged_config_to_pytest(
             sys.executable,
             "-m",
             "pytest",
-            str(selected_test),
+            str(generated_test),
             "--stacksmith-config",
             str(base_config),
             "--stacksmith-config",
@@ -208,10 +235,25 @@ def test_test_command_discovers_test_directories_for_all_config_layers(
 ) -> None:
     base_config = tmp_path / "base" / "stacksmith-config.yaml"
     override_config = tmp_path / "override" / "stacksmith-config.yaml"
-    base_tests = base_config.parent / "tests"
-    override_tests = override_config.parent / "tests"
-    base_tests.mkdir(parents=True)
-    override_tests.mkdir(parents=True)
+    base_manifest = base_config.parent / "tests.yaml"
+    override_manifest = override_config.parent / "tests.yaml"
+    base_manifest.parent.mkdir(parents=True)
+    override_manifest.parent.mkdir(parents=True)
+    base_manifest.write_text(
+        "variable_policies:\n"
+        "  aws_region:\n"
+        "    - value: us-east-1\n"
+        "      expect: pass\n",
+        encoding="utf-8",
+    )
+    override_manifest.write_text(
+        "variable_policies:\n"
+        "  aws_region:\n"
+        "    - value: eu-west-1\n"
+        "      expect: fail\n",
+        encoding="utf-8",
+    )
+    generated_test = tmp_path / "generated" / "test_stacksmith_generated.py"
     calls: dict[str, object] = {}
 
     def _fake_run(command, check):
@@ -227,11 +269,34 @@ def test_test_command_discovers_test_directories_for_all_config_layers(
             object(),
         ),
     )
+
+    def _fake_load_test_manifests(manifest_paths, merge_mode):
+        calls["manifest_paths"] = list(manifest_paths)
+        calls["manifest_merge_mode"] = merge_mode
+        return object()
+
+    monkeypatch.setattr(cli_main, "load_test_manifests", _fake_load_test_manifests)
+
+    class _FakeGenerator:
+        def __init__(self, manifest):
+            calls["manifest"] = manifest
+
+        def generate_pytest_module(self):
+            return SimpleNamespace(source="# generated\n", test_count=1)
+
+    monkeypatch.setattr(cli_main, "StacksmithTestGenerator", _FakeGenerator)
+    monkeypatch.setattr(
+        cli_main,
+        "_write_generated_test_module",
+        lambda source, cache, dump: (generated_test, contextlib.nullcontext()),
+    )
     monkeypatch.setattr(cli_main.subprocess, "run", _fake_run)
     args = parser.parse_args(["test", "--config", str(base_config)])
 
     assert cli_main._cmd_test(args) == 0
-    assert calls["pytest"][0][3:5] == [str(base_tests), str(override_tests)]
+    assert calls["manifest_paths"] == [base_manifest, override_manifest]
+    assert calls["manifest_merge_mode"] == MergeMode.DEEP
+    assert calls["pytest"][0][3] == str(generated_test)
 
 
 def test_test_command_serializes_address_aware_merge_rules_for_pytest():
@@ -247,6 +312,24 @@ def test_test_command_serializes_address_aware_merge_rules_for_pytest():
     assert json.loads(pytest_args[3]) == [
         {"select": "address == '/plan_validations'", "mode": "override"}
     ]
+
+
+def test_test_command_requires_manifest_when_none_discovered(
+    monkeypatch: pytest.MonkeyPatch,
+    parser: pytest.Parser,
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "stacksmith-config.yaml"
+    monkeypatch.setattr(
+        cli_main,
+        "_load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [config_path], object()),
+    )
+
+    args = parser.parse_args(["test", "--config", str(config_path)])
+
+    with pytest.raises(StacksmithConfigError, match="No tests manifest was found"):
+        cli_main._cmd_test(args)
 
 
 def test_info_inspect_has_basic_flag(parser):

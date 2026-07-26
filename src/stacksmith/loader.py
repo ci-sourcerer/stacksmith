@@ -12,7 +12,13 @@ from jsonschema import validate
 from .enums import MergeMode
 from .exceptions import StacksmithConfigError, StacksmithNotFoundError
 from .merging import AddressAwareMerger
-from .models import MergeConfig, RunFile, StackDefinition, ToolConfig
+from .models import (
+    MergeConfig,
+    RunFile,
+    StackDefinition,
+    StacksmithTestManifest,
+    ToolConfig,
+)
 from .utils import (
     get_current_git_repository,
     normalize_path_input,
@@ -22,6 +28,7 @@ from .utils import (
 _STACK_SCHEMA: dict[str, Any] | None = None
 _CONFIG_SCHEMA: dict[str, Any] | None = None
 _RUNFILE_SCHEMA: dict[str, Any] | None = None
+_TEST_MANIFEST_SCHEMA: dict[str, Any] | None = None
 
 
 def _resolve_runfile_local_references(
@@ -116,6 +123,13 @@ def _get_runfile_schema() -> dict[str, Any]:
     if _RUNFILE_SCHEMA is None:
         _RUNFILE_SCHEMA = _load_json_schema("runfile.schema.json")
     return _RUNFILE_SCHEMA
+
+
+def _get_test_manifest_schema() -> dict[str, Any]:
+    global _TEST_MANIFEST_SCHEMA
+    if _TEST_MANIFEST_SCHEMA is None:
+        _TEST_MANIFEST_SCHEMA = _load_json_schema("test_manifest.schema.json")
+    return _TEST_MANIFEST_SCHEMA
 
 
 def _read_file_text(path: Path) -> tuple[str, str]:
@@ -367,6 +381,23 @@ def _resolve_config_script_paths(
             rule = plan_spec.get("rule")
             if isinstance(rule, dict):
                 _absolutize_script(rule, config_dir)
+
+    return result
+
+
+def _resolve_test_manifest_script_paths(
+    data: dict[str, Any],
+    manifest_dir: Path,
+) -> dict[str, Any]:
+    result = deepcopy(data)
+    fixtures = result.get("fixtures")
+    if not isinstance(fixtures, dict):
+        return result
+
+    for fixture_name in ("setup", "teardown"):
+        fixture_spec = fixtures.get(fixture_name)
+        if isinstance(fixture_spec, dict):
+            _absolutize_script(fixture_spec, manifest_dir)
 
     return result
 
@@ -641,6 +672,78 @@ def _merge_runfile_layers(
         layer = _resolve_runfile_local_references(rendered_layer, resolved_path.parent)
         merged = _merge_layer(merged, layer, merger)
     return merged
+
+
+def _merge_test_manifest_layers(
+    manifest_paths: list[Path],
+    merge_mode: MergeConfig = MergeMode.DEEP,
+) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    merger = AddressAwareMerger(merge_mode, "config")
+    for manifest_path in manifest_paths:
+        resolved_path = manifest_path.resolve()
+        layer = _resolve_test_manifest_script_paths(
+            _load_file(resolved_path),
+            resolved_path.parent,
+        )
+        merged = _merge_layer(merged, layer, merger)
+    return merged
+
+
+def _build_test_manifest(
+    data: dict[str, Any],
+    manifest_paths: list[Path],
+) -> StacksmithTestManifest:
+    validate(instance=data, schema=_get_test_manifest_schema())
+    manifest = StacksmithTestManifest.model_validate(data)
+    manifest.source_path = manifest_paths[-1].resolve()
+    return manifest
+
+
+def load_test_manifest(
+    path: Path,
+    merge_mode: MergeConfig = MergeMode.DEEP,
+) -> StacksmithTestManifest:
+    """Load and validate one Stacksmith YAML test manifest.
+
+    Args:
+        path: Path to a tests.yaml, tests.yml, or tests.json file.
+        merge_mode: Merge strategy used for layered test manifests.
+
+    Returns:
+        Validated test manifest model.
+
+    Raises:
+        jsonschema.ValidationError: If the file does not match the test schema.
+    """
+    return load_test_manifests(path, merge_mode=merge_mode)
+
+
+def load_test_manifests(
+    path: Path | list[Path],
+    merge_mode: MergeConfig = MergeMode.DEEP,
+) -> StacksmithTestManifest:
+    """Load and deep-merge one or more Stacksmith test manifests.
+
+    Args:
+        path: `Path` or list of `Path`s to tests YAML/JSON files.
+            When a list is provided, files are deep-merged in order where later
+            files override earlier scalar values, dicts merge recursively, and
+            lists append.
+        merge_mode: Merge strategy used for layered test manifests.
+
+    Returns:
+        Validated merged test manifest model.
+
+    Raises:
+        jsonschema.ValidationError: If the file does not match the test schema.
+    """
+    manifest_paths = normalize_path_input(
+        path,
+        empty_error="At least one test manifest path must be provided",
+    )
+    data = _merge_test_manifest_layers(manifest_paths, merge_mode=merge_mode)
+    return _build_test_manifest(data, manifest_paths)
 
 
 def load_runfile(path: Path) -> RunFile:

@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stacksmith.dev/schemas/test_manifest.schema.json",
+  "title": "Stacksmith test manifest",
+  "description": "Declarative YAML/JSON tests for managed Stacksmith policies and transforms.",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "localReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "local"
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "gitReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "git"
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "repo",
+            "path"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "repo": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(https?://|ssh://|git://|git@).+"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ref": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "httpReference": {
+      "type": "object",
+      "required": [
+        "source",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "http"
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^https?://"
+            }
+          }
+        }
+      }
+    },
+    "fileReference": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/localReference"
+        },
+        {
+          "$ref": "#/$defs/gitReference"
+        },
+        {
+          "$ref": "#/$defs/httpReference"
+        }
+      ]
+    },
+    "fixtureSpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "inline"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "inline": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "script"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "script": {
+              "$ref": "#/$defs/fileReference"
+            }
+          }
+        }
+      ]
+    },
+    "fixtures": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "per-suite",
+            "per-test-case"
+          ],
+          "description": "Fixture execution mode. per-suite runs once for the generated module; per-test-case runs before and after every generated test."
+        },
+        "setup": {
+          "$ref": "#/$defs/fixtureSpec"
+        },
+        "teardown": {
+          "$ref": "#/$defs/fixtureSpec"
+        }
+      }
+    },
+    "variablePolicyTestCase": {
+      "type": "object",
+      "required": [
+        "value",
+        "expect"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {},
+        "expect": {
+          "enum": [
+            "pass",
+            "fail",
+            "PASS",
+            "FAIL"
+          ]
+        }
+      }
+    },
+    "planPolicyTestCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plan": {
+          "type": "object"
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "expect": {
+          "enum": [
+            "pass",
+            "warn",
+            "fail",
+            "PASS",
+            "WARN",
+            "FAIL"
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "plan",
+            "expect"
+          ]
+        },
+        {
+          "required": [
+            "resources",
+            "expect"
+          ]
+        }
+      ]
+    },
+    "componentPropertyExpectation": {
+      "type": "object",
+      "required": [
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "value": {},
+        "output_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "componentPropertyTestCase": {
+      "type": "object",
+      "required": [
+        "value",
+        "expect"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {},
+        "inputs": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "expect": {
+          "$ref": "#/$defs/componentPropertyExpectation"
+        }
+      }
+    }
+  },
+  "properties": {
+    "fixtures": {
+      "$ref": "#/$defs/fixtures"
+    },
+    "variable_policies": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/variablePolicyTestCase"
+        }
+      }
+    },
+    "plan_policies": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/planPolicyTestCase"
+        }
+      }
+    },
+    "component_properties": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/componentPropertyTestCase"
+          }
+        }
+      }
+    }
+  }
+}

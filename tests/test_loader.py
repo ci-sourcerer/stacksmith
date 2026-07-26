@@ -11,6 +11,8 @@ from stacksmith.loader import (
     load_stack,
     load_stack_metadata,
     load_stacks,
+    load_test_manifest,
+    load_test_manifests,
 )
 from stacksmith.models import MergePolicy, MergeRule
 
@@ -978,6 +980,7 @@ class TestLoadConfig:
         config = load_config([base, override])
 
         assert config.provider_mappings["aws"].source.data.version == "= 5.91.0"
+
         assert config.module_mappings["aws_s3_bucket"].source.data.ref == "1.0.0"
         assert (
             config.module_mappings["aws_s3_bucket"].properties["acl"].mapped_to
@@ -1082,3 +1085,134 @@ class TestLoadConfig:
         config = load_config(config_file)
 
         assert config.plan_validations["no_destroy"].enabled is True
+
+
+class TestLoadTestManifest:
+    def test_load_test_manifest(self, tmp_path: Path):
+        manifest_file = tmp_path / "tests.yaml"
+        manifest_file.write_text(
+            "variable_policies:\n"
+            "  aws_region:\n"
+            "    - name: accepts_us_east_1\n"
+            "      value: us-east-1\n"
+            "      expect: PASS\n"
+            "plan_policies:\n"
+            "  ec2_requires_imdsv2:\n"
+            "    - resources:\n"
+            "        - address: aws_instance.web\n"
+            "          type: aws_instance\n"
+            "          change:\n"
+            "            after:\n"
+            "              metadata_options:\n"
+            "                http_tokens: required\n"
+            "      context:\n"
+            "        stack_name: production\n"
+            "      expect: warn\n"
+            "component_properties:\n"
+            "  aws_s3_bucket:\n"
+            "    bucket_name:\n"
+            "      - value: My_Bucket\n"
+            "        inputs:\n"
+            "          environment: prod\n"
+            "        expect:\n"
+            "          output_name: bucket\n"
+            "          value: prod-my-bucket\n",
+            encoding="utf-8",
+        )
+
+        manifest = load_test_manifest(manifest_file)
+
+        assert manifest.source_path == manifest_file.resolve()
+        assert manifest.variable_policies["aws_region"][0].expect == "pass"
+        assert manifest.plan_policies["ec2_requires_imdsv2"][0].expect == "warn"
+        assert (
+            manifest.component_properties["aws_s3_bucket"]["bucket_name"][
+                0
+            ].expect.output_name
+            == "bucket"
+        )
+
+    def test_load_test_manifest_resolves_fixture_script_paths(self, tmp_path: Path):
+        manifest_file = tmp_path / "tests.yaml"
+        fixture_script = tmp_path / "scripts" / "setup.py"
+        fixture_script.parent.mkdir(parents=True)
+        fixture_script.write_text(
+            "def run(state):\n" "    state['ready'] = True\n",
+            encoding="utf-8",
+        )
+        manifest_file.write_text(
+            "fixtures:\n"
+            "  setup:\n"
+            "    script:\n"
+            "      source: local\n"
+            "      data:\n"
+            "        path: ./scripts/setup.py\n"
+            "variable_policies:\n"
+            "  aws_region:\n"
+            "    - value: us-east-1\n"
+            "      expect: pass\n",
+            encoding="utf-8",
+        )
+
+        manifest = load_test_manifest(manifest_file)
+
+        assert manifest.fixtures is not None
+        assert manifest.fixtures.mode == "per-suite"
+        assert manifest.fixtures.setup is not None
+        assert manifest.fixtures.setup.script is not None
+        assert manifest.fixtures.setup.script.data.path == str(fixture_script.resolve())
+
+    def test_load_test_manifest_supports_per_test_case_fixtures(self, tmp_path: Path):
+        manifest_file = tmp_path / "tests.yaml"
+        manifest_file.write_text(
+            "fixtures:\n"
+            "  mode: per-test-case\n"
+            "  setup:\n"
+            "    inline: |\n"
+            "      fixture_state['ran'] = True\n"
+            "variable_policies:\n"
+            "  aws_region:\n"
+            "    - value: us-east-1\n"
+            "      expect: pass\n",
+            encoding="utf-8",
+        )
+
+        manifest = load_test_manifest(manifest_file)
+
+        assert manifest.fixtures is not None
+        assert manifest.fixtures.mode == "per-test-case"
+
+    def test_load_test_manifests_merges_layers(self, tmp_path: Path):
+        base_file = tmp_path / "base-tests.yaml"
+        override_file = tmp_path / "override-tests.yaml"
+        base_file.write_text(
+            "variable_policies:\n"
+            "  aws_region:\n"
+            "    - value: us-east-1\n"
+            "      expect: pass\n"
+            "plan_policies:\n"
+            "  ec2_requires_imdsv2:\n"
+            "    - resources: []\n"
+            "      expect: pass\n",
+            encoding="utf-8",
+        )
+        override_file.write_text(
+            "variable_policies:\n"
+            "  aws_region:\n"
+            "    - value: eu-west-1\n"
+            "      expect: fail\n"
+            "component_properties:\n"
+            "  aws_s3_bucket:\n"
+            "    bucket_name:\n"
+            "      - value: sample\n"
+            "        expect:\n"
+            "          value: sample\n",
+            encoding="utf-8",
+        )
+
+        manifest = load_test_manifests([base_file, override_file])
+
+        assert len(manifest.variable_policies["aws_region"]) == 2
+        assert manifest.variable_policies["aws_region"][1].expect == "fail"
+        assert "ec2_requires_imdsv2" in manifest.plan_policies
+        assert "aws_s3_bucket" in manifest.component_properties
