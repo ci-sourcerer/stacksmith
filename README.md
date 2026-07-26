@@ -83,7 +83,7 @@ The S3 state key is derived automatically from the stack file's path relative to
 
 ### Configuration
 
-This section shows managed config authoring details. Conceptual definitions for config ownership and responsibilities are documented in [Concepts](#concepts).
+This section shows managed config authoring details.
 
 ```yaml
 # stacksmith-config.yaml: maintained by the platform team
@@ -1727,4 +1727,3 @@ Add CSV output for validation reports while retaining JSON as the stable machine
 #### Typer-based CLI
 
 Consider migrating the CLI from `argparse` to `typer` after the command and option model has stabilized. The migration should preserve current environment-variable behavior, generated CLI documentation, reusable Python API boundaries, exit codes, and stdout-versus-stderr guarantees. Its main goals would be clearer command composition, shell completion, and more maintainable help text rather than changing runtime semantics.
-
