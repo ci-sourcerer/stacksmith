@@ -11,12 +11,14 @@ class StackMeta(BaseModel):
     """Metadata identifying a stack."""
 
     name: str
+    description: str | None = None
 
 
 class ComponentDefinition(BaseModel):
     """Definition of a single component within a stack."""
 
     type: str
+    description: str | None = None
     tags: set[str] = Field(default_factory=set)
     properties: dict[str, Any] = Field(default_factory=dict)
 
@@ -25,6 +27,7 @@ class OperationInvocation(BaseModel):
     """A stack's request to run an operation approved in managed config."""
 
     use: str
+    description: str | None = None
     with_: dict[str, Any] = Field(default_factory=dict, alias="with")
     rerun_token: str | None = None
     depends_on: list[str] = Field(default_factory=list)
@@ -34,6 +37,7 @@ class StackDefinition(BaseModel):
     """Complete parsed stack definition from a YAML or JSON file."""
 
     name: str
+    description: str | None = None
     tags: set[str] = Field(default_factory=set)
     depends_on: list[str] = Field(default_factory=list)
     mock_outputs: dict[str, Any] = Field(default_factory=dict)
@@ -45,6 +49,7 @@ class StackDefinition(BaseModel):
 class RunFile(BaseModel):
     """Stacksmith invocation manifest describing input layers."""
 
+    description: str | None = None
     merge_mode: MergeMode | None = None
     merge_rules: list[MergeRule] = Field(default_factory=list)
     stacks: list[FileReference] = Field(default_factory=list)

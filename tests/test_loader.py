@@ -137,6 +137,23 @@ class TestLoadStack:
         assert isinstance(stack.tags, set)
         assert "networking" in stack.tags
 
+    def test_stack_and_component_descriptions_load(self, tmp_path: Path):
+        stack_file = tmp_path / "stack.yaml"
+        stack_file.write_text(
+            "name: documented-stack\n"
+            "description: Hosts the documented service.\n"
+            "components:\n"
+            "  bucket:\n"
+            "    type: aws_s3_bucket\n"
+            "    description: Stores service artifacts.\n",
+            encoding="utf-8",
+        )
+
+        stack = load_stack(stack_file)
+
+        assert stack.description == "Hosts the documented service."
+        assert stack.components["bucket"].description == "Stores service artifacts."
+
     def test_resource_tags_loaded(self, tmp_path: Path):
         stack_file = tmp_path / "stack.yaml"
         stack_file.write_text(
@@ -503,6 +520,7 @@ class TestLoadRunFile:
     def test_load_runfile(self, tmp_path: Path):
         runfile = tmp_path / "stacksmith.yaml"
         runfile.write_text(
+            "description: Production invocation.\n"
             "merge_mode: override\n"
             "stacks:\n"
             "  - source: http\n"
@@ -529,6 +547,7 @@ class TestLoadRunFile:
 
         loaded = load_runfile(runfile)
 
+        assert loaded.description == "Production invocation."
         assert loaded.merge_mode == "override"
         assert loaded.stacks[0].source == "http"
         assert loaded.stacks[0].data.url == "https://example.com/base-stack.yaml"
@@ -678,6 +697,59 @@ class TestLoadConfig:
         )
         assert "aws_s3_bucket" in config.module_mappings
 
+    def test_config_declaration_descriptions_load(
+        self,
+        sample_config_yaml: Path,
+        tmp_path: Path,
+    ):
+        config_file = tmp_path / "stacksmith-config.yaml"
+        config_data = yaml.safe_load(sample_config_yaml.read_text(encoding="utf-8"))
+        config_data["description"] = "Documented managed configuration."
+        config_data["provider_mappings"]["aws"]["description"] = "AWS providers."
+        config_data["provider_mappings"]["aws"]["instances"]["default"][
+            "description"
+        ] = "Primary AWS account."
+        config_data["module_mappings"]["aws_s3_bucket"]["properties"]["acl"].update(
+            {
+                "description": "S3 object access policy.",
+                "validation": {
+                    "description": "Require a supported canned ACL.",
+                    "inline": "'pass'",
+                },
+                "transform": {
+                    "description": "Normalize the ACL value.",
+                    "jinja": "{{ value | lower }}",
+                },
+            }
+        )
+        config_data["var_validations"] = {
+            "aws_region": {
+                "description": "Require an approved AWS region.",
+                "inline": "'pass'",
+            }
+        }
+        config_file.write_text(
+            yaml.safe_dump(config_data, sort_keys=False),
+            encoding="utf-8",
+        )
+
+        config = load_config(config_file)
+
+        assert config.description == "Documented managed configuration."
+        assert config.provider_mappings["aws"].description == "AWS providers."
+        assert (
+            config.provider_mappings["aws"].instances["default"].description
+            == "Primary AWS account."
+        )
+        assert (
+            config.module_mappings["aws_s3_bucket"].properties["acl"].description
+            == "S3 object access policy."
+        )
+        assert (
+            config.var_validations["aws_region"].description
+            == "Require an approved AWS region."
+        )
+
     def test_load_config_accepts_default_only_mapping(
         self,
         sample_config_yaml: Path,
@@ -709,7 +781,7 @@ class TestLoadConfig:
         assert config.default_module_mapping is not None
         assert "{{ component.type" in config.default_module_mapping.source.data.repo
 
-    def test_load_config_rejects_default_mapping_description(
+    def test_load_config_accepts_default_mapping_description(
         self,
         sample_config_yaml: Path,
         tmp_path: Path,
@@ -731,8 +803,10 @@ class TestLoadConfig:
             encoding="utf-8",
         )
 
-        with pytest.raises(ValidationError, match="description"):
-            load_config(config_file)
+        config = load_config(config_file)
+
+        assert config.default_module_mapping is not None
+        assert config.default_module_mapping.description == "Convention-based module"
 
     def test_default_local_module_source_resolves_relative_to_config(
         self,
@@ -1091,6 +1165,7 @@ class TestLoadTestManifest:
     def test_load_test_manifest(self, tmp_path: Path):
         manifest_file = tmp_path / "tests.yaml"
         manifest_file.write_text(
+            "description: Production policy tests.\n"
             "variable_policies:\n"
             "  aws_region:\n"
             "    - name: accepts_us_east_1\n"
@@ -1121,6 +1196,7 @@ class TestLoadTestManifest:
         manifest = load_test_manifest(manifest_file)
 
         assert manifest.source_path == manifest_file.resolve()
+        assert manifest.description == "Production policy tests."
         assert manifest.variable_policies["aws_region"][0].expect == "pass"
         assert manifest.plan_policies["ec2_requires_imdsv2"][0].expect == "warn"
         assert (

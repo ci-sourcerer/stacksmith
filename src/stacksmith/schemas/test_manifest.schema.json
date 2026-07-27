@@ -300,6 +300,11 @@
     }
   },
   "properties": {
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional human-readable description of this test suite."
+    },
     "fixtures": {
       "$ref": "#/$defs/fixtures"
     },

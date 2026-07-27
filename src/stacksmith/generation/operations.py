@@ -44,7 +44,7 @@ def _execution_identity(
         {
             "stack": stack.name,
             "operation": operation_name,
-            "definition": definition.model_dump(mode="json"),
+            "definition": _operation_definition_identity(definition),
             "inputs": values,
             "rerun_token": rerun_token,
         },
@@ -53,6 +53,15 @@ def _execution_identity(
         default=str,
     )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _operation_definition_identity(
+    definition: OperationDefinition,
+) -> dict[str, Any]:
+    payload = definition.model_dump(mode="json", exclude={"description"})
+    for input_specification in payload.get("inputs", {}).values():
+        input_specification.pop("description", None)
+    return payload
 
 
 def build_operation_module_spec(

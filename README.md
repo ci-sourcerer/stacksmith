@@ -189,6 +189,8 @@ This is useful when platform teams publish a shared repo of base stack layers an
 In the following example, the runfile references two stack layers (one from a git repo and one local) and three variable sources in a deterministic order. The final source supplies inline default values for the stack. There is no `configs` section in this example, as the runfile author chose to rely on the environment variable `STACKSMITH_CONFIG` for config layering (coming from, for example, a GitHub Actions repository variable, or a Jenkins global environment variable).
 
 ```yaml
+description: Payments deployment assembled from shared and service-owned layers.
+
 stacks:
   - source: git
     data:
@@ -258,12 +260,14 @@ Address-aware `merge_rules` can change the strategy for individual nodes while l
 ```yaml
 merge_mode: deep
 merge_rules:
-  - select: >-
+  - description: Replace environment values supplied by later component layers.
+    select: >-
       scope == 'stack' &&
       starts_with(address, '/components/') &&
       ends_with(address, '/properties/environment')
     mode: override
-  - select: "scope == 'vars' && address == '/feature_flags'"
+  - description: Replace feature flags as one environment-owned object.
+    select: "scope == 'vars' && address == '/feature_flags'"
     mode: override
 ```
 
@@ -533,6 +537,9 @@ Stacksmith supports Python-based validation and transform hooks.
 - Validations use either `inline` Python or `script`.
 - Transforms use `inline`, `script`, or `jinja` depending on context.
 - Relative script paths resolve from the declaring file.
+- Validation and transform specifications accept an optional `description`, including entries in `var_validations` and validations or transforms nested under module properties.
+
+Machine-facing mapping keys remain stable identifiers, while `description` carries prose for people and inspection output. Optional descriptions are also supported on managed configurations, provider families and instances, module mappings and properties, operation definitions and inputs, merge rules, runfiles, stacks and their components or operation invocations, and test manifests.
 
 ### Plan validations
 
@@ -554,6 +561,7 @@ The managed config fixes the runner details, including the local command argumen
 # stacksmith-config.yaml
 operations:
   deploy:
+    description: Deploy an approved application release.
     runner: local
     trigger: after_apply
     command: [./bin/deploy]
@@ -562,8 +570,10 @@ operations:
       RELEASE_NAME: release_name
     inputs:
       environment:
+        description: Deployment environment.
         required: true
       release_name:
+        description: Immutable application release identifier.
         required: true
 ```
 
@@ -625,6 +635,8 @@ stacksmith test \
 Manifest test cases cover variable policies, plan policies, and component properties. Plan policy cases can include optional context (for example stack metadata), and manifests can define optional setup/teardown fixtures using either inline Python or script references. Fixture execution mode can be set to `per-suite` (default) or `per-test-case`.
 
 ```yaml
+description: Policy and transform tests for the production platform configuration.
+
 fixtures:
   mode: per-test-case
   setup:

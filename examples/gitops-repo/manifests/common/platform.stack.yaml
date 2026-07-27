@@ -1,4 +1,5 @@
 name: gitops-platform-example
+description: Layered application platform used by the GitOps example.
 tags:
   - gitops
   - shared
@@ -6,6 +7,7 @@ tags:
 components:
   assets_bucket:
     type: aws_s3_bucket
+    description: Application artifact bucket.
     properties:
       versioning_enabled: true
       block_public_acls: false
@@ -17,6 +19,7 @@ components:
       attach_deny_insecure_transport_policy: true
   app_ec2_instance:
     type: aws_ec2_instance
+    description: Compute instance hosting the application.
     tags:
       - web
     properties:
@@ -28,6 +31,7 @@ components:
       monitoring: true
   frontend_release:
     type: helm_app
+    description: Frontend Helm release.
     tags:
       - app
       - web
@@ -39,6 +43,7 @@ components:
         - examples/gitops-repo/manifests/common/frontend-values.yaml
   app_config:
     type: k8s_app
+    description: Kubernetes configuration for the application.
     tags:
       - app
       - config
@@ -46,6 +51,7 @@ components:
       namespace: "{{ inputs.environment }}"
   logs_bucket:
     type: aws_s3_bucket
+    description: Application log bucket.
     tags:
       - logs
     properties:
@@ -61,6 +67,7 @@ components:
 operations:
   deploy_platform:
     use: deploy
+    description: Deploy the complete platform after infrastructure is applied.
     with:
       environment: "{{ inputs.environment }}"
       release_tag: platform

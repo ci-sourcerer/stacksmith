@@ -98,6 +98,7 @@ VariableReference: TypeAlias = Annotated[
 class MergeRule(BaseModel):
     """Address-aware merge strategy selected with a JMESPath predicate."""
 
+    description: str | None = None
     select: str
     mode: MergeMode
 
@@ -365,6 +366,7 @@ def render_provider_source_fields(
 class ValidationSpec(BaseModel):
     """Reusable validation rule defined as inline code or a local script."""
 
+    description: str | None = None
     inline: str | None = None
     script: FileReference | None = None
 
@@ -380,6 +382,7 @@ class ValidationSpec(BaseModel):
 class TransformSpec(BaseModel):
     """Reusable property transform rule defined as Python or Jinja."""
 
+    description: str | None = None
     inline: str | None = None
     script: FileReference | None = None
     jinja: str | None = None
@@ -399,6 +402,7 @@ class TransformSpec(BaseModel):
 class ModulePropertySpec(BaseModel):
     """Combined per-property module configuration."""
 
+    description: str | None = None
     mapped_to: str | None = None
     default: Any | None = None
     transform: TransformSpec | None = None
@@ -511,6 +515,7 @@ def parse_provider_instance_reference(reference: str) -> tuple[str, str]:
 class ProviderInstance(BaseModel):
     """Single provider instance configuration."""
 
+    description: str | None = None
     alias: str | None = None
     config: ProviderConfigSpec
 
@@ -518,6 +523,7 @@ class ProviderInstance(BaseModel):
 class ProviderFamily(BaseModel):
     """Provider source/version with one or more named instances."""
 
+    description: str | None = None
     source: ProviderSourceReference
     instances: dict[str, ProviderInstance]
 
@@ -546,6 +552,7 @@ class ProviderFamily(BaseModel):
 class _ModuleMappingBase(BaseModel):
     """Shared module mapping fields."""
 
+    description: str | None = None
     source: ModuleSourceReference
     auto_inject: bool = False
     tags: set[str] = Field(default_factory=set)
@@ -555,8 +562,6 @@ class _ModuleMappingBase(BaseModel):
 
 class ModuleMapping(_ModuleMappingBase):
     """Mapping from an abstract resource type to a concrete OpenTofu module."""
-
-    description: str | None = None
 
 
 class DefaultModuleMapping(_ModuleMappingBase):
@@ -568,6 +573,7 @@ class DefaultModuleMapping(_ModuleMappingBase):
 class OperationInputSpec(BaseModel):
     """Input contract for a native Stacksmith operation."""
 
+    description: str | None = None
     required: bool = False
     secret: bool = False
 
@@ -678,6 +684,7 @@ RemoteAuthConfig = dict[str, RemoteAuthEntry]
 class ToolConfig(BaseModel):
     """Complete tool configuration loaded from .config.yaml."""
 
+    description: str | None = None
     backend: BackendConfig
     tools: ToolsConfig
     provider_mappings: dict[str, ProviderFamily]

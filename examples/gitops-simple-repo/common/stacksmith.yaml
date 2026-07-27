@@ -1,3 +1,5 @@
+description: Credential-free invocation for the simple GitOps example.
+
 # Reuse the platform-owned configuration shared by the examples.
 configs:
   - source: local

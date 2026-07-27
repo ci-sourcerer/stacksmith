@@ -1,4 +1,5 @@
 name: null-resources
+description: Credential-free resources used to demonstrate GitOps layering.
 
 tags:
   - gitops
@@ -7,6 +8,7 @@ tags:
 components:
   first:
     type: null_resource
+    description: First placeholder resource.
     properties:
       triggers:
         environment: "{{ inputs.environment }}"
@@ -15,6 +17,7 @@ components:
         project: "{{ inputs.project }}"
   second:
     type: null_resource
+    description: Second placeholder resource.
     properties:
       triggers:
         environment: "{{ inputs.environment }}"

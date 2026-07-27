@@ -1,3 +1,5 @@
+description: Shared platform configuration for the Stacksmith examples.
+
 # Store generated state locally for this example.
 backend:
   type: local
@@ -11,6 +13,7 @@ tools:
 # Configure the AWS provider instances available to mapped modules.
 provider_mappings:
   aws:
+    description: AWS provider configurations used by the example modules.
     source:
       source: registry
       data:
@@ -18,11 +21,13 @@ provider_mappings:
         version: ">= 6.39, < 7.0"
     instances:
       default:
+        description: Primary AWS region used by most example resources.
         # The default provider targets the primary example region.
         config:
           data:
             region: us-east-1
       secondary:
+        description: Secondary AWS region used to demonstrate provider aliases.
         # The secondary alias demonstrates cross-provider module wiring.
         alias: secondary
         config:
@@ -33,16 +38,19 @@ provider_mappings:
 # Validate reusable inputs before a stack is planned.
 var_validations:
   aws_region:
+    description: Require the primary AWS region used by the examples.
     script:
       source: local
       data:
         path: scripts/validations/validate_aws_region.py
   instance_type:
+    description: Allow only the EC2 instance types approved for the examples.
     script:
       source: local
       data:
         path: scripts/validations/validate_ec2_instance_type.py
   subnet_id:
+    description: Require an AWS subnet identifier.
     inline: |
       import re
 
@@ -53,6 +61,7 @@ var_validations:
               else "fail"
           )
   bucket_name:
+    description: Require a valid lowercase S3 bucket name.
     inline: |
       import re
 
@@ -63,6 +72,7 @@ var_validations:
               else "fail"
           )
   ssh_ingress_cidrs:
+    description: Require a comma-separated list of valid network CIDR blocks.
     inline: |
       import ipaddress
 
@@ -110,6 +120,7 @@ plan_validations:
           path: scripts/validations/validate_s3_write_policy_scope.py
 # Use the convention-based repository for component types without an explicit mapping.
 default_module_mapping:
+  description: Convention-based fallback for component types without an explicit mapping.
   source:
     source: git
     data:
@@ -131,8 +142,10 @@ module_mappings:
       aws: aws.secondary
     properties:
       bucket_name:
+        description: Friendly bucket name supplied by the stack author.
         mapped_to: bucket
         transform:
+          description: Prefix the bucket name with the environment and normalize it.
           script:
             source: local
             data:
@@ -140,8 +153,10 @@ module_mappings:
       aws_region:
         mapped_to: region
       versioning_enabled:
+        description: Whether object versioning is enabled for the bucket.
         mapped_to: versioning
         transform:
+          description: Convert common truthy strings into the module's versioning object.
           inline: |
             def transform(value, **context):
                 normalized = value
@@ -149,21 +164,26 @@ module_mappings:
                     normalized = normalized.strip().lower() in {"1", "true", "yes", "on"}
                 return {"enabled": bool(normalized)}
       lifecycle_rules:
+        description: Compact lifecycle rules supplied by the stack author.
         mapped_to: lifecycle_rule
         transform:
+          description: Expand compact lifecycle rules into the module's expected structure.
           script:
             source: local
             data:
               path: scripts/transforms/transform_lifecycle_rules.py
       writer_principal_arn:
+        description: IAM principal allowed to write objects to the bucket.
         mapped_to: policy
         transform:
+          description: Build a scoped S3 write policy for the configured principal.
           script:
             source: local
             data:
               path: scripts/transforms/transform_s3_write_policy.py
       tags:
         transform:
+          description: Merge standard Stacksmith tags with user-supplied tags.
           script:
             source: local
             data:
@@ -179,6 +199,7 @@ module_mappings:
     properties:
       name:
         transform:
+          description: Prefix the instance name with the environment when needed.
           inline: |
             def transform(value, **context):
                 inputs = context.get("inputs") or {}
@@ -188,14 +209,17 @@ module_mappings:
       aws_region:
         mapped_to: region
       ssh_ingress_cidrs:
+        description: Networks allowed to reach the instance over SSH.
         mapped_to: security_group_ingress_rules
         transform:
+          description: Convert CIDR values into security-group ingress rules.
           script:
             source: local
             data:
               path: scripts/transforms/transform_security_group_ingress_rules.py
       tags:
         transform:
+          description: Merge standard Stacksmith tags with user-supplied tags.
           script:
             source: local
             data:
@@ -212,6 +236,7 @@ module_mappings:
     properties:
       name:
         transform:
+          description: Prefix the role name with the environment when needed.
           inline: |
             def transform(value, **context):
                 inputs = context.get("inputs") or {}
@@ -220,6 +245,7 @@ module_mappings:
                 return base if base.startswith(f"{environment}-") else f"{environment}-{base}"
       tags:
         transform:
+          description: Merge standard Stacksmith tags with user-supplied tags.
           script:
             source: local
             data:
@@ -268,11 +294,15 @@ operations:
       LOGS_BUCKET_ID: logs_bucket_id
     inputs:
       environment:
+        description: Deployment environment passed to the approved command.
         required: true
       release_tag:
+        description: Immutable application release identifier.
         required: true
-      deployment_tags: {}
+      deployment_tags:
+        description: Optional deployment tags serialized for the command.
       logs_bucket_id:
+        description: Bucket identifier produced by the stack.
         required: true
 
   jenkins_deploy:
@@ -288,6 +318,8 @@ operations:
       RELEASE_TAG: release_tag
     inputs:
       environment:
+        description: Deployment environment passed to Jenkins.
         required: true
       release_tag:
+        description: Immutable application release identifier.
         required: true

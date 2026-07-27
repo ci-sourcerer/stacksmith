@@ -28,11 +28,14 @@ class InputInfo:
 
     name: str
     module_variable: str
+    description: str | None = None
     mapped_to: str | None = None
     auto_inject: bool = False
     validation: str | None = None
+    validation_description: str | None = None
     validation_source: str | None = None
     transform: str | None = None
+    transform_description: str | None = None
     transform_source: str | None = None
     note: str | None = None
 
@@ -153,6 +156,15 @@ def _resolve_var_validation_location(
     )
 
 
+def _resolve_var_validation(
+    var_name: str,
+    config: ToolConfig | None,
+) -> ValidationSpec | None:
+    if config is None:
+        return None
+    return config.var_validations.get(var_name)
+
+
 def _build_property_input_info(
     property_name: str,
     property_spec: ModulePropertySpec,
@@ -161,30 +173,42 @@ def _build_property_input_info(
     config_locations: dict[tuple[str, ...], str] | None,
     mapping_location: tuple[str, ...],
 ) -> InputInfo:
-    validation_location = _describe_spec_location(
-        property_spec.validation,
-        config,
-        config_locations,
-        (*mapping_location, "properties", property_name, "validation"),
-    )
-    if validation_location is None:
+    validation_spec = property_spec.validation
+    if validation_spec is None:
+        validation_spec = _resolve_var_validation(property_name, config)
         validation_location = _resolve_var_validation_location(
             property_name,
             config,
             config_locations,
             ("var_validations", property_name),
         )
+    else:
+        validation_location = _describe_spec_location(
+            validation_spec,
+            config,
+            config_locations,
+            (*mapping_location, "properties", property_name, "validation"),
+        )
 
     return _build_input_info(
         property_name,
         property_spec,
+        description=property_spec.description,
         validation_location=validation_location,
-        validation_source=_describe_script_reference(property_spec.validation),
+        validation_description=(
+            validation_spec.description if validation_spec is not None else None
+        ),
+        validation_source=_describe_script_reference(validation_spec),
         transform_location=_describe_transform_location(
             property_spec.transform,
             config,
             config_locations,
             (*mapping_location, "properties", property_name, "transform"),
+        ),
+        transform_description=(
+            property_spec.transform.description
+            if property_spec.transform is not None
+            else None
         ),
         transform_source=_describe_script_reference(property_spec.transform),
         is_auto_injected=False,
@@ -264,6 +288,7 @@ def inspect_component_type(
 
     # 2. Module variables not covered by property specs
     for var_name in sorted(discovered_vars - seen_vars):
+        validation_spec = _resolve_var_validation(var_name, config)
         validation_location = _resolve_var_validation_location(
             var_name,
             config,
@@ -277,6 +302,9 @@ def inspect_component_type(
                 module_variable=var_name,
                 auto_inject=mapping.auto_inject,
                 validation=validation_location,
+                validation_description=(
+                    validation_spec.description if validation_spec is not None else None
+                ),
                 note=note,
             )
         )
@@ -295,9 +323,12 @@ def inspect_component_type(
 def _build_input_info(
     var_name: str,
     property_spec: ModulePropertySpec | None,
+    description: str | None = None,
     validation_location: str | None = None,
+    validation_description: str | None = None,
     validation_source: str | None = None,
     transform_location: str | None = None,
+    transform_description: str | None = None,
     transform_source: str | None = None,
     is_auto_injected: bool = False,
 ) -> InputInfo:
@@ -305,12 +336,15 @@ def _build_input_info(
     return InputInfo(
         name=var_name,
         module_variable=mapped_to or var_name,
+        description=description,
         mapped_to=mapped_to,
         auto_inject=is_auto_injected
         or (property_spec.auto_inject is not False if property_spec else False),
         validation=validation_location,
+        validation_description=validation_description,
         validation_source=validation_source,
         transform=transform_location,
+        transform_description=transform_description,
         transform_source=transform_source,
     )
 
@@ -406,14 +440,20 @@ def format_json(results: list[ComponentTypeInfo], details: bool = True) -> str:
                 "name": inp.name,
                 "module_variable": inp.module_variable,
             }
+            if inp.description:
+                entry["description"] = inp.description
             if inp.mapped_to:
                 entry["mapped_to"] = inp.mapped_to
             entry["auto_inject"] = inp.auto_inject
             if details:
                 if inp.validation:
                     entry["validation"] = inp.validation
+                if inp.validation_description:
+                    entry["validation_description"] = inp.validation_description
                 if inp.transform:
                     entry["transform"] = inp.transform
+                if inp.transform_description:
+                    entry["transform_description"] = inp.transform_description
             inputs_list.append(entry)
         resource_entry = {
             "module_source": info.module_source,
@@ -487,6 +527,7 @@ def format_table(
             table.add_column("Transform")
         else:
             table.add_column("Input")
+            table.add_column("Description")
             table.add_column("Mapped To")
             table.add_column("Auto-Inject")
             if details:
@@ -497,18 +538,35 @@ def format_table(
             if basic:
                 row = [
                     inp.name,
-                    inp.validation or "",
-                    inp.transform or "",
+                    _format_rule_metadata(
+                        inp.validation_description,
+                        inp.validation,
+                    ),
+                    _format_rule_metadata(
+                        inp.transform_description,
+                        inp.transform,
+                    ),
                 ]
             else:
                 row = [
                     inp.name,
+                    inp.description or "",
                     inp.mapped_to or "",
                     "yes" if inp.auto_inject else "",
                 ]
                 if details:
-                    row.append(inp.validation or "")
-                    row.append(inp.transform or "")
+                    row.append(
+                        _format_rule_metadata(
+                            inp.validation_description,
+                            inp.validation,
+                        )
+                    )
+                    row.append(
+                        _format_rule_metadata(
+                            inp.transform_description,
+                            inp.transform,
+                        )
+                    )
             table.add_row(*row)
 
         console.print(table)
@@ -533,3 +591,9 @@ def format_table(
                 policy.location,
             )
         console.print(policy_table)
+
+
+def _format_rule_metadata(description: str | None, location: str | None) -> str:
+    if description and location:
+        return f"{description}\n[dim]{location}[/dim]"
+    return description or location or ""

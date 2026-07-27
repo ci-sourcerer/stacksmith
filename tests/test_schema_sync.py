@@ -10,8 +10,11 @@ from stacksmith.models import (
     ComponentPropertyTestCase,
     DefaultModuleMapping,
     FixtureSpec,
+    MergeRule,
     ModuleMapping,
     ModulePropertySpec,
+    OperationInputSpec,
+    OperationInvocation,
     PlanPolicyTestCase,
     PlanTestResource,
     PlanValidation,
@@ -48,6 +51,7 @@ def test_stack_definition_fields_match_stack_schema():
 
     assert _field_names(StackDefinition) - {"source_path"} == {
         "name",
+        "description",
         "tags",
         "depends_on",
         "mock_outputs",
@@ -56,6 +60,7 @@ def test_stack_definition_fields_match_stack_schema():
     }
     assert schema_props == {
         "name",
+        "description",
         "tags",
         "depends_on",
         "mock_outputs",
@@ -63,16 +68,38 @@ def test_stack_definition_fields_match_stack_schema():
         "operations",
     }
 
-    assert _field_names(StackMeta) == {"name"}
+    assert _field_names(StackMeta) == {"name", "description"}
     assert schema["properties"]["name"]["type"] == "string"
 
-    assert _field_names(ComponentDefinition) == {"type", "tags", "properties"}
+    assert _field_names(ComponentDefinition) == {
+        "type",
+        "description",
+        "tags",
+        "properties",
+    }
     assert set(
         schema["properties"]["components"]["additionalProperties"]["properties"]
     ) == {
         "type",
+        "description",
         "tags",
         "properties",
+    }
+    assert _field_names(OperationInvocation) == {
+        "use",
+        "description",
+        "with_",
+        "rerun_token",
+        "depends_on",
+    }
+    assert set(
+        schema["properties"]["operations"]["additionalProperties"]["properties"]
+    ) == {
+        "use",
+        "description",
+        "with",
+        "rerun_token",
+        "depends_on",
     }
 
 
@@ -81,6 +108,7 @@ def test_tool_config_fields_match_config_schema():
     schema_props = set(schema["properties"])
 
     assert _field_names(ToolConfig) - {"source_path"} == {
+        "description",
         "backend",
         "tools",
         "provider_mappings",
@@ -92,6 +120,7 @@ def test_tool_config_fields_match_config_schema():
         "remote_auth",
     }
     assert schema_props == {
+        "description",
         "backend",
         "tools",
         "provider_mappings",
@@ -113,9 +142,9 @@ def test_tool_config_fields_match_config_schema():
     assert _field_names(ToolsConfig) == {"tofu", "terragrunt"}
     assert _field_names(ToolBinaryConfig) == {"version", "download"}
 
-    assert _field_names(ProviderFamily) == {"source", "instances"}
+    assert _field_names(ProviderFamily) == {"description", "source", "instances"}
     assert _field_names(ProviderConfigSpec) == {"inline", "script", "data"}
-    assert _field_names(ProviderInstance) == {"alias", "config"}
+    assert _field_names(ProviderInstance) == {"description", "alias", "config"}
     provider_family_ref = schema["properties"]["provider_mappings"][
         "additionalProperties"
     ]
@@ -123,10 +152,12 @@ def test_tool_config_fields_match_config_schema():
     provider_config_spec = schema["$defs"]["providerConfigSpec"]
     assert len(provider_config_spec["oneOf"]) == 3
     assert set(schema["$defs"]["providerFamily"]["properties"]) == {
+        "description",
         "source",
         "instances",
     }
     assert set(schema["$defs"]["providerInstance"]["properties"]) == {
+        "description",
         "alias",
         "config",
     }
@@ -140,6 +171,7 @@ def test_tool_config_fields_match_config_schema():
         "properties",
     }
     assert _field_names(DefaultModuleMapping) == {
+        "description",
         "source",
         "auto_inject",
         "tags",
@@ -147,6 +179,7 @@ def test_tool_config_fields_match_config_schema():
         "properties",
     }
     assert set(schema["$defs"]["defaultModuleMapping"]["properties"]) == {
+        "description",
         "source",
         "auto_inject",
         "tags",
@@ -165,6 +198,7 @@ def test_tool_config_fields_match_config_schema():
     }
 
     assert _field_names(ModulePropertySpec) == {
+        "description",
         "mapped_to",
         "default",
         "transform",
@@ -172,11 +206,22 @@ def test_tool_config_fields_match_config_schema():
         "auto_inject",
     }
     assert set(schema["$defs"]["modulePropertySpec"]["properties"]) == {
+        "description",
         "mapped_to",
         "default",
         "transform",
         "validation",
         "auto_inject",
+    }
+    assert _field_names(OperationInputSpec) == {
+        "description",
+        "required",
+        "secret",
+    }
+    assert set(schema["$defs"]["operationInputSpec"]["properties"]) == {
+        "description",
+        "required",
+        "secret",
     }
 
     assert _field_names(PlanValidation) == {"description", "enabled", "rule"}
@@ -186,13 +231,24 @@ def test_tool_config_fields_match_config_schema():
         "rule",
     }
 
-    assert _field_names(ValidationSpec) == {"inline", "script"}
-    assert _field_names(TransformSpec) == {"inline", "script", "jinja"}
+    assert _field_names(ValidationSpec) == {"description", "inline", "script"}
+    assert _field_names(TransformSpec) == {
+        "description",
+        "inline",
+        "script",
+        "jinja",
+    }
     assert schema["$defs"]["transformSpec"]["oneOf"][0]["properties"] == {
-        "inline": schema["$defs"]["transformSpec"]["oneOf"][0]["properties"]["inline"]
+        "description": schema["$defs"]["transformSpec"]["oneOf"][0]["properties"][
+            "description"
+        ],
+        "inline": schema["$defs"]["transformSpec"]["oneOf"][0]["properties"]["inline"],
     }
     assert schema["$defs"]["transformSpec"]["oneOf"][1]["properties"] == {
-        "jinja": schema["$defs"]["transformSpec"]["oneOf"][1]["properties"]["jinja"]
+        "description": schema["$defs"]["transformSpec"]["oneOf"][1]["properties"][
+            "description"
+        ],
+        "jinja": schema["$defs"]["transformSpec"]["oneOf"][1]["properties"]["jinja"],
     }
 
 
@@ -200,6 +256,7 @@ def test_runfile_fields_match_runfile_schema():
     schema = _load_schema("runfile.schema.json")
 
     assert _field_names(RunFile) == {
+        "description",
         "merge_mode",
         "merge_rules",
         "stacks",
@@ -207,11 +264,18 @@ def test_runfile_fields_match_runfile_schema():
         "vars",
     }
     assert set(schema["properties"]) == {
+        "description",
         "merge_mode",
         "merge_rules",
         "stacks",
         "configs",
         "vars",
+    }
+    assert _field_names(MergeRule) == {"description", "select", "mode"}
+    assert set(schema["$defs"]["mergeRule"]["properties"]) == {
+        "description",
+        "select",
+        "mode",
     }
 
 
@@ -219,12 +283,14 @@ def test_test_manifest_fields_match_schema():
     schema = _load_schema("test_manifest.schema.json")
 
     assert _field_names(StacksmithTestManifest) - {"source_path"} == {
+        "description",
         "fixtures",
         "variable_policies",
         "plan_policies",
         "component_properties",
     }
     assert set(schema["properties"]) == {
+        "description",
         "fixtures",
         "variable_policies",
         "plan_policies",
@@ -266,6 +332,7 @@ def test_test_manifest_fields_match_schema():
             "config.schema.json",
             ToolConfig,
             {
+                "description",
                 "backend",
                 "tools",
                 "provider_mappings",
@@ -282,6 +349,7 @@ def test_test_manifest_fields_match_schema():
             StackDefinition,
             {
                 "name",
+                "description",
                 "tags",
                 "depends_on",
                 "mock_outputs",
@@ -292,12 +360,20 @@ def test_test_manifest_fields_match_schema():
         (
             "runfile.schema.json",
             RunFile,
-            {"merge_mode", "merge_rules", "stacks", "configs", "vars"},
+            {
+                "description",
+                "merge_mode",
+                "merge_rules",
+                "stacks",
+                "configs",
+                "vars",
+            },
         ),
         (
             "test_manifest.schema.json",
             StacksmithTestManifest,
             {
+                "description",
                 "fixtures",
                 "variable_policies",
                 "plan_policies",

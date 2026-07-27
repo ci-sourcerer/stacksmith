@@ -130,6 +130,11 @@
       ],
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional human-readable explanation of why this merge rule exists."
+        },
         "select": {
           "type": "string",
           "minLength": 1,
@@ -176,6 +181,11 @@
     }
   },
   "properties": {
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional human-readable description of this reproducible invocation."
+    },
     "merge_mode": {
       "type": "string",
       "enum": [

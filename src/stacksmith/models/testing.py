@@ -141,6 +141,7 @@ class ComponentPropertyTestCase(BaseModel):
 class StacksmithTestManifest(BaseModel):
     """Declarative test suite for `stacksmith test` YAML manifests."""
 
+    description: str | None = None
     fixtures: StacksmithTestFixtures | None = None
     variable_policies: dict[str, list[VariablePolicyTestCase]] = Field(
         default_factory=dict

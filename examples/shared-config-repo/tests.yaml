@@ -1,3 +1,5 @@
+description: Policy and transform tests for the shared example configuration.
+
 fixtures:
   mode: per-test-case
   setup:
@@ -9,23 +11,23 @@ fixtures:
 
 variable_policies:
   aws_region:
-    - name: accepts_us_east_1
+    - name: Accepts us-east-1
       value: us-east-1
       expect: pass
-    - name: rejects_eu_west_1
+    - name: Rejects eu-west-1
       value: eu-west-1
       expect: fail
 
 plan_policies:
   ec2_requires_imdsv2:
-    - name: passes_when_tokens_required
+    - name: Passes when tokens are required
       resources:
         - type: aws_instance
           after:
             metadata_options:
               http_tokens: required
       expect: pass
-    - name: fails_when_tokens_optional
+    - name: Fails when tokens are optional
       resources:
         - type: aws_instance
           after:
@@ -34,7 +36,7 @@ plan_policies:
       expect: fail
 
   ec2_t3_micro_warning:
-    - name: warns_with_stack_context
+    - name: Warns with stack context
       resources:
         - type: aws_instance
           after:
@@ -48,7 +50,7 @@ plan_policies:
 component_properties:
   aws_s3_bucket:
     bucket_name:
-      - name: prefixes_environment_and_normalizes_case
+      - name: Prefixes the environment and normalizes case
         value: My_Bucket
         inputs:
           environment: prod

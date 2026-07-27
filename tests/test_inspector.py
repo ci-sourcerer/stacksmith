@@ -57,12 +57,17 @@ def _auto_inject_mapping() -> ModuleMapping:
         auto_inject=True,
         properties={
             "tags": ModulePropertySpec(
-                validation=ValidationSpec(inline="def validate(value): return True"),
+                description="Tags applied to the instance.",
+                validation=ValidationSpec(
+                    description="Require approved instance tags.",
+                    inline="def validate(value): return True",
+                ),
                 transform=TransformSpec(
+                    description="Merge standard and user-supplied tags.",
                     script={
                         "source": "local",
                         "data": {"path": "scripts/transform_tags.py"},
-                    }
+                    },
                 ),
             ),
         },
@@ -151,8 +156,11 @@ def test_inspect_component_type_validation_transform_metadata(_auto_inject_mappi
         )
 
     tags_input = next(i for i in result.inputs if i.name == "tags")
+    assert tags_input.description == "Tags applied to the instance."
     assert tags_input.validation == "config.yaml:10-14"
+    assert tags_input.validation_description == "Require approved instance tags."
     assert tags_input.transform == "scripts/transform_tags.py"
+    assert tags_input.transform_description == "Merge standard and user-supplied tags."
 
 
 def test_inspect_component_type_transform_script_path_is_relative(tmp_path):
@@ -589,17 +597,23 @@ def test_format_json_details_includes_metadata():
                 InputInfo(
                     name="acl",
                     module_variable="bucket_acl",
+                    description="S3 object access policy.",
                     mapped_to="bucket_acl",
                     validation="inline",
+                    validation_description="Require a supported canned ACL.",
                     transform="transform.py",
+                    transform_description="Normalize the ACL value.",
                 ),
             ],
         )
     ]
     parsed = json.loads(format_json(results, details=True))
     inp = parsed["aws_s3_bucket"]["inputs"][0]
+    assert inp["description"] == "S3 object access policy."
     assert inp["validation"] == "inline"
+    assert inp["validation_description"] == "Require a supported canned ACL."
     assert inp["transform"] == "transform.py"
+    assert inp["transform_description"] == "Normalize the ACL value."
     assert "policy" not in inp
 
 

@@ -13,6 +13,11 @@
       "minLength": 2,
       "description": "Unique stack identifier within the monorepo."
     },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional human-readable description of the stack's purpose."
+    },
     "tags": {
       "type": "array",
       "items": {
@@ -49,6 +54,11 @@
             "minLength": 1,
             "description": "Abstract component type that maps to a module in the tool configuration."
           },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional human-readable description of this component instance."
+          },
           "tags": {
             "type": "array",
             "items": {
@@ -83,6 +93,11 @@
             "type": "string",
             "minLength": 1,
             "description": "Name of an operation approved in the tool configuration."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional human-readable description of this operation invocation."
           },
           "with": {
             "type": "object",

@@ -327,6 +327,11 @@
           ],
           "additionalProperties": false,
           "properties": {
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional human-readable description of the validation rule."
+            },
             "inline": {
               "type": "string",
               "minLength": 1,
@@ -341,6 +346,11 @@
           ],
           "additionalProperties": false,
           "properties": {
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional human-readable description of the validation rule."
+            },
             "script": {
               "$ref": "#/$defs/fileReference",
               "description": "Structured reference to a Python validation script."
@@ -358,6 +368,11 @@
           ],
           "additionalProperties": false,
           "properties": {
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional human-readable description of the transform rule."
+            },
             "inline": {
               "type": "string",
               "minLength": 1,
@@ -372,6 +387,11 @@
           ],
           "additionalProperties": false,
           "properties": {
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional human-readable description of the transform rule."
+            },
             "jinja": {
               "type": "string",
               "minLength": 1,
@@ -386,6 +406,11 @@
           ],
           "additionalProperties": false,
           "properties": {
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional human-readable description of the transform rule."
+            },
             "script": {
               "$ref": "#/$defs/fileReference",
               "description": "Structured reference to a Python transform script defining `transform(value, **context)`."
@@ -398,6 +423,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional human-readable description of this component property."
+        },
         "mapped_to": {
           "type": "string",
           "description": "Optional mapped module input name for the property. If omitted, the original property name is used."
@@ -426,6 +456,11 @@
       ],
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional human-readable description of the fallback module mapping."
+        },
         "source": {
           "$ref": "#/$defs/moduleSourceTemplateReference",
           "description": "Template-capable fallback module source. String fields may reference `component.type` and `component.name`."
@@ -466,6 +501,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional human-readable description of this operation input."
+        },
         "required": {
           "type": "boolean",
           "default": false,
@@ -616,6 +656,11 @@
       ],
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional human-readable description of this provider instance."
+        },
         "alias": {
           "type": "string",
           "minLength": 1,
@@ -682,6 +727,11 @@
       ],
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional human-readable description of this provider family."
+        },
         "source": {
           "$ref": "#/$defs/providerSourceReference",
           "description": "Structured provider source reference."
@@ -781,6 +831,11 @@
   ],
   "additionalProperties": false,
   "properties": {
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional human-readable description of this managed configuration."
+    },
     "remote_auth": {
       "type": "object",
       "additionalProperties": {

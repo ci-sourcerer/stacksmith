@@ -59,6 +59,34 @@ def test_generates_after_apply_operation_module():
     assert module["spec"]["environment"] == {"RELEASE_TAG": "1.2.3"}
 
 
+def test_operation_descriptions_do_not_change_execution_identity():
+    stack = StackDefinition.model_validate(
+        {
+            "name": "application",
+            "operations": {
+                "deploy_app": {
+                    "use": "deploy",
+                    "with": {"release_tag": "1.2.3"},
+                }
+            },
+        }
+    )
+    config = _config()
+    original_identity = generate_tf_json(stack, config, {})["module"][
+        "stacksmith_operation_deploy_app"
+    ]["spec"]["identity"]
+    config.operations["deploy"].description = "Deploy an approved release."
+    config.operations["deploy"].inputs[
+        "release_tag"
+    ].description = "Immutable application release identifier."
+
+    documented_identity = generate_tf_json(stack, config, {})["module"][
+        "stacksmith_operation_deploy_app"
+    ]["spec"]["identity"]
+
+    assert documented_identity == original_identity
+
+
 def test_operation_input_preserves_component_output_reference():
     stack = StackDefinition.model_validate(
         {

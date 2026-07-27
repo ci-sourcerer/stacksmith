@@ -1,4 +1,5 @@
 name: ec2-s3-writer
+description: EC2 application stack with scoped access to versioned S3 buckets.
 tags:
   - compute
   - storage
@@ -7,6 +8,7 @@ tags:
 components:
   app_ec2_instance:
     type: aws_ec2_instance
+    description: Application host that writes artifacts to S3.
     tags:
       - prod
       - web
@@ -22,6 +24,7 @@ components:
         component: app
   assets_bucket:
     type: aws_s3_bucket
+    description: Versioned application artifact bucket.
     tags:
       - prod
       - storage
@@ -44,6 +47,7 @@ components:
         component: assets
   logs_bucket:
     type: aws_s3_bucket
+    description: Versioned application log bucket.
     tags:
       - storage
       - logs
@@ -60,6 +64,7 @@ components:
         component: logs
   asset_reader_role:
     type: aws_iam_role
+    description: IAM role used to read application artifacts.
     tags:
       - iam
     properties:

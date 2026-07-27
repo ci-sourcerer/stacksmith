@@ -1,3 +1,5 @@
+description: Credential-free configuration for the null-resource examples.
+
 backend:
   type: local
   path: .stacksmith-state

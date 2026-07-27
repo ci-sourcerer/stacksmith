@@ -63,6 +63,12 @@ from .args import (
 )
 from .parser import build_parser as _build_parser
 
+TEST_FILE_CANDIDATES = [
+    "tests.yaml",
+    "tests.yml",
+    "tests.json",
+]
+
 
 def _make_category_filter(name: str, root_level_no: int):
     def _filter(record: dict) -> bool:
@@ -297,7 +303,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
 def _default_test_manifest_paths(config_paths: list[Path]) -> list[Path]:
     manifest_paths: list[Path] = []
     for config_path in config_paths:
-        for filename in ("tests.yaml", "tests.yml", "tests.json"):
+        for filename in TEST_FILE_CANDIDATES:
             candidate = config_path.parent / filename
             if candidate.is_file() and candidate not in manifest_paths:
                 manifest_paths.append(candidate)
@@ -308,13 +314,13 @@ def _default_test_manifest_paths(config_paths: list[Path]) -> list[Path]:
 def _resolve_test_manifest_path(path: Path) -> Path:
     candidate = path.expanduser()
     if candidate.is_dir():
-        for filename in ("tests.yaml", "tests.yml", "tests.json"):
+        for filename in TEST_FILE_CANDIDATES:
             manifest = candidate / filename
             if manifest.is_file():
                 return manifest
         raise StacksmithConfigError(
             "No tests manifest was found in directory "
-            f"'{candidate}'. Expected one of tests.yaml, tests.yml, or tests.json."
+            f"'{candidate}'. Expected one of: {TEST_FILE_CANDIDATES}."
         )
 
     if candidate.suffix.lower() not in {".yaml", ".yml", ".json"}:
@@ -369,7 +375,12 @@ def _pytest_merge_args(merge_mode: MergeConfig) -> list[str]:
             "--stacksmith-merge-mode",
             merge_mode.default.value,
             "--stacksmith-merge-rules-json",
-            json.dumps([rule.model_dump(mode="json") for rule in merge_mode.rules]),
+            json.dumps(
+                [
+                    rule.model_dump(mode="json", exclude_none=True)
+                    for rule in merge_mode.rules
+                ]
+            ),
         ]
     return ["--stacksmith-merge-mode", merge_mode.value]
 
