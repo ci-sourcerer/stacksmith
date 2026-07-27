@@ -37,10 +37,10 @@ stacksmith apply \
 Use the included helper script to test the reusable GitHub Actions workflow locally.
 
 ```sh
-examples/gitops-repo/run-act-workflow.sh plan dev
-examples/gitops-repo/run-act-workflow.sh apply dev
+examples/scripts/run-act-workflow.sh gitops-repo plan dev
+examples/scripts/run-act-workflow.sh gitops-repo apply dev
 ```
 
 The script uses the same workflow inputs as the reusable job and requires AWS credentials to be available in your shell.
 
-> Note: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` must be set in your shell environment before running this test.
+> Note: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` must be set in your shell environment before running this test. Set `AWS_SESSION_TOKEN` when using temporary credentials.

@@ -33,3 +33,14 @@ stacksmith apply \
 ```
 
 The local backend writes state under `.stacksmith-state`. OpenTofu downloads the HashiCorp null provider, but no cloud credentials are required.
+
+## Local workflow testing with `act`
+
+Use the shared helper script to test the reusable GitHub Actions workflow locally.
+
+```sh
+examples/scripts/run-act-workflow.sh gitops-simple-repo plan dev
+examples/scripts/run-act-workflow.sh gitops-simple-repo apply dev
+```
+
+The script uses the same workflow inputs as the reusable job. This example does not require AWS credentials.
