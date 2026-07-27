@@ -63,11 +63,11 @@ from .args import (
 )
 from .parser import build_parser as _build_parser
 
-TEST_FILE_CANDIDATES = [
+TEST_FILE_CANDIDATES = (
     "tests.yaml",
     "tests.yml",
     "tests.json",
-]
+)
 
 
 def _make_category_filter(name: str, root_level_no: int):
