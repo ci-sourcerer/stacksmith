@@ -639,11 +639,9 @@ variable_policies:
 plan_policies:
   ec2_t3_micro_warning:
     - resources:
-        - address: aws_instance.web
-          type: aws_instance
-          change:
-            after:
-              instance_type: t3.micro
+        - type: aws_instance
+          after:
+            instance_type: t3.micro
       context:
         stack_name: production
       expect: warn
@@ -658,6 +656,8 @@ component_properties:
           output_name: bucket
           value: prod-my-bucket
 ```
+
+Each `resources` item requires `type`; Stacksmith supplies `address: <type>.this` and `change.actions: [create]` by default. Set `address` or `actions` explicitly for address-sensitive policies, multiple resources of the same type, deletes, replacements, or other non-default plan behavior. Use `plan` instead of `resources` when a test requires exact OpenTofu plan JSON.
 
 ### Local path resolution
 

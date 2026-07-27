@@ -1099,12 +1099,10 @@ class TestLoadTestManifest:
             "plan_policies:\n"
             "  ec2_requires_imdsv2:\n"
             "    - resources:\n"
-            "        - address: aws_instance.web\n"
-            "          type: aws_instance\n"
-            "          change:\n"
-            "            after:\n"
-            "              metadata_options:\n"
-            "                http_tokens: required\n"
+            "        - type: aws_instance\n"
+            "          after:\n"
+            "            metadata_options:\n"
+            "              http_tokens: required\n"
             "      context:\n"
             "        stack_name: production\n"
             "      expect: warn\n"
@@ -1125,6 +1123,12 @@ class TestLoadTestManifest:
         assert manifest.source_path == manifest_file.resolve()
         assert manifest.variable_policies["aws_region"][0].expect == "pass"
         assert manifest.plan_policies["ec2_requires_imdsv2"][0].expect == "warn"
+        assert (
+            manifest.plan_policies["ec2_requires_imdsv2"][0]
+            .resources[0]
+            .to_plan_change()["address"]
+            == "aws_instance.this"
+        )
         assert (
             manifest.component_properties["aws_s3_bucket"]["bucket_name"][
                 0

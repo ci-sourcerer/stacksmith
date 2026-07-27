@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .configuration import FileReference
 
@@ -64,12 +64,49 @@ class VariablePolicyTestCase(BaseModel):
         return _normalize_input_validation_expectation(value)
 
 
+class PlanTestResource(BaseModel):
+    """Concise representation of one planned resource change.
+
+    The generated OpenTofu plan change defaults to an address of
+    `{type}.this` and a create action.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str
+    address: str | None = None
+    actions: list[str] = Field(default_factory=lambda: ["create"], min_length=1)
+    change: dict[str, Any] | None = None
+    before: Any | None = None
+    after: Any | None = None
+    after_unknown: Any | None = None
+
+    def to_plan_change(self) -> dict[str, Any]:
+        """Render this shorthand resource into an OpenTofu plan resource change.
+
+        Returns:
+            Resource change data compatible with OpenTofu plan JSON.
+        """
+        change = dict(self.change or {})
+        change.setdefault("actions", self.actions)
+        for name in ("before", "after", "after_unknown"):
+            value = getattr(self, name)
+            if value is not None:
+                change[name] = value
+        return {
+            **(self.model_extra or {}),
+            "address": self.address or f"{self.type}.this",
+            "type": self.type,
+            "change": change,
+        }
+
+
 class PlanPolicyTestCase(BaseModel):
     """One plan validation test case."""
 
     name: str | None = None
     plan: dict[str, Any] | None = None
-    resources: list[dict[str, Any]] | None = None
+    resources: list[PlanTestResource] | None = None
     context: dict[str, Any] = Field(default_factory=dict)
     expect: str
 

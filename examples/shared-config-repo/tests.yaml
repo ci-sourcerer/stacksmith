@@ -20,31 +20,25 @@ plan_policies:
   ec2_requires_imdsv2:
     - name: passes_when_tokens_required
       resources:
-        - address: aws_instance.web
-          type: aws_instance
-          change:
-            after:
-              metadata_options:
-                http_tokens: required
+        - type: aws_instance
+          after:
+            metadata_options:
+              http_tokens: required
       expect: pass
     - name: fails_when_tokens_optional
       resources:
-        - address: aws_instance.web
-          type: aws_instance
-          change:
-            after:
-              metadata_options:
-                http_tokens: optional
+        - type: aws_instance
+          after:
+            metadata_options:
+              http_tokens: optional
       expect: fail
 
   ec2_t3_micro_warning:
     - name: warns_with_stack_context
       resources:
-        - address: aws_instance.web
-          type: aws_instance
-          change:
-            after:
-              instance_type: t3.micro
+        - type: aws_instance
+          after:
+            instance_type: t3.micro
       context:
         stack_name: production
         tags:

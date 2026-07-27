@@ -41,3 +41,5 @@ The manifest includes test cases for all supported behaviors.
 - `plan_policies` tests post-plan validation outcomes, including warnings.
 - `component_properties` tests configured transforms and validations.
 - `fixtures` supports optional setup and teardown hooks through `inline` or `script` definitions, with execution mode set by `fixtures.mode` (`per-suite` or `per-test-case`).
+
+Plan-test resource entries require `type`; their address defaults to `<type>.this` and their action defaults to `create`. Set `address` or `actions` only when the test needs a different OpenTofu plan change.

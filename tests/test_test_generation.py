@@ -87,6 +87,66 @@ def test_generate_pytest_module_includes_fixture_hooks() -> None:
     assert '@pytest.fixture(scope="module", autouse=True)' in generated.source
 
 
+def test_generate_pytest_module_expands_resource_defaults() -> None:
+    manifest = StacksmithTestManifest.model_validate(
+        {
+            "plan_policies": {
+                "ec2_requires_imdsv2": [
+                    {
+                        "resources": [
+                            {
+                                "type": "aws_instance",
+                                "after": {
+                                    "metadata_options": {"http_tokens": "required"}
+                                },
+                            }
+                        ],
+                        "expect": "pass",
+                    }
+                ]
+            }
+        }
+    )
+
+    generated = StacksmithTestGenerator(manifest).generate_pytest_module()
+
+    assert "'address': 'aws_instance.this'" in generated.source
+    assert "'actions': ['create']" in generated.source
+    assert "'metadata_options': {'http_tokens': 'required'}" in generated.source
+
+
+def test_generate_pytest_module_preserves_explicit_resource_change() -> None:
+    manifest = StacksmithTestManifest.model_validate(
+        {
+            "plan_policies": {
+                "ec2_requires_imdsv2": [
+                    {
+                        "resources": [
+                            {
+                                "address": "aws_instance.web",
+                                "type": "aws_instance",
+                                "mode": "managed",
+                                "change": {
+                                    "after": {
+                                        "metadata_options": {"http_tokens": "required"}
+                                    }
+                                },
+                            }
+                        ],
+                        "expect": "pass",
+                    }
+                ]
+            }
+        }
+    )
+
+    generated = StacksmithTestGenerator(manifest).generate_pytest_module()
+
+    assert "'address': 'aws_instance.web'" in generated.source
+    assert "'actions': ['create']" in generated.source
+    assert "'mode': 'managed'" in generated.source
+
+
 def test_generate_pytest_module_uses_per_test_case_fixture_scope() -> None:
     manifest = StacksmithTestManifest.model_validate(
         {

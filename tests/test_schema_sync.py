@@ -13,6 +13,7 @@ from stacksmith.models import (
     ModuleMapping,
     ModulePropertySpec,
     PlanPolicyTestCase,
+    PlanTestResource,
     PlanValidation,
     ProviderConfigSpec,
     ProviderFamily,
@@ -239,6 +240,15 @@ def test_test_manifest_fields_match_schema():
         "resources",
         "context",
         "expect",
+    }
+    assert _field_names(PlanTestResource) == {
+        "type",
+        "address",
+        "actions",
+        "change",
+        "before",
+        "after",
+        "after_unknown",
     }
     assert _field_names(ComponentPropertyExpectation) == {"value", "output_name"}
     assert _field_names(ComponentPropertyTestCase) == {

@@ -145,7 +145,12 @@ class StacksmithTestGenerator:
                 payload = (
                     case.plan
                     if case.plan is not None
-                    else {"resource_changes": case.resources or []}
+                    else {
+                        "resource_changes": [
+                            resource.to_plan_change()
+                            for resource in case.resources or []
+                        ]
+                    }
                 )
                 self._append_assignment(lines, "plan_payload", payload)
                 if case.context:
