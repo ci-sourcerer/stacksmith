@@ -2,6 +2,7 @@ import argparse
 import os
 from pathlib import Path
 
+from ..constants import DEFAULT_RUNFILE, DEFAULT_STACK_FILES
 from ..enums import (
     DiscoveryMode,
     InspectOutputFormat,
@@ -139,7 +140,7 @@ def get_default_run_file() -> str | None:
     if runfile:
         return runfile
 
-    default_path = Path.cwd() / "stacksmith.yaml"
+    default_path = Path.cwd() / DEFAULT_RUNFILE
     if default_path.exists():
         return str(default_path)
     return None
@@ -150,7 +151,7 @@ def get_default_stack_refs() -> list[str]:
     stack_refs = stacksmith_env_list("STACK")
     if stack_refs:
         return stack_refs
-    return [str(Path.cwd() / "stack.yaml")]
+    return [str(Path.cwd() / DEFAULT_STACK_FILES[0])]
 
 
 def _add_logging_verbosity_args(parser: argparse.ArgumentParser) -> None:

@@ -4,6 +4,7 @@ from typing import Any
 
 from loguru import logger as LOGGER
 
+from ..constants import GENERATED_TG_JSON
 from ..enums import TerragruntAction
 from ..models import StackDefinition, ToolConfig
 from ..utils import derive_stack_state_key
@@ -102,7 +103,7 @@ def write_terragrunt_json(
     doc = generate_terragrunt_json(
         stack, config, resolved_vars, dependency_stacks, dependency_build_dirs, root
     )
-    output_path = output_dir / "terragrunt.hcl.json"
+    output_path = output_dir / GENERATED_TG_JSON
     output_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
     LOGGER.debug("Wrote generated Terragrunt JSON: {path}", path=output_path)
     return output_path

@@ -51,6 +51,7 @@ from ..ci.adapters import (
     write_ssh_key_material,
 )
 from ..ci.contracts import CiExecutionManifest, build_ci_execution_argv
+from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME, TEST_FILE_CANDIDATES
 from ..enums import InspectOutputFormat, TerragruntAction, ValidationReportFormat
 from ..exceptions import StacksmithConfigError, StacksmithError
 from ..inspector import format_json, format_table
@@ -62,12 +63,6 @@ from .args import (
     parse_input_layers,
 )
 from .parser import build_parser as _build_parser
-
-TEST_FILE_CANDIDATES = (
-    "tests.yaml",
-    "tests.yml",
-    "tests.json",
-)
 
 
 def _make_category_filter(name: str, root_level_no: int):
@@ -169,11 +164,11 @@ def _ordered_input_layers(
 def _runfile_cache_dir(args: argparse.Namespace) -> Path:
     build_dir = getattr(args, "build_dir", None)
     if build_dir is not None:
-        return build_dir / ".cache"
+        return build_dir / CACHE_DIR_NAME
 
     if getattr(args, "command", None) == "run-all":
-        return getattr(args, "root", Path.cwd()) / ".stacksmith" / ".cache"
-    return Path.cwd() / ".stacksmith" / ".cache"
+        return getattr(args, "root", Path.cwd()) / STACKSMITH_DIR_NAME / CACHE_DIR_NAME
+    return Path.cwd() / STACKSMITH_DIR_NAME / CACHE_DIR_NAME
 
 
 def _load_runfile_if_present(args: argparse.Namespace):

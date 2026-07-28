@@ -12,6 +12,7 @@ from .ci.service import (
     prepare_ci_execution,
     validate_ci_inputs,
 )
+from .constants import CACHE_DIR_NAME, DEFAULT_STACK_FILES, STACKSMITH_DIR_NAME
 from .discovery import (
     build_dependency_graph,
     discover_stacks,
@@ -188,7 +189,7 @@ def _prepare_stack_definition(
 def _resolve_build_dir(stack_path: Path, build_dir: Path | None) -> Path:
     if build_dir:
         return build_dir
-    return stack_path.parent / ".stacksmith"
+    return stack_path.parent / STACKSMITH_DIR_NAME
 
 
 def _find_stack_file(stack_file: Path) -> Path:
@@ -198,12 +199,11 @@ def _find_stack_file(stack_file: Path) -> Path:
         )
         return stack_file
 
-    fallback_names = ["stack.yaml", "stack.yml", "stack.json"]
-    if stack_file.name not in fallback_names:
+    if stack_file.name not in DEFAULT_STACK_FILES:
         raise FileNotFoundError(f"Stack file not found: {stack_file}")
 
     parent = stack_file.parent or Path.cwd()
-    for candidate_name in fallback_names:
+    for candidate_name in DEFAULT_STACK_FILES:
         candidate = parent / candidate_name
         if candidate.exists():
             LOGGER.debug(
@@ -216,8 +216,8 @@ def _find_stack_file(stack_file: Path) -> Path:
 
 def _resolve_cache_dir(build_dir: Path | None, base: Path | None = None) -> Path:
     if build_dir:
-        return build_dir / ".cache"
-    return (base or Path.cwd()) / ".stacksmith" / ".cache"
+        return build_dir / CACHE_DIR_NAME
+    return (base or Path.cwd()) / STACKSMITH_DIR_NAME / CACHE_DIR_NAME
 
 
 def _clean_cache(cache_dir: Path) -> None:
@@ -468,7 +468,7 @@ def _generate_all_stacks(
     order = topological_sort(graph)
     LOGGER.debug("Stack generation order: {order}", order=order)
 
-    root_build_dir = build_dir or (root / ".stacksmith")
+    root_build_dir = build_dir or (root / STACKSMITH_DIR_NAME)
     if clean:
         if build_dir is not None and root_build_dir.exists():
             LOGGER.debug(

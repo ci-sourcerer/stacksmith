@@ -1,15 +1,12 @@
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
+from .constants import DEFAULT_STACK_FILES
 from .exceptions import StacksmithConfigError
 from .loading import load_stack_metadata
 from .models import StackDefinition
 
-_STACK_FILENAMES = {
-    "stack.yaml",
-    "stack.yml",
-    "stack.json",
-}
+_STACK_FILENAMES = set(DEFAULT_STACK_FILES)
 _EXCLUDED_DIRS = {
     "tests",
     "tmp",

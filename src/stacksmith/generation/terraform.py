@@ -7,6 +7,7 @@ from typing import Any
 
 from loguru import logger as LOGGER
 
+from ..constants import GENERATED_TF_JSON
 from ..formatters import render_module_source_for
 from ..introspection import discover_module_variables
 from ..models import (
@@ -408,7 +409,7 @@ def write_tf_json(
         operation_names=operation_names,
     )
     _write_operation_runner_assets(output_dir, tf_json)
-    output_path = output_dir / "stacksmith.tf.json"
+    output_path = output_dir / GENERATED_TF_JSON
     output_path.write_text(json.dumps(tf_json, indent=2) + "\n", encoding="utf-8")
     LOGGER.debug("Wrote generated JSON: {path}", path=output_path)
     return output_path
