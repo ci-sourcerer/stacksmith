@@ -57,10 +57,7 @@ def _parse_object_file(path: Path, suffix: str, text: str) -> dict[str, Any]:
 
 
 def _render_template(
-    text: str,
-    path: Path,
-    context: Mapping[str, Any],
-    strict: bool,
+    text: str, path: Path, context: Mapping[str, Any], strict: bool
 ) -> str:
     try:
         return (
@@ -144,10 +141,7 @@ def _walk_yaml_locations(
         _walk_yaml_locations(value_node, next_path, path, locations)
 
 
-def _extract_yaml_locations(
-    text: str,
-    path: Path,
-) -> dict[tuple[str, ...], str]:
+def _extract_yaml_locations(text: str, path: Path) -> dict[tuple[str, ...], str]:
     locations: dict[tuple[str, ...], str] = {}
     if root := yaml.compose(text):
         _walk_yaml_locations(root, (), path, locations)

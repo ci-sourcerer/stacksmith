@@ -43,7 +43,15 @@ class GitRef:
 
 
 def is_remote_url(reference: str | Path | "FileReference") -> bool:
-    """Return `True` when `reference` is a remote URL or structured remote ref."""
+    """Return `True` when `reference` is a remote URL or structured remote ref."
+
+    Args:
+        reference: Local path, structured file reference, or remote URL.
+
+    Returns:
+        `True` if `reference` is a remote URL or structured remote reference, `False`
+            otherwise.
+    """
     if is_file_reference_remote(reference):
         return True
     normalized = render_file_reference(reference)
@@ -54,6 +62,15 @@ def parse_git_url(url: str) -> GitRef:
     """Parse a git+ URL into its components.
 
     The expected form is `git+<proto>://<host>/<repo>//path[@ref]`.
+
+    Args:
+        url: git+ URL string to parse.
+
+    Raises:
+        StacksmithRemoteError: If the URL is not a valid git+ URL.
+
+    Returns:
+        Parsed git+ URL components as a `GitRef` instance.
     """
     if not isinstance(url, str) or not url:
         raise StacksmithRemoteError("Git reference URL must be a non-empty string")
@@ -142,8 +159,7 @@ def resolve_reference_path(
 
 
 def _resolve_auth_headers(
-    host: str,
-    auth_config: RemoteAuthConfig | None,
+    host: str, auth_config: RemoteAuthConfig | None
 ) -> dict[str, str]:
     if auth_config:
         entry = auth_config.get(host)
@@ -239,8 +255,7 @@ def _resolve_terragrunt_ssh_command(
 
 
 def apply_terragrunt_auth_env(
-    env: dict[str, str],
-    auth_config: RemoteAuthConfig | None,
+    env: dict[str, str], auth_config: RemoteAuthConfig | None
 ) -> dict[str, str]:
     """Apply Stacksmith remote auth settings to a Terragrunt subprocess env.
 
@@ -343,9 +358,7 @@ def _prompt_for_remote_auth(
 
 
 def _fetch_http(
-    url: str,
-    cache_dir: Path,
-    auth_config: RemoteAuthConfig | None,
+    url: str, cache_dir: Path, auth_config: RemoteAuthConfig | None
 ) -> Path:
     parsed = urlparse(url)
     filename = Path(parsed.path).name or "downloaded"
@@ -372,9 +385,7 @@ def _fetch_http(
 
 
 def _fetch_git(
-    parsed: GitRef,
-    cache_dir: Path,
-    auth_config: RemoteAuthConfig | None,
+    parsed: GitRef, cache_dir: Path, auth_config: RemoteAuthConfig | None
 ) -> Path:
     ref_label = parsed.ref or "HEAD"
     clone_dir = (
@@ -459,6 +470,20 @@ def read_reference_content(
     cache_dir: Path,
     auth_config: RemoteAuthConfig | None = None,
 ) -> str:
+    """Read the content of a remote or local file reference.
+
+    Args:
+        reference: Local file path or remote URL string.
+        cache_dir: Root cache directory (e.g. `.stacksmith/.cache`).
+        auth_config: Optional host-keyed auth configuration from the tool config.
+
+    Raises:
+        StacksmithNotFoundError: If the reference does not exist.
+        IsADirectoryError: If the reference is a directory.
+
+    Returns:
+        Content of the file as a string.
+    """
     path = resolve_if_remote(reference, cache_dir, auth_config=auth_config)
     if not path.exists():
         raise StacksmithNotFoundError(f"Reference not found: {reference}")
@@ -516,7 +541,18 @@ def resolve_references(
     auth_config: RemoteAuthConfig | None = None,
     missing_cache_error_factory: Callable[[str], Exception] | None = None,
 ) -> list[Path]:
-    """Resolve an ordered collection of local and remote file references."""
+    """Resolve an ordered collection of local and remote file references.
+
+    Args:
+        references: Collection of local file paths or remote URL strings.
+        cache_dir: Optional root cache directory. Required for remote references.
+        auth_config: Optional host-keyed auth configuration.
+        missing_cache_error_factory: Optional callback used to create a custom
+            exception when a remote reference has no cache directory.
+
+    Returns:
+        Local `Path` objects to the resolved resources.
+    """
     return [
         resolve_if_remote(
             reference,

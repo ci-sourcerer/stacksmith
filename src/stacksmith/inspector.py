@@ -1,7 +1,6 @@
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from loguru import logger as LOGGER
 
@@ -157,8 +156,7 @@ def _resolve_var_validation_location(
 
 
 def _resolve_var_validation(
-    var_name: str,
-    config: ToolConfig | None,
+    var_name: str, config: ToolConfig | None
 ) -> ValidationSpec | None:
     if config is None:
         return None
@@ -168,7 +166,6 @@ def _resolve_var_validation(
 def _build_property_input_info(
     property_name: str,
     property_spec: ModulePropertySpec,
-    component_type: str,
     config: ToolConfig | None,
     config_locations: dict[tuple[str, ...], str] | None,
     mapping_location: tuple[str, ...],
@@ -279,7 +276,6 @@ def inspect_component_type(
             _build_property_input_info(
                 prop_name,
                 prop_spec,
-                component_type,
                 config,
                 config_locations,
                 mapping_location or ("modules", component_type),
@@ -395,10 +391,17 @@ def inspect_all(
 
 
 def inspect_plan_policies(
-    config: ToolConfig,
-    config_locations: dict[tuple[str, ...], str] | None = None,
+    config: ToolConfig, config_locations: dict[tuple[str, ...], str] | None = None
 ) -> list[PlanPolicyInfo]:
-    """Inspect plan-level validations and return policy metadata."""
+    """Inspect plan-level validations and return policy metadata.
+
+    Args:
+        config: Loaded tool configuration.
+        config_locations: Optional mapping of config location paths to human-readable descriptions.
+
+    Returns:
+        _description_
+    """
     policies: list[PlanPolicyInfo] = []
     for name, plan_validation in sorted(config.plan_validations.items()):
         location = (
@@ -432,7 +435,7 @@ def format_json(results: list[ComponentTypeInfo], details: bool = True) -> str:
     Returns:
         JSON string.
     """
-    output: dict[str, Any] = {}
+    output = {}
     for info in results:
         inputs_list = []
         for inp in info.inputs:

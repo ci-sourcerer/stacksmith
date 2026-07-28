@@ -21,8 +21,7 @@ def _absolutize_local_reference(reference: Any, base_dir: Path) -> None:
 
 
 def resolve_runfile_local_references(
-    data: dict[str, Any],
-    runfile_dir: Path,
+    data: dict[str, Any], runfile_dir: Path
 ) -> dict[str, Any]:
     """Resolve local document references relative to a runfile.
 
@@ -61,8 +60,7 @@ def _resolve_module_mapping_references(module: Any, config_dir: Path) -> None:
 
 
 def resolve_config_local_references(
-    data: dict[str, Any],
-    config_dir: Path,
+    data: dict[str, Any], config_dir: Path
 ) -> dict[str, Any]:
     """Resolve local module and script references relative to a config.
 
@@ -112,8 +110,7 @@ def resolve_config_local_references(
 
 
 def resolve_test_manifest_local_references(
-    data: dict[str, Any],
-    manifest_dir: Path,
+    data: dict[str, Any], manifest_dir: Path
 ) -> dict[str, Any]:
     """Resolve local fixture scripts relative to a test manifest.
 

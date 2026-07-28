@@ -55,9 +55,7 @@ def _execution_identity(
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def _operation_definition_identity(
-    definition: OperationDefinition,
-) -> dict[str, Any]:
+def _operation_definition_identity(definition: OperationDefinition) -> dict[str, Any]:
     payload = definition.model_dump(mode="json", exclude={"description"})
     for input_specification in payload.get("inputs", {}).values():
         input_specification.pop("description", None)

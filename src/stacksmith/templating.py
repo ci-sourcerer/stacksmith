@@ -17,9 +17,7 @@ def contains_jinja_template(value: str) -> bool:
 
 
 def render_jinja_template_values(
-    value: Any,
-    context: Mapping[str, Any],
-    jinja_env: Any,
+    value: Any, context: Mapping[str, Any], jinja_env: Any
 ) -> Any:
     """Render Jinja templates recursively in dictionaries and lists.
 

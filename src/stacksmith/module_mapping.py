@@ -15,9 +15,7 @@ _MODULE_SOURCE_ADAPTER = TypeAdapter(ModuleSourceReference)
 
 
 def _mapping_context(
-    component_type: str,
-    component_name: str | None,
-    repository_path: Path | None = None,
+    component_type: str, component_name: str | None, repository_path: Path | None = None
 ) -> dict[str, Any]:
     context = {
         "component": {

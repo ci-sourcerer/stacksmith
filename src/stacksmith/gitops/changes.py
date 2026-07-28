@@ -556,7 +556,7 @@ def commit_and_push(
         paths: Existing repository-relative or absolute files to commit.
         message: Commit message.
         remote: Remote name used when `push` is true.
-        branch: Destination branch. Defaults to the checked-out branch.
+        branch: Destination branch. If `None`, use the checked-out branch.
         push: Whether to push after committing.
 
     Returns:
@@ -591,9 +591,9 @@ def request_operation_rerun(
         stack_path: Stack document containing the operation invocation.
         operation: Stack-local operation invocation name.
         rerun_token: Token to record, or a generated UUID when omitted.
-        message: Commit message. Defaults to a conventional operation-rerun message.
+        message: Commit message. If `None`, use a conventional operation-rerun message.
         remote: Remote name used when `push` is true.
-        branch: Destination branch. Defaults to the checked-out branch.
+        branch: Destination branch. If `None`, use the checked-out branch.
         push: Whether to push after committing.
 
     Returns:

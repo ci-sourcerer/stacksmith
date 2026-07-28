@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Literal
+from typing import Generator, Literal
 
 if os.name == "nt":
     import msvcrt as _msvcrt
@@ -151,7 +151,9 @@ def _resolve_single_tool_unlocked(
 
 
 @contextmanager
-def _tool_cache_lock(cache_root: Path, tool_name: ToolName) -> Iterator[None]:
+def _tool_cache_lock(
+    cache_root: Path, tool_name: ToolName
+) -> Generator[None, None, None]:
     lock_path = cache_root / tool_name / ".lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 

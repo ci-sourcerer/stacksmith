@@ -117,7 +117,7 @@ def get_env_file_paths(argv: list[str] | None = None) -> list[Path] | None:
     """Determine the .env file paths from command-line arguments.
 
     Args:
-        argv: List of command-line arguments. If `None`, defaults to sys.argv.
+        argv: List of command-line arguments. If `None`, use sys.argv.
 
     Returns:
         Ordered list of .env file paths if specified, otherwise `None`.

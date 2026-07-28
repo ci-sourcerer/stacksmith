@@ -32,11 +32,18 @@ _OPERATION_RUNNER_ASSETS = ("main.tf", "local.py", "jenkins.py")
 
 
 def operation_module_name(name: str) -> str:
+    """Generate a valid Terraform module name for an operation.
+
+    Args:
+        name: The name of the operation.
+
+    Returns:
+        A valid Terraform module name for the operation.
+    """
     return f"stacksmith_operation_{re.sub(r'[^A-Za-z0-9_]', '_', name)}"
 
 
 def _write_operation_runner_assets(output_dir: Path, tf_json: dict[str, Any]) -> None:
-    """Write runner assets required by generated operation modules only."""
     runner_names = {
         module["spec"]["runner"]
         for module in tf_json["module"].values()
@@ -67,9 +74,7 @@ def _write_operation_runner_assets(output_dir: Path, tf_json: dict[str, Any]) ->
 
 
 def _generate_operation_blocks(
-    stack: StackDefinition,
-    config: ToolConfig,
-    operation_names: set[str] | None = None,
+    stack: StackDefinition, config: ToolConfig, operation_names: set[str] | None = None
 ) -> dict[str, Any]:
     modules = {}
     for name, invocation in stack.operations.items():

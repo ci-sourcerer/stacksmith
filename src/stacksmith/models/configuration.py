@@ -125,7 +125,17 @@ MergeConfig: TypeAlias = str | MergeMode | MergePolicy
 
 
 def render_file_reference(reference: FileReference | str | Path) -> str:
-    """Render a file reference to a path/URL string for resolution routines."""
+    """Render a file reference to a path/URL string for resolution routines.
+
+    Args:
+        reference: File reference object, string, or `Path`.
+
+    Raises:
+        ValueError: If the reference type is unsupported.
+
+    Returns:
+        Path or URL string corresponding to the file reference.
+    """
     if isinstance(reference, Path):
         return str(reference)
     if isinstance(reference, str):
@@ -144,7 +154,14 @@ def render_file_reference(reference: FileReference | str | Path) -> str:
 
 
 def is_file_reference_remote(reference: FileReference | str | Path) -> bool:
-    """Return True for git/http file references."""
+    """Return `True` for git/http file references.
+
+    Args:
+        reference: File reference object, string, or `Path`.
+
+    Returns:
+        `True` if the reference is a remote git/http file reference, `False` otherwise.
+    """
     if isinstance(reference, (Path, str)):
         normalized = str(reference)
         return normalized.startswith(
@@ -294,10 +311,20 @@ ModuleSourceTemplateReference: TypeAlias = Annotated[
 
 
 def render_module_source_identity(
-    source: ModuleSourceReference,
-    options: Mapping[str, Any] | None = None,
+    source: ModuleSourceReference, options: Mapping[str, Any] | None = None
 ) -> tuple[str, str]:
-    """Return canonical (source, version/ref) tuple for cache and vendoring keys."""
+    """Return canonical (source, version/ref) tuple for cache and vendoring keys.
+
+    Args:
+        source: Structured module source reference.
+        options: Optional rendering options.
+
+    Raises:
+        ValueError: If the module source type is unsupported.
+
+    Returns:
+        Tuple of (source, version/ref) strings.
+    """
     match source:
         case RegistrySourceReference(data=data):
             return data.address, data.version
@@ -316,10 +343,20 @@ def render_module_source_identity(
 
 
 def render_module_source_fields(
-    source: ModuleSourceReference,
-    options: Mapping[str, Any] | None = None,
+    source: ModuleSourceReference, options: Mapping[str, Any] | None = None
 ) -> dict[str, str]:
-    """Render Terraform module source fields from structured source data."""
+    """Render Terraform module source fields from structured source data.
+
+    Args:
+        source: Structured module source reference.
+        options: Optional rendering options.
+
+    Raises:
+        ValueError: If the module source type is unsupported.
+
+    Returns:
+        Dictionary of Terraform module source fields.
+    """
     match source:
         case RegistrySourceReference(data=data):
             return {"source": data.address, "version": data.version}
@@ -353,10 +390,17 @@ class ProviderSourceReference(BaseModel):
 
 
 def render_provider_source_fields(
-    source: ProviderSourceReference,
-    options: Mapping[str, Any] | None = None,
+    source: ProviderSourceReference, options: Mapping[str, Any] | None = None
 ) -> dict[str, str]:
-    """Render provider source/version fields for required_providers blocks."""
+    """Render provider source/version fields for required_providers blocks.
+
+    Args:
+        source: Structured provider source reference.
+        options: Optional rendering options.
+
+    Returns:
+        Dictionary of provider source fields.
+    """
     return {
         "source": source.data.address,
         "version": source.data.version,

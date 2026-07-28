@@ -9,6 +9,7 @@ import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from loguru import logger as LOGGER
 from stacksmith.cli.args import (
@@ -155,9 +156,7 @@ def _configure_logging(
     )
 
 
-def _ordered_input_layers(
-    args: argparse.Namespace,
-) -> list[tuple[str, object]] | None:
+def _ordered_input_layers(args: argparse.Namespace) -> list[tuple[str, object]] | None:
     return parse_input_layers(getattr(args, "input_layers", None))
 
 
@@ -339,9 +338,7 @@ def _resolve_test_manifest_paths(test_paths: list[Path]) -> list[Path]:
 
 
 def _write_generated_test_module(
-    generated_source: str,
-    cache_dir: Path,
-    dump_tests_path: Path | None,
+    generated_source: str, cache_dir: Path, dump_tests_path: Path | None
 ) -> tuple[Path, contextlib.AbstractContextManager[object]]:
     if dump_tests_path is not None:
         dump_tests_path.parent.mkdir(parents=True, exist_ok=True)
@@ -666,7 +663,7 @@ def _emit_info_ci_output(
     table_renderer()
 
 
-def _format_info_ci_json(payload: object) -> str:
+def _format_info_ci_json(payload: Any) -> str:
     return json.dumps(payload, sort_keys=True, indent=2)
 
 

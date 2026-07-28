@@ -32,10 +32,7 @@ InputLayer: TypeAlias = tuple[Literal["vars", "var"], str | VariableReference]
 
 
 def _merge_resolved_value(
-    resolved: dict[str, Any],
-    name: str,
-    incoming: Any,
-    merger: AddressAwareMerger,
+    resolved: dict[str, Any], name: str, incoming: Any, merger: AddressAwareMerger
 ) -> None:
     if name in resolved:
         resolved[name] = merger.value_strategy(
@@ -111,9 +108,7 @@ def _load_vars_source(
 
 
 def _apply_cli_var_item(
-    resolved: dict[str, Any],
-    raw_item: str,
-    merger: AddressAwareMerger,
+    resolved: dict[str, Any], raw_item: str, merger: AddressAwareMerger
 ) -> None:
     name, raw_value = parse_var_assignment(raw_item)
     _merge_resolved_value(

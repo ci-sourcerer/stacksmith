@@ -109,9 +109,7 @@ def _check_required_tool_versions(
 
 
 def _resolve_plan_json_output_path(
-    base_path: Path,
-    stack_name: str,
-    multiple: bool = False,
+    base_path: Path, stack_name: str, multiple: bool = False
 ) -> Path:
     if multiple or base_path.suffix.lower() != ".json":
         return base_path / f"{stack_name}.json"
@@ -157,9 +155,7 @@ def _run_terragrunt(
 
 
 def _run_terragrunt_streaming(
-    cmd: list[str],
-    working_dir: Path,
-    auth_config: RemoteAuthConfig | None = None,
+    cmd: list[str], working_dir: Path, auth_config: RemoteAuthConfig | None = None
 ) -> int:
     return int(_run_terragrunt(cmd, working_dir, auth_config=auth_config).returncode)
 

@@ -18,10 +18,7 @@ def _load_dotenv_values(path: Path) -> dict[str, str | None]:
     return dotenv_values(path)
 
 
-def normalize_path_input(
-    path: Path | Sequence[Path],
-    empty_error: str,
-) -> list[Path]:
+def normalize_path_input(path: Path | Sequence[Path], empty_error: str) -> list[Path]:
     """Normalize one or many paths into a non-empty list.
 
     Args:
@@ -240,10 +237,7 @@ def get_current_git_repository(path: Path | None = None) -> str | None:
 
 
 def clone_git_repo(
-    repo_url: str,
-    dest: Path,
-    ref: str | None = None,
-    env: dict[str, str] | None = None,
+    repo_url: str, dest: Path, ref: str | None = None, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Shallow-clone a git repository into a destination directory.
 
@@ -281,10 +275,7 @@ def clone_git_repo(
     return subprocess.run(cmd, env=env, capture_output=True, text=True)
 
 
-def resolve_git_env(
-    host: str,
-    auth_config: dict[str, Any] | None,
-) -> dict[str, str]:
+def resolve_git_env(host: str, auth_config: dict[str, Any] | None) -> dict[str, str]:
     """Build git environment overrides for SSH or token auth."""
     env = os.environ.copy()
 

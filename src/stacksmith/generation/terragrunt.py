@@ -33,8 +33,11 @@ def generate_terragrunt_json(
     Returns:
         Dict representing the full terragrunt.hcl.json structure.
     """
-    dependency_stacks = dependency_stacks or {}
-    dependency_build_dirs = dependency_build_dirs or {}
+    if dependency_stacks is None:
+        dependency_stacks = {}
+
+    if dependency_build_dirs is None:
+        dependency_build_dirs = {}
 
     backend_type = config.backend.type
     state_key = derive_stack_state_key(stack.name, stack.source_path, root)
@@ -44,7 +47,7 @@ def generate_terragrunt_json(
         "config": config.backend.config_with_state_key(state_key),
     }
 
-    doc: dict[str, Any] = {
+    doc = {
         "terraform": {"source": "."},
         "remote_state": remote_state,
         "terraform_binary": "tofu",

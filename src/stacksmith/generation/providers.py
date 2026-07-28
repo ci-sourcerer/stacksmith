@@ -87,8 +87,7 @@ def _evaluate_provider_config(
 
 
 def _build_required_providers(
-    config: ToolConfig,
-    formatter_options: Mapping[str, Any] | None = None,
+    config: ToolConfig, formatter_options: Mapping[str, Any] | None = None
 ) -> dict[str, dict[str, str]]:
     return {
         provider_name: render_provider_source_for(

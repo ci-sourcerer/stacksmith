@@ -51,8 +51,7 @@ def _runfile_template_context(runfile_path: Path) -> dict[str, Any]:
 
 
 def _render_runfile_stage_one_templates(
-    runfile_data: dict[str, Any],
-    runfile_path: Path,
+    runfile_data: dict[str, Any], runfile_path: Path
 ) -> dict[str, Any]:
     return render_jinja_template_values(
         runfile_data,
@@ -62,8 +61,7 @@ def _render_runfile_stage_one_templates(
 
 
 def _merge_config_layers_with_locations(
-    config_paths: list[Path],
-    merge_mode: MergeConfig = MergeMode.DEEP,
+    config_paths: list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> tuple[dict[str, Any], dict[tuple[str, ...], str]]:
     merged: dict[str, Any] = {}
     merged_locations: dict[tuple[str, ...], str] = {}
@@ -100,8 +98,7 @@ def _merge_config_locations(
 
 
 def _merge_config_layers(
-    config_paths: list[Path],
-    merge_mode: MergeConfig = MergeMode.DEEP,
+    config_paths: list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     merger = AddressAwareMerger(merge_mode, "config")
@@ -149,8 +146,7 @@ def _build_stack(data: dict[str, Any], stack_paths: list[Path]) -> StackDefiniti
 
 
 def _with_git_repository_template_context(
-    template_context: Mapping[str, Any] | None,
-    stack_source_path: Path,
+    template_context: Mapping[str, Any] | None, stack_source_path: Path
 ) -> Mapping[str, Any] | None:
     repository = get_current_git_repository(stack_source_path.parent)
     if template_context is None or repository is None or "env" in template_context:
@@ -255,8 +251,7 @@ def load_stacks(
 
 
 def load_stack_metadata(
-    path: Path | list[Path],
-    merge_mode: MergeConfig = MergeMode.DEEP,
+    path: Path | list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> StackDefinition:
     """Load stack metadata without requiring template inputs.
 
@@ -296,8 +291,7 @@ def load_stack_metadata(
 
 
 def load_config(
-    path: Path | list[Path],
-    merge_mode: MergeConfig = MergeMode.DEEP,
+    path: Path | list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> ToolConfig:
     """Load, deep-merge, and validate one or more tool configuration files.
 
@@ -322,8 +316,7 @@ def load_config(
 
 
 def load_config_with_locations(
-    path: Path | list[Path],
-    merge_mode: MergeConfig = MergeMode.DEEP,
+    path: Path | list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> tuple[ToolConfig, dict[tuple[str, ...], str]]:
     """Load config and collect source locations for inline validation specs.
 
@@ -350,8 +343,7 @@ def load_config_with_locations(
 
 
 def _merge_runfile_layers(
-    runfile_paths: list[Path],
-    merge_mode: MergeConfig = MergeMode.DEEP,
+    runfile_paths: list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     merger = AddressAwareMerger(merge_mode, "runfile")
@@ -371,8 +363,7 @@ def _merge_runfile_layers(
 
 
 def _merge_test_manifest_layers(
-    manifest_paths: list[Path],
-    merge_mode: MergeConfig = MergeMode.DEEP,
+    manifest_paths: list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     merger = AddressAwareMerger(merge_mode, "config")
@@ -387,8 +378,7 @@ def _merge_test_manifest_layers(
 
 
 def _build_test_manifest(
-    data: dict[str, Any],
-    manifest_paths: list[Path],
+    data: dict[str, Any], manifest_paths: list[Path]
 ) -> StacksmithTestManifest:
     validate(instance=data, schema=load_json_schema("test_manifest.schema.json"))
     manifest = StacksmithTestManifest.model_validate(data)
@@ -397,8 +387,7 @@ def _build_test_manifest(
 
 
 def load_test_manifest(
-    path: Path,
-    merge_mode: MergeConfig = MergeMode.DEEP,
+    path: Path, merge_mode: MergeConfig = MergeMode.DEEP
 ) -> StacksmithTestManifest:
     """Load and validate one Stacksmith YAML test manifest.
 
@@ -416,8 +405,7 @@ def load_test_manifest(
 
 
 def load_test_manifests(
-    path: Path | list[Path],
-    merge_mode: MergeConfig = MergeMode.DEEP,
+    path: Path | list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> StacksmithTestManifest:
     """Load and deep-merge one or more Stacksmith test manifests.
 
@@ -458,8 +446,7 @@ def load_runfile(path: Path) -> RunFile:
 
 
 def load_runfiles(
-    path: Path | list[Path],
-    merge_mode: MergeConfig = MergeMode.DEEP,
+    path: Path | list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> RunFile:
     """Load and deep-merge one or more Stacksmith runfiles.
 

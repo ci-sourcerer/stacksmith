@@ -88,9 +88,7 @@ def _build_component_tag_context(
 
 
 def _evaluate_tag_expression(
-    expression: Any,
-    context: dict[str, Any],
-    component_name: str,
+    expression: Any, context: dict[str, Any], component_name: str
 ) -> bool:
     result = expression.search(context)
     if not isinstance(result, bool):
