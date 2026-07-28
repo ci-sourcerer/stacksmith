@@ -5,6 +5,7 @@ from pathlib import Path
 from ..enums import TerragruntAction
 from ..utils import env_truthy, stacksmith_env
 from .args import (
+    _add_apply_args,
     _add_common_args,
     _add_plan_output_args,
     _add_stack_arg,
@@ -95,6 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_args(run_all_parser)
     _add_validation_report_format_arg(run_all_parser)
     _add_plan_output_args(run_all_parser)
+    _add_apply_args(run_all_parser)
     _add_target_selection_args(
         run_all_parser,
         tag_help=(
@@ -145,7 +147,13 @@ def build_parser() -> argparse.ArgumentParser:
                 _add_plan_output_args(action_parser)
                 _add_target_selection_args(action_parser)
                 _add_validation_report_format_arg(action_parser)
-            case TerragruntAction.APPLY | TerragruntAction.DESTROY:
+            case TerragruntAction.APPLY:
+                _add_apply_args(action_parser)
+                _add_target_selection_args(
+                    action_parser,
+                    include_auto_approve=True,
+                )
+            case TerragruntAction.DESTROY:
                 _add_target_selection_args(
                     action_parser,
                     include_auto_approve=True,

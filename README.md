@@ -943,7 +943,7 @@ For production use, add GitHub Environment protections and secrets per environme
 
 The opinionated workflow resolves `STACKSMITH_ENV_FILE` from repository variables and falls back to `/dev/null` so CI runs are deterministic and do not implicitly load repository `.env` values.
 
-> ⚠️ **Warning:** Stacksmith's GitOps workflows execute a fresh generation and execution of `terragrunt apply --auto-approve` directly against the latest tip of the target branch, rather than applying a pre-saved static plan binary (e.g., `tfplan` / `tofuplan`) generated during the plan phase. This creates a risk of plan vs. apply drift under the following scenarios:
+> ⚠️ **Warning:** Stacksmith's GitOps workflows execute a fresh generation and execution of `terragrunt apply --auto-approve` directly against the latest tip of the target branch, rather than applying a pre-saved static plan binary. If you wish to use exact plan binaries natively, ensure you orchestrate `stacksmith plan --out target.tfplan` across your stacks, and push them to storage prior to leveraging `stacksmith apply --plan target.tfplan`.
 >
 > - **Concurrent Merges:** If another PR is merged after your PR's plan runs but before it is applied, the apply run will execute with the latest configurations of the target branch, which may differ from the approved plan.
 > - **External State Changes:** If resources are modified out-of-band in the cloud provider, the apply step will reflect those updates.
@@ -1159,9 +1159,9 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
                           [--strict-validation-warnings] [--use-local-modules | --no-local-modules] [--debug |
                           -q] [--validation-report-format {json}] [--destroy]
-                          [--save-plan-json SAVE_PLAN_JSON] [--fail-on-changes] [--tag TAG]
-                          [--tag-expr TAG_EXPR] [--include-tag INCLUDE_TAG] [--exclude-tag EXCLUDE_TAG]
-                          [--clean] [--auto-approve]
+                          [--save-plan-json SAVE_PLAN_JSON] [--out OUT] [--fail-on-changes] [--plan PLAN]
+                          [--tag TAG] [--tag-expr TAG_EXPR] [--include-tag INCLUDE_TAG]
+                          [--exclude-tag EXCLUDE_TAG] [--clean] [--auto-approve]
                           {init,plan,apply,destroy}
 ```
 
@@ -1188,7 +1188,9 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
 | `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
 | `--destroy` | Plan destroy operations instead of a create/update when action is plan. |
 | `--save-plan-json` | Save rendered plan JSON to the given file or directory. |
+| `--out` | Save generated execution plan to the given file or directory. |
 | `--fail-on-changes` | Return a non-zero exit code if the plan contains any resource changes. |
+| `--plan` | Path or directory to a pre-generated execution plan to apply. |
 | `--tag` | Select components by tag. Repeat to require multiple tags. Supported for run-all plan/apply/destroy. |
 | `--tag-expr` | JMESPath expression used to select resource targets. Supported for run-all plan/apply/destroy. |
 | `--include-tag` | Include stacks that have this tag. Repeatable. |
@@ -1233,8 +1235,8 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
                        [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                        [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
                        [--use-local-modules | --no-local-modules] [--debug | -q] [--destroy]
-                       [--save-plan-json SAVE_PLAN_JSON] [--fail-on-changes] [--tag TAG] [--tag-expr TAG_EXPR]
-                       [--validation-report-format {json}]
+                       [--save-plan-json SAVE_PLAN_JSON] [--out OUT] [--fail-on-changes] [--tag TAG]
+                       [--tag-expr TAG_EXPR] [--validation-report-format {json}]
                        [stack_file]
 ```
 
@@ -1259,6 +1261,7 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 | `--destroy` | Plan destroy operations instead of a create/update when action is plan. |
 | `--save-plan-json` | Save rendered plan JSON to the given file or directory. |
+| `--out` | Save generated execution plan to the given file or directory. |
 | `--fail-on-changes` | Return a non-zero exit code if the plan contains any resource changes. |
 | `--tag` | Select components by tag. Repeat to require multiple tags. |
 | `--tag-expr` | JMESPath expression used to select resource targets. |
@@ -1270,7 +1273,7 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
                         [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                         [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
-                        [--use-local-modules | --no-local-modules] [--debug | -q] [--tag TAG]
+                        [--use-local-modules | --no-local-modules] [--debug | -q] [--plan PLAN] [--tag TAG]
                         [--tag-expr TAG_EXPR] [--auto-approve]
                         [stack_file]
 ```
@@ -1294,6 +1297,7 @@ stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-fil
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+| `--plan` | Path or directory to a pre-generated execution plan to apply. |
 | `--tag` | Select components by tag. Repeat to require multiple tags. |
 | `--tag-expr` | JMESPath expression used to select resource targets. |
 | `--auto-approve` | Skip interactive approval |

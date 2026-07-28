@@ -269,6 +269,7 @@ def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path)
         cache_dir=None,
         auth_config=None,
         save_plan_json=None,
+        save_plan_binary=None,
         strict_validation_warnings: bool = False,
         fail_on_changes: bool = False,
         plan_validation_results=None,

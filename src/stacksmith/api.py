@@ -851,6 +851,8 @@ def run_stack_action(
     tags: list[str] | None = None,
     tag_expr: str | None = None,
     save_plan_json: Path | None = None,
+    out: Path | None = None,
+    plan: Path | None = None,
     strict_validation_warnings: bool = False,
     fail_on_changes: bool = False,
     no_cas: bool = False,
@@ -908,6 +910,8 @@ def run_stack_action(
         tags=tags,
         tag_expr=tag_expr,
         save_plan_json=save_plan_json,
+        out=out,
+        plan=plan,
         tag_support_label="plan, apply, and destroy",
         save_plan_label="plan",
     )
@@ -965,7 +969,7 @@ def run_stack_action(
         merge_mode=merge_mode,
     )
     terragrunt_exit_code = run_terragrunt(
-        _build_terragrunt_args(action_enum, destroy, targets=targets),
+        _build_terragrunt_args(action_enum, destroy, targets=targets, plan_file=plan),
         output_dir,
         auto_approve=auto_approve,
         config=loaded_config,
@@ -973,6 +977,7 @@ def run_stack_action(
         cache_dir=cache_dir,
         auth_config=loaded_config.remote_auth or None,
         save_plan_json=save_plan_json,
+        save_plan_binary=out,
         strict_validation_warnings=strict_validation_warnings,
         fail_on_changes=fail_on_changes,
         plan_validation_results=plan_validation_results,
@@ -1012,6 +1017,8 @@ def run_all_stacks(
     tags: list[str] | None = None,
     tag_expr: str | None = None,
     save_plan_json: Path | None = None,
+    out: Path | None = None,
+    plan: Path | None = None,
     strict_validation_warnings: bool = False,
     fail_on_changes: bool = False,
     no_cas: bool = False,
@@ -1077,6 +1084,8 @@ def run_all_stacks(
         tags=tags,
         tag_expr=tag_expr,
         save_plan_json=save_plan_json,
+        out=out,
+        plan=plan,
         tag_support_label="run-all plan, apply, and destroy",
         save_plan_label="run-all plan",
     )

@@ -195,6 +195,8 @@ def validate_action_options(
     tags: list[str] | None,
     tag_expr: str | None,
     save_plan_json: Path | None,
+    out: Path | None,
+    plan: Path | None,
     tag_support_label: str,
     save_plan_label: str,
 ) -> TerragruntAction:
@@ -205,6 +207,8 @@ def validate_action_options(
         tags: Required component tags.
         tag_expr: Optional component tag expression.
         save_plan_json: Optional plan JSON output value.
+        out: Optional exact plan binary output value.
+        plan: Optional exact plan binary input for apply operations.
         tag_support_label: Command label used in targeting errors.
         save_plan_label: Command label used in plan-output errors.
 
@@ -227,6 +231,14 @@ def validate_action_options(
         raise StacksmithConfigError(
             f"--save-plan-json is only supported for {save_plan_label}"
         )
+    if out is not None and action_enum != TerragruntAction.PLAN:
+        raise StacksmithConfigError(f"--out is only supported for {save_plan_label}")
+    if plan is not None and action_enum != TerragruntAction.APPLY:
+        raise StacksmithConfigError("--plan is only supported for apply workloads")
+    if plan is not None and (tags or tag_expr):
+        raise StacksmithConfigError(
+            "Targets (--tag/--tag-expr) cannot be used alongside --plan"
+        )
     return action_enum
 
 
@@ -234,6 +246,7 @@ def build_terragrunt_args(
     action: str | TerragruntAction,
     destroy: bool = False,
     targets: list[str] | None = None,
+    plan_file: Path | None = None,
 ) -> list[str]:
     """Build Terragrunt action and target arguments.
 
@@ -241,11 +254,19 @@ def build_terragrunt_args(
         action: Requested Terragrunt action.
         destroy: Whether a plan is a destroy plan.
         targets: Optional Terraform module addresses.
+        plan_file: Optional path to an exact plan file.
 
     Returns:
         Terragrunt arguments.
     """
     action_enum = TerragruntAction(action)
+    if action_enum == TerragruntAction.APPLY and plan_file is not None:
+        if targets:
+            raise StacksmithConfigError(
+                "Targets cannot be specified together with an exact plan file"
+            )
+        return [action_enum.value, str(plan_file)]
+
     terragrunt_args = [action_enum.value]
     if action_enum == TerragruntAction.PLAN and destroy:
         terragrunt_args.append("-destroy")

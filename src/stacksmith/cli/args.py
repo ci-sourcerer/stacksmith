@@ -199,10 +199,25 @@ def _add_plan_output_args(parser: argparse.ArgumentParser) -> None:
         help="Save rendered plan JSON to the given file or directory.",
     )
     parser.add_argument(
+        "--out",
+        type=_path_type,
+        default=None,
+        help="Save generated execution plan to the given file or directory.",
+    )
+    parser.add_argument(
         "--fail-on-changes",
         action="store_true",
         default=False,
         help="Return a non-zero exit code if the plan contains any resource changes.",
+    )
+
+
+def _add_apply_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--plan",
+        type=_path_type,
+        default=None,
+        help="Path or directory to a pre-generated execution plan to apply.",
     )
 
 
