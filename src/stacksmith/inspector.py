@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import yaml
 from loguru import logger as LOGGER
 
 from .introspection import discover_module_variables
@@ -400,7 +401,7 @@ def inspect_plan_policies(
         config_locations: Optional mapping of config location paths to human-readable descriptions.
 
     Returns:
-        _description_
+        List of `PlanPolicyInfo` results, one per plan-level validation.
     """
     policies: list[PlanPolicyInfo] = []
     for name, plan_validation in sorted(config.plan_validations.items()):
@@ -481,8 +482,6 @@ def format_yaml(results: list[ComponentTypeInfo], details: bool = True) -> str:
     Returns:
         YAML string.
     """
-    import yaml
-
     data = json.loads(format_json(results, details=details))
     return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
