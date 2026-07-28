@@ -48,7 +48,7 @@ def _setup_run_stack_action_mocks(
 
     monkeypatch.setattr(
         api,
-        "_load_runtime_config",
+        "load_runtime_config",
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
     monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
@@ -80,7 +80,7 @@ def _setup_run_all_stacks_mocks(
 
     monkeypatch.setattr(
         api,
-        "_load_runtime_config",
+        "load_runtime_config",
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
     monkeypatch.setattr(
@@ -360,7 +360,7 @@ def test_generate_stack_returns_output_path(
     calls: dict[str, object] = {}
     monkeypatch.setattr(
         api,
-        "_load_runtime_config",
+        "load_runtime_config",
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
     monkeypatch.setattr(
@@ -408,7 +408,7 @@ def test_generate_stack_renders_component_template_before_generation(
 
     monkeypatch.setattr(
         api,
-        "_load_runtime_config",
+        "load_runtime_config",
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
     monkeypatch.setattr(
@@ -450,7 +450,7 @@ def test_generate_stack_exposes_git_repository_to_stack_templates(
 
     monkeypatch.setattr(
         api,
-        "_load_runtime_config",
+        "load_runtime_config",
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
     monkeypatch.setattr(
@@ -571,7 +571,7 @@ def test_run_all_stacks_rejects_tag_selectors_for_init(
     def _fake_load_runtime_config(*args, **kwargs):
         return tmp_path / ".cache", [sample_config_yaml], config
 
-    monkeypatch.setattr(api, "_load_runtime_config", _fake_load_runtime_config)
+    monkeypatch.setattr(api, "load_runtime_config", _fake_load_runtime_config)
 
     with pytest.raises(ValueError, match="--tag and --tag-expr"):
         api.run_all_stacks("init", tmp_path, tags=["prod"])
@@ -587,7 +587,7 @@ def test_run_all_stacks_passes_explicit_stack_refs_to_generator(
 
     monkeypatch.setattr(
         api,
-        "_load_runtime_config",
+        "load_runtime_config",
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
 
@@ -626,7 +626,7 @@ def test_validate_stack_emits_single_json_report_block(
 
     monkeypatch.setattr(
         api,
-        "_load_runtime_config",
+        "load_runtime_config",
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
     monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
@@ -655,7 +655,7 @@ def test_validate_stack_emits_json_report_block_when_requested(
 
     monkeypatch.setattr(
         api,
-        "_load_runtime_config",
+        "load_runtime_config",
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
     monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
@@ -686,7 +686,7 @@ def test_validate_stack_var_validation_failure_emits_json_report(
 
     monkeypatch.setattr(
         api,
-        "_load_runtime_config",
+        "load_runtime_config",
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
     monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
@@ -728,7 +728,7 @@ def test_validate_stack_failure_logs_are_concise(
     try:
         monkeypatch.setattr(
             api,
-            "_load_runtime_config",
+            "load_runtime_config",
             lambda *args, **kwargs: (
                 tmp_path / ".cache",
                 [sample_config_yaml],

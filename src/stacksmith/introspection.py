@@ -8,9 +8,7 @@ import hcl2
 from loguru import logger as LOGGER
 
 from .exceptions import StacksmithConfigError
-from .utils import cache_key as _cache_key
-from .utils import clone_git_repo as _clone_git_repo
-from .utils import resolve_git_env as _resolve_git_env
+from .utils import cache_key, clone_git_repo, resolve_git_env
 from .vendor import vendor_path
 
 if TYPE_CHECKING:
@@ -93,9 +91,7 @@ def resolve_module_dir(
             f"Cannot introspect module {source}@{version} without a cache directory"
         )
 
-    clone_dir = (
-        cache_dir / "introspect" / f"{_cache_key(repo_url)}-{_cache_key(version)}"
-    )
+    clone_dir = cache_dir / "introspect" / f"{cache_key(repo_url)}-{cache_key(version)}"
     module_dir = clone_dir / module_path
     if clone_dir.is_dir():
         if not module_dir.is_dir():
@@ -135,9 +131,9 @@ def _clone_module(
         source=source,
         host=host,
     )
-    env = _resolve_git_env(host, auth_config)
+    env = resolve_git_env(host, auth_config)
 
-    result = _clone_git_repo(source, dest, ref=version, env=env)
+    result = clone_git_repo(source, dest, ref=version, env=env)
     if result.returncode != 0:
         raise RuntimeError(
             f"Git clone failed for introspection of {source}@{version} "

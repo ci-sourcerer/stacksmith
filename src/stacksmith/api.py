@@ -43,9 +43,11 @@ from .models import (
 )
 from .remote import is_remote_url, resolve_references
 from .runner import run_terragrunt, run_terragrunt_all_ordered
-from .targeting import build_terragrunt_args as _build_terragrunt_args
-from .targeting import resolve_tag_targets as _resolve_tag_targets
-from .targeting import validate_action_options as _validate_action_options
+from .targeting import (
+    build_terragrunt_args,
+    resolve_tag_targets,
+    validate_action_options,
+)
 from .utils import get_current_git_repository, stacksmith_env_list
 from .validations import PlanValidationOutcome, PlanValidationResult
 from .variables import InputLayer, resolve_inputs
@@ -305,13 +307,25 @@ def _build_validate_report(exit_code: int, message: str) -> dict[str, Any]:
     }
 
 
-def _load_runtime_config(
+def load_runtime_config(
     config: list[str] | None,
     build_dir: Path | None,
     base_dir: Path | None = None,
     no_cache: bool = False,
     merge_mode: MergeConfig = MergeMode.DEEP,
 ) -> tuple[Path, list[Path], ToolConfig]:
+    """Resolve and load configuration for a runtime command.
+
+    Args:
+        config: Optional configuration file references.
+        build_dir: Optional build output directory.
+        base_dir: Optional base directory for cache resolution.
+        no_cache: Whether to clear the resolved cache before loading.
+        merge_mode: Merge strategy for layered configuration files.
+
+    Returns:
+        Cache directory, resolved configuration paths, and loaded configuration.
+    """
     cache_dir = _resolve_cache_dir(build_dir, base_dir)
     if no_cache:
         _clean_cache(cache_dir)
@@ -583,7 +597,7 @@ def validate_stack(
         Validation report payload.
     """
     try:
-        cache_dir, config_paths, loaded_config = _load_runtime_config(
+        cache_dir, config_paths, loaded_config = load_runtime_config(
             config,
             build_dir,
             no_cache=no_cache,
@@ -641,7 +655,7 @@ def inspect_cache_diagnostics(
     Returns:
         Structured diagnostics payload.
     """
-    cache_dir, config_paths, _ = _load_runtime_config(
+    cache_dir, config_paths, _ = load_runtime_config(
         config,
         build_dir,
         no_cache=no_cache,
@@ -728,7 +742,7 @@ def generate_stack(
     Returns:
         Output directory path containing generated files.
     """
-    cache_dir, config_paths, loaded_config = _load_runtime_config(
+    cache_dir, config_paths, loaded_config = load_runtime_config(
         config,
         build_dir,
         no_cache=no_cache,
@@ -788,7 +802,7 @@ def run_stack_operation(
     Returns:
         OpenTofu execution metadata.
     """
-    cache_dir, _, loaded_config = _load_runtime_config(
+    cache_dir, _, loaded_config = load_runtime_config(
         config, build_dir, no_cache=no_cache, merge_mode=merge_mode
     )
     stack, resolved_inputs = _prepare_stack_definition(
@@ -893,7 +907,7 @@ def run_stack_action(
     Returns:
         Process-style exit code from the Terragrunt action.
     """
-    cache_dir, config_paths, loaded_config = _load_runtime_config(
+    cache_dir, config_paths, loaded_config = load_runtime_config(
         config,
         build_dir,
         no_cache=no_cache,
@@ -905,7 +919,7 @@ def run_stack_action(
             "--no-cache now also disables Terragrunt CAS for runtime commands. "
             "Use --no-cas for CAS-only control."
         )
-    action_enum = _validate_action_options(
+    action_enum = validate_action_options(
         action,
         tags=tags,
         tag_expr=tag_expr,
@@ -933,7 +947,7 @@ def run_stack_action(
     plan_validation_results: list[PlanValidationResult] = []
     targets = None
     if tags or tag_expr:
-        _, _, targets = _resolve_tag_targets(
+        _, _, targets = resolve_tag_targets(
             stack,
             loaded_config,
             tags=tags,
@@ -969,7 +983,7 @@ def run_stack_action(
         merge_mode=merge_mode,
     )
     terragrunt_exit_code = run_terragrunt(
-        _build_terragrunt_args(action_enum, destroy, targets=targets, plan_file=plan),
+        build_terragrunt_args(action_enum, destroy, targets=targets, plan_file=plan),
         output_dir,
         auto_approve=auto_approve,
         config=loaded_config,
@@ -1066,7 +1080,7 @@ def run_all_stacks(
     Returns:
         Process-style exit code from the Terragrunt action.
     """
-    cache_dir, config_paths, loaded_config = _load_runtime_config(
+    cache_dir, config_paths, loaded_config = load_runtime_config(
         config,
         build_dir,
         base_dir=root,
@@ -1079,7 +1093,7 @@ def run_all_stacks(
             "--no-cache now also disables Terragrunt CAS for runtime commands. "
             "Use --no-cas for CAS-only control."
         )
-    action_enum = _validate_action_options(
+    action_enum = validate_action_options(
         action,
         tags=tags,
         tag_expr=tag_expr,
@@ -1117,7 +1131,7 @@ def run_all_stacks(
         filtered_stack_dirs = {}
         stack_args_by_name = {}
         for stack_name, stack_dir in stack_build_dirs.items():
-            _, _, targets = _resolve_tag_targets(
+            _, _, targets = resolve_tag_targets(
                 stacks[stack_name],
                 loaded_config,
                 tags=tags,
@@ -1131,7 +1145,7 @@ def run_all_stacks(
                 continue
 
             filtered_stack_dirs[stack_name] = stack_dir
-            stack_args_by_name[stack_name] = _build_terragrunt_args(
+            stack_args_by_name[stack_name] = build_terragrunt_args(
                 action_enum,
                 destroy,
                 targets=targets,
@@ -1155,7 +1169,7 @@ def run_all_stacks(
         stack_build_dirs = filtered_stack_dirs
 
     terragrunt_exit_code = run_terragrunt_all_ordered(
-        _build_terragrunt_args(action_enum, destroy),
+        build_terragrunt_args(action_enum, destroy),
         stack_build_dirs,
         auto_approve=auto_approve,
         config=loaded_config,
@@ -1203,7 +1217,7 @@ def inspect_modules(
     Returns:
         Tuple of component inspection results and plan policy inspection results.
     """
-    cache_dir, config_paths, loaded_config = _load_runtime_config(
+    cache_dir, config_paths, loaded_config = load_runtime_config(
         config,
         build_dir,
         no_cache=no_cache,

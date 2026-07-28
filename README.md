@@ -1700,12 +1700,6 @@ Add a `stacksmith lock` command that resolves every remote input into an immutab
 
 Runtime commands should support `--locked` to reject inputs that disagree with the lockfile and `--offline` to prohibit network access and require every locked artifact to be available locally. This would make a runfile reproducible across machines even when its authored references use mutable branches, tags, or HTTP URLs. The lock data should be deterministic so that teams can review and commit it alongside their runfiles.
 
-#### Reviewed plan bundles and exact-plan application
-
-Allow `plan` and `run-all plan` to save an applyable plan bundle rather than only rendered plan JSON. A bundle should contain the binary OpenTofu plan, its human- and machine-readable JSON, the generated Stacksmith files, target selection, relevant tool versions, and digests of every stack, config, variable layer, and remote source used to create it.
-
-Add an apply mode that accepts only such a bundle and verifies its digests before applying the saved binary plan. This would let CI planning, policy evaluation, human approval, and deployment happen in separate jobs without silently recalculating a different plan between review and apply. Bundles containing sensitive plan data must be clearly marked and stored with appropriately restricted permissions.
-
 #### Resolution provenance and effective configuration inspection
 
 Add an `info explain` command that shows how a final input or component property was produced. Its output should identify each contributing vars file, environment variable, runfile value, and command-line override in precedence order, along with deep-merge decisions, templates, transforms, managed defaults, property renames, and automatic injection.

@@ -23,9 +23,9 @@ from ..vendor import get_vendor_dir, resolve_module_source
 from .operations import build_operation_module_spec
 from .properties import PropertyRenderer
 from .providers import (
-    _build_provider_blocks,
-    _build_required_providers,
-    _render_provider_reference,
+    build_provider_blocks,
+    build_required_providers,
+    render_provider_reference,
 )
 
 _OPERATION_RUNNER_ASSETS = ("main.tf", "local.py", "jenkins.py")
@@ -119,7 +119,7 @@ def _generate_terraform_block(
         "backend": {
             config.backend.type: config.backend.config_with_state_key(state_key)
         },
-        "required_providers": _build_required_providers(
+        "required_providers": build_required_providers(
             config,
             formatter_options=provider_source_formatter_options,
         ),
@@ -211,7 +211,7 @@ def _generate_module_blocks(
 
         if mapping.providers:
             module_block["providers"] = {
-                module_provider_name: _render_provider_reference(
+                module_provider_name: render_provider_reference(
                     config,
                     provider_reference,
                 )
@@ -357,7 +357,7 @@ def generate_tf_json(
             root,
             provider_source_formatter_options=provider_source_options,
         ),
-        "provider": _build_provider_blocks(
+        "provider": build_provider_blocks(
             config,
             context={"stack_name": stack.name, "inputs": resolved_inputs},
             base_path=(

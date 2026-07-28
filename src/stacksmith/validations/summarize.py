@@ -2,7 +2,16 @@ from collections import Counter
 from typing import Any
 
 
-def _summarize_value(value: Any, max_len: int = 200) -> str:
+def summarize_value(value: Any, max_len: int = 200) -> str:
+    """Render a compact description of a validation value.
+
+    Args:
+        value: Value to summarize.
+        max_len: Maximum string length before truncation.
+
+    Returns:
+        Compact human-readable value description.
+    """
     match value:
         case str() if len(value) > max_len:
             return f"{value[:max_len]}... ({len(value)} chars)"
@@ -32,7 +41,16 @@ def _extract_plan_values(value: Any) -> dict[str, Any] | None:
     return None
 
 
-def _redact_sensitive_plan_value(value: Any, sensitivity: Any = None) -> Any:
+def redact_sensitive_plan_value(value: Any, sensitivity: Any = None) -> Any:
+    """Replace sensitive Terraform plan values with redaction markers.
+
+    Args:
+        value: Terraform plan value tree.
+        sensitivity: Sensitivity tree corresponding to `value`.
+
+    Returns:
+        A copy of the value tree with sensitive nodes replaced.
+    """
     if sensitivity is True:
         return "<sensitive>"
 
@@ -129,7 +147,7 @@ def _summarize_redacted_value(
                 items.append("...")
             return "[" + ", ".join(items) + "]"
         case _:
-            return _summarize_value(value)
+            return summarize_value(value)
 
 
 def _summarize_plan_outputs(outputs: Any) -> str:
@@ -158,7 +176,7 @@ def _summarize_plan_resource(resource: Any) -> str:
         return _summarize_redacted_value(resource)
 
     address = resource.get("address", "unknown")
-    redacted_values = _redact_sensitive_plan_value(
+    redacted_values = redact_sensitive_plan_value(
         resource.get("values"),
         resource.get("sensitive_values"),
     )
@@ -194,7 +212,15 @@ def _summarize_plan_module(module: Any) -> list[str]:
     return parts
 
 
-def _summarize_plan_validation_value(value: Any) -> str | None:
+def summarize_plan_validation_value(value: Any) -> str | None:
+    """Summarize Terraform planned values for validation output.
+
+    Args:
+        value: Full Terraform plan or planned-values payload.
+
+    Returns:
+        Redacted planned-value summary, or `None` for a non-plan value.
+    """
     plan_values = _extract_plan_values(value)
     if plan_values is None:
         return None
@@ -217,7 +243,15 @@ def _summarize_plan_validation_value(value: Any) -> str | None:
     return _summarize_redacted_value(plan_values)
 
 
-def _summarize_plan_resources(plan_data: dict[str, Any]) -> str:
+def summarize_plan_resources(plan_data: dict[str, Any]) -> str:
+    """Summarize resource actions from a Terraform plan.
+
+    Args:
+        plan_data: Terraform plan JSON payload.
+
+    Returns:
+        Human-readable summary of resource changes.
+    """
     changes = plan_data.get("resource_changes", [])
     if not changes:
         return "(no resource changes)"

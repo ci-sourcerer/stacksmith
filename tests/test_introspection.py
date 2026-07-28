@@ -108,7 +108,7 @@ class TestResolveModuleDir:
             options={"base_path": tmp_path},
         )
 
-        with patch("stacksmith.introspection._clone_git_repo") as mock_clone:
+        with patch("stacksmith.introspection.clone_git_repo") as mock_clone:
             result = resolve_module_dir(source, version, cache_dir=tmp_path)
 
         assert result == module_dir.resolve()

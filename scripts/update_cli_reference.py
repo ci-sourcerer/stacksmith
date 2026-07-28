@@ -6,7 +6,7 @@ import re
 import sys
 from pathlib import Path
 
-from stacksmith.cli.main import _build_parser
+from stacksmith.cli.parser import build_parser
 
 README_PATH = Path("README.md")
 START_MARKER = "<!-- BEGIN GENERATED CLI REFERENCE -->"
@@ -30,7 +30,7 @@ def generate_cli_reference() -> str:
                 "supplies stack refs."
             ),
             "",
-            _format_parser_reference(_build_parser(), 3),
+            _format_parser_reference(build_parser(), 3),
             "",
             END_MARKER,
         ]

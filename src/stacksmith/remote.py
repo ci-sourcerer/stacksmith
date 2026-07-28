@@ -17,13 +17,11 @@ from rich.prompt import Prompt
 
 from .exceptions import StacksmithNotFoundError, StacksmithRemoteError
 from .models import is_file_reference_remote, render_file_reference
-from .utils import cache_key as _cache_key
 from .utils import (
+    cache_key,
     clone_git_repo,
     env_truthy,
-)
-from .utils import resolve_git_env as _resolve_git_env
-from .utils import (
+    resolve_git_env,
     stacksmith_env,
 )
 
@@ -362,7 +360,7 @@ def _fetch_http(
 ) -> Path:
     parsed = urlparse(url)
     filename = Path(parsed.path).name or "downloaded"
-    dest_dir = cache_dir / "http" / _cache_key(url)
+    dest_dir = cache_dir / "http" / cache_key(url)
     dest = dest_dir / filename
 
     if dest.exists():
@@ -389,7 +387,7 @@ def _fetch_git(
 ) -> Path:
     ref_label = parsed.ref or "HEAD"
     clone_dir = (
-        cache_dir / "git" / f"{_cache_key(parsed.repo_url)}-{_cache_key(ref_label)}"
+        cache_dir / "git" / f"{cache_key(parsed.repo_url)}-{cache_key(ref_label)}"
     )
     target = clone_dir / parsed.path
 
@@ -398,7 +396,7 @@ def _fetch_git(
         return target
 
     host = urlparse(parsed.repo_url).hostname or ""
-    env = _resolve_git_env(host, auth_config)
+    env = resolve_git_env(host, auth_config)
 
     result = clone_git_repo(
         parsed.repo_url,
@@ -412,7 +410,7 @@ def _fetch_git(
                 f"git+{parsed.repo_url}//{parsed.path}@{parsed.ref or ''}",
                 auth_config,
             )
-            env = _resolve_git_env(host, auth_config)
+            env = resolve_git_env(host, auth_config)
             result = clone_git_repo(
                 parsed.repo_url,
                 clone_dir,
