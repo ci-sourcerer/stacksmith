@@ -5,10 +5,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from stacksmith.models import GitReference, RemoteAuthEntry
 from stacksmith.remote import (
-    _cache_key,
-    _fetch_http,
-    _resolve_auth_headers,
-    _resolve_git_env,
     apply_terragrunt_auth_env,
     is_remote_url,
     read_reference_content,
@@ -16,6 +12,7 @@ from stacksmith.remote import (
     resolve_references,
     resolve_remote,
 )
+from stacksmith.utils import cache_key, resolve_git_env
 
 
 @pytest.mark.parametrize(
@@ -66,42 +63,59 @@ def test_is_remote_url_true_for_git_plus_string():
 
 
 def test_cache_key_deterministic():
-    assert _cache_key("hello") == _cache_key("hello")
-    assert _cache_key("a") != _cache_key("b")
-    assert len(_cache_key("anything")) == 16
+    assert cache_key("hello") == cache_key("hello")
+    assert cache_key("a") != cache_key("b")
+    assert len(cache_key("anything")) == 16
 
 
-def test_resolve_auth_headers_from_config():
+def test_resolve_auth_headers_from_config(tmp_path: Path):
     entry = RemoteAuthEntry(type="token", token_env="MY_TOKEN")
     auth_config = {"github.com": entry}
+    response = MagicMock(content=b"data", status_code=200)
 
-    with patch.dict("os.environ", {"MY_TOKEN": "tok123"}, clear=False):
-        headers = _resolve_auth_headers("github.com", auth_config)
+    with (
+        patch.dict("os.environ", {"MY_TOKEN": "tok123"}, clear=False),
+        patch("stacksmith.remote.requests.get", return_value=response) as mock_get,
+    ):
+        resolve_remote("https://github.com/config.yaml", tmp_path, auth_config)
 
-    assert headers == {"Authorization": "Bearer tok123"}
+    assert mock_get.call_args.kwargs["headers"] == {"Authorization": "Bearer tok123"}
 
 
-def test_resolve_auth_headers_from_env_token(monkeypatch):
+def test_resolve_auth_headers_from_env_token(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("STACKSMITH_HTTP_TOKEN", "env-token")
-    headers = _resolve_auth_headers("example.com", None)
-    assert headers == {"Authorization": "Bearer env-token"}
+    response = MagicMock(content=b"data", status_code=200)
+
+    with patch("stacksmith.remote.requests.get", return_value=response) as mock_get:
+        resolve_remote("https://example.com/config.yaml", tmp_path)
+
+    assert mock_get.call_args.kwargs["headers"] == {"Authorization": "Bearer env-token"}
 
 
-def test_resolve_auth_headers_from_env_basic(monkeypatch):
+def test_resolve_auth_headers_from_env_basic(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("STACKSMITH_HTTP_USERNAME", "user")
     monkeypatch.setenv("STACKSMITH_HTTP_PASSWORD", "pass")
     monkeypatch.delenv("STACKSMITH_HTTP_TOKEN", raising=False)
-    headers = _resolve_auth_headers("example.com", None)
+    response = MagicMock(content=b"data", status_code=200)
+
+    with patch("stacksmith.remote.requests.get", return_value=response) as mock_get:
+        resolve_remote("https://example.com/config.yaml", tmp_path)
+
+    headers = mock_get.call_args.kwargs["headers"]
     assert "Authorization" in headers
     assert headers["Authorization"].startswith("Basic ")
 
 
-def test_resolve_auth_headers_no_auth(monkeypatch):
+def test_resolve_auth_headers_no_auth(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("STACKSMITH_HTTP_TOKEN", raising=False)
     monkeypatch.delenv("STACKSMITH_HTTP_USERNAME", raising=False)
     monkeypatch.delenv("STACKSMITH_HTTP_PASSWORD", raising=False)
-    headers = _resolve_auth_headers("example.com", None)
-    assert headers == {}
+    response = MagicMock(content=b"data", status_code=200)
+
+    with patch("stacksmith.remote.requests.get", return_value=response) as mock_get:
+        resolve_remote("https://example.com/config.yaml", tmp_path)
+
+    assert mock_get.call_args.kwargs["headers"] == {}
 
 
 def test_resolve_git_env_ssh_key_from_config(monkeypatch):
@@ -110,7 +124,7 @@ def test_resolve_git_env_ssh_key_from_config(monkeypatch):
     entry = RemoteAuthEntry(type="ssh", ssh_key_path="/home/user/.ssh/deploy_key")
     auth_config = {"github.com": entry}
 
-    env = _resolve_git_env("github.com", auth_config)
+    env = resolve_git_env("github.com", auth_config)
 
     assert "GIT_SSH_COMMAND" in env
     assert "/home/user/.ssh/deploy_key" in env["GIT_SSH_COMMAND"]
@@ -123,7 +137,7 @@ def test_resolve_git_env_token_from_config(monkeypatch):
     entry = RemoteAuthEntry(type="token", token_env="DEPLOY_TOKEN")
     auth_config = {"github.com": entry}
 
-    env = _resolve_git_env("github.com", auth_config)
+    env = resolve_git_env("github.com", auth_config)
 
     assert env.get("GIT_CONFIG_COUNT") == "1"
     assert "tok-xyz" in env.get("GIT_CONFIG_KEY_0", "")
@@ -133,7 +147,7 @@ def test_resolve_git_env_fallback_env_token(monkeypatch):
     monkeypatch.setenv("STACKSMITH_GIT_TOKEN", "fallback-tok")
     monkeypatch.delenv("STACKSMITH_GIT_SSH_KEY", raising=False)
 
-    env = _resolve_git_env("example.com", None)
+    env = resolve_git_env("example.com", None)
 
     assert env.get("GIT_CONFIG_COUNT") == "1"
     assert "fallback-tok" in env.get("GIT_CONFIG_KEY_0", "")
@@ -182,13 +196,13 @@ def test_fetch_http_downloads_and_caches(tmp_path, monkeypatch):
     mock_resp.raise_for_status = MagicMock()
 
     with patch("stacksmith.remote.requests.get", return_value=mock_resp) as mock_get:
-        result = _fetch_http("https://example.com/scripts/validate.py", tmp_path, None)
+        result = resolve_remote("https://example.com/scripts/validate.py", tmp_path)
         assert result.exists()
         assert result.read_bytes() == b"file-contents"
         mock_get.assert_called_once()
 
         # Second call should use cache
-        result2 = _fetch_http("https://example.com/scripts/validate.py", tmp_path, None)
+        result2 = resolve_remote("https://example.com/scripts/validate.py", tmp_path)
         assert result2 == result
         mock_get.assert_called_once()  # no second call
 
@@ -202,7 +216,7 @@ def test_fetch_http_raises_on_failure(tmp_path, monkeypatch):
 
     with patch("stacksmith.remote.requests.get", return_value=mock_resp):
         with pytest.raises(Exception, match="404 Not Found"):
-            _fetch_http("https://example.com/missing.yaml", tmp_path, None)
+            resolve_remote("https://example.com/missing.yaml", tmp_path)
 
 
 def test_resolve_remote_http(tmp_path, monkeypatch):
@@ -251,7 +265,7 @@ def test_resolve_remote_git(tmp_path, monkeypatch):
         clone_dir = (
             tmp_path
             / "git"
-            / f"{_cache_key(git_reference.data.repo)}-{_cache_key('main')}"
+            / f"{cache_key(git_reference.data.repo)}-{cache_key('main')}"
         )
         clone_dir.mkdir(parents=True)
         (clone_dir / "scripts").mkdir()
@@ -276,7 +290,7 @@ def test_resolve_remote_git_plus_string(tmp_path, monkeypatch):
         clone_dir = (
             tmp_path
             / "git"
-            / f"{_cache_key('https://github.com/org/repo.git')}-{_cache_key('main')}"
+            / f"{cache_key('https://github.com/org/repo.git')}-{cache_key('main')}"
         )
         clone_dir.mkdir(parents=True)
         (clone_dir / "scripts").mkdir()

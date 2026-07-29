@@ -1,0 +1,6 @@
+description: Prod environment values
+
+vars:
+  - source: local
+    data:
+      path: ../vars.prod.yaml

@@ -186,7 +186,14 @@ def stacksmith_env_list(
 
 
 def cache_key(value: str) -> str:
-    """Return a short, deterministic cache key for a string."""
+    """Return a short, deterministic cache key for a string.
+
+    Args:
+        value: String to hash.
+
+    Returns:
+        First 16 hexadecimal characters of the string's SHA-256 digest.
+    """
     return hashlib.sha256(value.encode()).hexdigest()[:16]
 
 
@@ -276,7 +283,15 @@ def clone_git_repo(
 
 
 def resolve_git_env(host: str, auth_config: dict[str, Any] | None) -> dict[str, str]:
-    """Build git environment overrides for SSH or token auth."""
+    """Build Git environment overrides for SSH or token authentication.
+
+    Args:
+        host: Git host whose authentication settings should be resolved.
+        auth_config: Optional authentication settings keyed by host.
+
+    Returns:
+        Current process environment with matching Git authentication overrides.
+    """
     env = os.environ.copy()
 
     ssh_key: str | None = None

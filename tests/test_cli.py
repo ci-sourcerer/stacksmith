@@ -18,7 +18,7 @@ from stacksmith.models import MergePolicy, MergeRule, RunFile, render_file_refer
 
 @pytest.fixture
 def parser():
-    return stacksmith.cli.main._build_parser()
+    return stacksmith.cli.main.build_parser()
 
 
 def _capture_run_all_stacks_call(
@@ -105,7 +105,7 @@ def test_config_default_from_env(monkeypatch, parser):
 
 def test_root_defaults_to_cwd(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    parser = stacksmith.cli.main._build_parser()
+    parser = stacksmith.cli.main.build_parser()
     args = parser.parse_args(["run-all", "plan", "--config", "/tmp/config.yaml"])
 
     assert args.root == tmp_path
@@ -164,7 +164,7 @@ def test_test_command_forwards_merged_config_to_pytest(
         calls["pytest"] = (command, check)
         return SimpleNamespace(returncode=7)
 
-    monkeypatch.setattr(cli_main, "_load_runtime_config", _fake_load_runtime_config)
+    monkeypatch.setattr(cli_main, "load_runtime_config", _fake_load_runtime_config)
     monkeypatch.setattr(
         cli_main, "load_test_manifests", lambda *args, **kwargs: object()
     )
@@ -262,7 +262,7 @@ def test_test_command_discovers_test_directories_for_all_config_layers(
 
     monkeypatch.setattr(
         cli_main,
-        "_load_runtime_config",
+        "load_runtime_config",
         lambda *args, **kwargs: (
             tmp_path / ".cache",
             [base_config, override_config],
@@ -322,7 +322,7 @@ def test_test_command_requires_manifest_when_none_discovered(
     config_path = tmp_path / "stacksmith-config.yaml"
     monkeypatch.setattr(
         cli_main,
-        "_load_runtime_config",
+        "load_runtime_config",
         lambda *args, **kwargs: (tmp_path / ".cache", [config_path], object()),
     )
 
@@ -452,7 +452,7 @@ def test_default_run_file_is_detected(tmp_path, monkeypatch):
 
 def test_stack_file_default_from_env_var(monkeypatch):
     monkeypatch.setenv("STACKSMITH_STACK", "/tmp/other-stack.yaml")
-    parser = stacksmith.cli.main._build_parser()
+    parser = stacksmith.cli.main.build_parser()
     args = parser.parse_args(["validate"])
 
     assert args.stack_file == Path("/tmp/other-stack.yaml")
@@ -601,7 +601,7 @@ def test_plan_subcommand_supports_validation_report_format(parser):
 
 
 def test_plan_subcommand_supports_debug_and_save_plan_json(tmp_path):
-    parser = stacksmith.cli.main._build_parser()
+    parser = stacksmith.cli.main.build_parser()
     args = parser.parse_args(
         [
             "plan",
@@ -623,7 +623,7 @@ def test_plan_subcommand_supports_fail_on_changes(parser):
 
 
 def test_plan_subcommand_supports_quiet_and_save_plan_json(tmp_path):
-    parser = stacksmith.cli.main._build_parser()
+    parser = stacksmith.cli.main.build_parser()
     args = parser.parse_args(
         [
             "plan",
@@ -888,7 +888,7 @@ def test_cmd_operation_run_passes_runtime_flags(monkeypatch, parser, capsys):
 def test_operation_force_rerun_reads_environment(monkeypatch):
     monkeypatch.setenv("STACKSMITH_FORCE_RERUN", "1")
 
-    args = stacksmith.cli.main._build_parser().parse_args(
+    args = stacksmith.cli.main.build_parser().parse_args(
         ["operation", "run", "deploy_app", "stack.yaml"]
     )
 
@@ -941,7 +941,7 @@ def test_cmd_validate_accepts_multiple_run_files(monkeypatch, tmp_path):
         ),
     )
 
-    parser = stacksmith.cli.main._build_parser()
+    parser = stacksmith.cli.main.build_parser()
     args = parser.parse_args(
         [
             "validate",
@@ -1001,7 +1001,7 @@ def test_cmd_validate_prepends_runfile_layers(monkeypatch, tmp_path):
         ),
     )
 
-    parser = stacksmith.cli.main._build_parser()
+    parser = stacksmith.cli.main.build_parser()
     args = parser.parse_args(
         [
             "validate",
@@ -1053,7 +1053,7 @@ def test_cmd_validate_prepends_runfile_layers(monkeypatch, tmp_path):
 def test_cmd_terragrunt_action_uses_runner(monkeypatch):
     calls = _capture_run_stack_action_call(monkeypatch)
 
-    parser = stacksmith.cli.main._build_parser()
+    parser = stacksmith.cli.main.build_parser()
     args = parser.parse_args(["plan", "stack.yaml", "--destroy"])
 
     exit_code = cli_main._cmd_terragrunt_action(args, "plan")
@@ -1077,7 +1077,7 @@ def test_cmd_run_all_passes_explicit_stacks_from_run_file(monkeypatch, tmp_path)
         ),
     )
 
-    parser = stacksmith.cli.main._build_parser()
+    parser = stacksmith.cli.main.build_parser()
     args = parser.parse_args(
         ["run-all", "plan", "--runfile", str(tmp_path / "stacksmith.yaml")]
     )
@@ -1109,7 +1109,7 @@ def test_cli_merge_mode_overrides_runfile(monkeypatch, tmp_path):
         ),
     )
 
-    parser = stacksmith.cli.main._build_parser()
+    parser = stacksmith.cli.main.build_parser()
     args = parser.parse_args(
         [
             "validate",
@@ -1144,7 +1144,7 @@ def test_runfile_merge_rules_are_forwarded_as_policy(monkeypatch, tmp_path):
         ),
     )
 
-    args = stacksmith.cli.main._build_parser().parse_args(
+    args = stacksmith.cli.main.build_parser().parse_args(
         ["validate", "--runfile", str(tmp_path / "stacksmith.yaml")]
     )
 
@@ -1229,7 +1229,7 @@ def test_cmd_run_all_preserves_interleaved_input_layers(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli_main, "run_all_stacks", _fake_run_all_stacks)
 
-    parser = stacksmith.cli.main._build_parser()
+    parser = stacksmith.cli.main.build_parser()
     args = parser.parse_args(
         [
             "run-all",
@@ -1385,7 +1385,7 @@ def test_use_local_modules_flag_resolution(
     else:
         monkeypatch.setenv("STACKSMITH_ONLY_USE_LOCAL_MODULES", env_value)
 
-    parser = stacksmith.cli.main._build_parser()
+    parser = stacksmith.cli.main.build_parser()
     args = parser.parse_args(argv)
     assert args.use_local_modules is expected
 
@@ -1410,7 +1410,7 @@ def test_cmd_run_all_passes_use_local_modules(monkeypatch):
     calls = _capture_run_all_stacks_call(monkeypatch)
     monkeypatch.setenv("STACKSMITH_ONLY_USE_LOCAL_MODULES", "1")
 
-    parser = stacksmith.cli.main._build_parser()
+    parser = stacksmith.cli.main.build_parser()
     args = parser.parse_args(["run-all", "plan"])
     cli_main._cmd_run_all(args)
 
@@ -1428,7 +1428,7 @@ def test_cmd_diagnose_uses_api(monkeypatch):
         cli_main, "inspect_cache_diagnostics", _fake_inspect_cache_diagnostics
     )
 
-    parser = stacksmith.cli.main._build_parser()
+    parser = stacksmith.cli.main.build_parser()
     args = parser.parse_args(["info", "diagnose", "stack.yaml"])
     exit_code = cli_main._cmd_diagnose(args)
 

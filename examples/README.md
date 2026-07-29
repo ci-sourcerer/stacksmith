@@ -6,7 +6,7 @@ The example provisions a small EC2 writer workload and S3 buckets, then wires IA
 
 The `gitops-repo` example is the canonical GitOps sample. It uses the hybrid `env-files` discovery mode with `environments/<env>.yaml` files and a shared `common/stacksmith.yaml` runfile.
 
-The `gitops-simple-repo` example uses the same discovery layout to plan two credential-free Terraform `null_resource` instances across `dev` and `prod`.
+The `gitops-simple-repo` example uses the same discovery layout to plan two credential-free Terraform `terraform_data` instances across `dev` and `prod`.
 
 The same workflow also supports the other two discovery styles.
 
@@ -64,9 +64,9 @@ Use `Jenkinsfile` as the Jenkins GitOps entrypoint. It mirrors the GitHub Action
 
 ## Example stack
 
-The stack file is [`stack-repo/bucket-and-ec2/stack.yaml`](stack-repo/bucket-and-ec2/stack.yaml).
+The stack file is [`stack-repo/stack.yaml`](stack-repo/stack.yaml).
 
-The vars file is [`stack-repo/bucket-and-ec2/vars.dev.yaml`](stack-repo/bucket-and-ec2/vars.dev.yaml).
+The vars file is [`stack-repo/vars.dev.yaml`](stack-repo/vars.dev.yaml).
 
 The stack has the following tags.
 
@@ -116,7 +116,7 @@ Before running `plan`, `apply`, or `destroy`, make sure the following are set up
 - The secondary provider only skips `assume_role` when STS caller identity resolves to a root ARN. If identity lookup fails or is inconclusive, the example keeps `assume_role` enabled.
 - Set `STACKSMITH_VAR_AWS_PROFILE`, `AWS_PROFILE`, or `AWS_DEFAULT_PROFILE` if you want deterministic profile selection for the root identity check.
 - The secondary provider config lives in [`shared-config-repo/scripts/providers/configure_aws_secondary_provider.py`](shared-config-repo/scripts/providers/configure_aws_secondary_provider.py) and reuses [`shared-config-repo/scripts/providers/aws_identity.py`](shared-config-repo/scripts/providers/aws_identity.py) for root detection.
-- Vars in [`stack-repo/bucket-and-ec2/vars.dev.yaml`](stack-repo/bucket-and-ec2/vars.dev.yaml) are adapted for your account, especially `subnet_id`.
+- Vars in [`stack-repo/vars.dev.yaml`](stack-repo/vars.dev.yaml) are adapted for your account, especially `subnet_id`.
 - Account and region assumptions in [`shared-config-repo/stacksmith-config.yaml`](shared-config-repo/stacksmith-config.yaml) match your target environment.
 
 ## Common commands
@@ -124,8 +124,8 @@ Before running `plan`, `apply`, or `destroy`, make sure the following are set up
 Run these commands from the repository root.
 
 ```bash
-STACK_FILE="examples/stack-repo/bucket-and-ec2/stack.yaml"
-VARS_FILE="examples/stack-repo/bucket-and-ec2/vars.dev.yaml"
+STACK_FILE="examples/stack-repo/stack.yaml"
+VARS_FILE="examples/stack-repo/vars.dev.yaml"
 CONFIG_FILE="examples/shared-config-repo/stacksmith-config.yaml"
 SHARED_VARS_FILE=<path-to-shared-vars-file>
 ```
@@ -255,7 +255,7 @@ High-value flags for this example workflow.
 
 ## Generated output
 
-For single-stack operations, generated files are written under `examples/stack-repo/bucket-and-ec2/.stacksmith`.
+For single-stack operations, generated files are written under `examples/stack-repo/.stacksmith`.
 
 When using `run-all` commands, generated files are organized as `examples/stack-repo/.stacksmith/<stack-name>/`.
 

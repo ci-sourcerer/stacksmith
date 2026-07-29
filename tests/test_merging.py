@@ -3,8 +3,12 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 from stacksmith.exceptions import StacksmithConfigError
-from stacksmith.loading import load_runfile, load_runfiles, load_stacks
-from stacksmith.loading.service import _merge_config_locations
+from stacksmith.loading import (
+    load_config_with_locations,
+    load_runfile,
+    load_runfiles,
+    load_stacks,
+)
 from stacksmith.merging import AddressAwareMerger
 from stacksmith.models import InlineReference, MergePolicy, MergeRule
 from stacksmith.variables import resolve_inputs
@@ -133,18 +137,70 @@ def test_variable_rule_overrides_selected_value_only():
     assert result["preserve"] == {"old": True, "new": True}
 
 
-def test_replaced_config_subtree_prunes_stale_source_locations():
-    assert _merge_config_locations(
-        {
-            ("module_mappings", "api", "properties", "old", "validation"): "base:1-2",
-            ("var_validations", "region"): "base:3-4",
-        },
-        {("module_mappings", "api", "properties", "new", "validation"): "overlay:1-2"},
-        [("module_mappings", "api", "properties")],
-    ) == {
-        ("module_mappings", "api", "properties", "new", "validation"): "overlay:1-2",
-        ("var_validations", "region"): "base:3-4",
-    }
+def test_replaced_config_subtree_prunes_stale_source_locations(
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    base = tmp_path / "base.yaml"
+    overlay = tmp_path / "overlay.yaml"
+    config = sample_config_yaml.read_text(encoding="utf-8") + (
+        "\nvar_validations:\n"
+        "  region:\n"
+        "    inline: |\n"
+        "      def validate(value):\n"
+        "          return True\n"
+    )
+    config = config.replace(
+        "      acl:\n" "        mapped_to: bucket_acl\n",
+        "      old:\n"
+        "        validation:\n"
+        "          inline: |\n"
+        "            def validate(value):\n"
+        "                return True\n",
+    )
+    base.write_text(config, encoding="utf-8")
+
+    overlay.write_text(
+        "module_mappings:\n"
+        "  aws_s3_bucket:\n"
+        "    properties:\n"
+        "      new:\n"
+        "        validation:\n"
+        "          inline: |\n"
+        "            def validate(value):\n"
+        "                return True\n",
+        encoding="utf-8",
+    )
+    _, locations = load_config_with_locations(
+        [base, overlay],
+        merge_mode=MergePolicy(
+            rules=[
+                MergeRule(
+                    select=(
+                        "scope == 'config' && address == "
+                        "'/module_mappings/aws_s3_bucket/properties'"
+                    ),
+                    mode="override",
+                )
+            ]
+        ),
+    )
+
+    assert (
+        "module_mappings",
+        "aws_s3_bucket",
+        "properties",
+        "old",
+        "validation",
+    ) not in locations
+    assert (
+        "module_mappings",
+        "aws_s3_bucket",
+        "properties",
+        "new",
+        "validation",
+    ) in locations
+    assert ("var_validations", "region") in locations
 
 
 def test_runfile_rules_do_not_control_their_bootstrap_merge(tmp_path: Path):

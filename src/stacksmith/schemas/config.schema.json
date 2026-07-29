@@ -807,28 +807,6 @@
       }
     }
   },
-  "required": [
-    "backend",
-    "tools",
-    "provider_mappings"
-  ],
-  "anyOf": [
-    {
-      "required": [
-        "default_module_mapping"
-      ]
-    },
-    {
-      "required": [
-        "module_mappings"
-      ],
-      "properties": {
-        "module_mappings": {
-          "minProperties": 1
-        }
-      }
-    }
-  ],
   "additionalProperties": false,
   "properties": {
     "description": {
@@ -909,7 +887,6 @@
     },
     "provider_mappings": {
       "type": "object",
-      "minProperties": 1,
       "additionalProperties": {
         "$ref": "#/$defs/providerFamily"
       },

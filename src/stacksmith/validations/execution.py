@@ -27,9 +27,9 @@ from .outcomes import (
     PlanValidationResult,
 )
 from .summarize import (
-    _summarize_plan_resources,
-    _summarize_plan_validation_value,
-    _summarize_value,
+    summarize_plan_resources,
+    summarize_plan_validation_value,
+    summarize_value,
 )
 
 
@@ -309,7 +309,7 @@ def _process_plan_validation(
             LOGGER.debug(
                 "Redacted plan values for validation '{name}': {summary}",
                 name=name,
-                summary=_summarize_plan_validation_value(plan_data) or "<unavailable>",
+                summary=summarize_plan_validation_value(plan_data) or "<unavailable>",
             )
     else:
         LOGGER.debug(
@@ -371,7 +371,7 @@ def _invalid_outcome_contract_message(allow_warn: bool, raw_result: Any) -> str:
     status_values = "'pass', 'warn', or 'fail'" if allow_warn else "'pass' or 'fail'"
     return (
         f"Validation must return {status_values}, or a mapping with a 'status' key. "
-        f"Received {_summarize_value(raw_result)!r}."
+        f"Received {summarize_value(raw_result)!r}."
     )
 
 
@@ -425,11 +425,11 @@ def validate_value_with_outcome(
 
     value_summary = None
     if context and context.get("kind") == "plan_validation":
-        plan_value_summary = _summarize_plan_validation_value(value)
+        plan_value_summary = summarize_plan_validation_value(value)
         if plan_value_summary is not None:
             value_summary = f"plan values: {plan_value_summary}"
     elif context:
-        value_summary = f"value was {_summarize_value(value)!r}"
+        value_summary = f"value was {summarize_value(value)!r}"
 
     ns = {"value": value, "context": context or {}} if spec.inline is not None else {}
     try:
@@ -563,7 +563,7 @@ def evaluate_plan_validations_with_results(
         List of structured outcomes for each enabled plan validation rule.
     """
     results: list[PlanValidationResult] = []
-    resource_summary = _summarize_plan_resources(plan_data)
+    resource_summary = summarize_plan_resources(plan_data)
     validation_context = {"kind": "plan_validation", **(context or {})}
     stack_name = validation_context.get("stack_name", "<unknown>")
     enabled_rules = [

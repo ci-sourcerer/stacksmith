@@ -1,6 +1,6 @@
 # Simple GitOps Example
 
-This credential-free example creates two Terraform `null_resource` instances. It uses the same hybrid `env-files` discovery layout as the canonical GitOps example.
+This credential-free example creates two Terraform `terraform_data` instances. It uses the same hybrid `env-files` discovery layout as the canonical GitOps example.
 
 The common runfile loads the credential-free config from the shared config repo, the stack, and `vars/vars.common.yaml`. The discovered `dev` and `prod` environment files add their matching environment-specific vars.
 
@@ -32,7 +32,7 @@ stacksmith apply \
   --runfile examples/gitops-simple-repo/environments/${ENVIRONMENT}.yaml
 ```
 
-The local backend writes state under `.stacksmith-state`. OpenTofu downloads the HashiCorp null provider, but no cloud credentials are required.
+The local backend writes state under `.stacksmith-state`. OpenTofu downloads the HashiCorp terraform builtin provider, but no cloud credentials are required.
 
 ## Local workflow testing with `act`
 

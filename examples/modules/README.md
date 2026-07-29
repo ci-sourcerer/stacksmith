@@ -6,7 +6,7 @@ These modules are intentionally simplified examples.
 
 - `helm_app` models a Helm-style app deployment path using `helm_release`.
 - `k8s_app` models a Kubernetes manifest delivery path using `kubernetes_manifest`.
-- `null_resource` creates a credential-free placeholder for the simple GitOps example.
+- `terraform_data` creates a credential-free placeholder for the simple GitOps example.
 
 They demonstrate how Stacksmith component types can be mapped to platform-approved modules. Note that `helm_app` and `kubernetes_app` are shown here as modules, but they could also be implemented as [native operations](../../README.md#native-operations) instead; it is purely a platform team preference. Modules are declarative and benefit from OpenTofu state management and dependency tracking. Operations are imperative actions that are useful for commands or workflows that don't map cleanly to infrastructure code. For app deployments like these, modules are typically the better choice, because they have first-class OpenTofu provider support, but the architecture is flexible.
 

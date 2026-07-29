@@ -1,19 +1,8 @@
 description: Shared platform configuration for the Stacksmith examples.
 
-# Store generated state locally for this example.
-backend:
-  type: local
-  path: .stacksmith-state
-# Pin the infrastructure tools used by the shared configuration.
-tools:
-  tofu:
-    version: "1.11.6"
-  terragrunt:
-    version: "1.0.6"
 # Configure the AWS provider instances available to mapped modules.
 provider_mappings:
   aws:
-    description: AWS provider configurations used by the example modules.
     source:
       source: registry
       data:
@@ -270,12 +259,12 @@ module_mappings:
         path: ../modules/kubernetes_app
     auto_inject: true
 
-  null_resource:
+  terraform_data:
     description: Credential-free placeholder resource
     source:
       source: local
       data:
-        path: ../modules/null_resource
+        path: ../modules/terraform_data
     auto_inject: true
 
 # Expose approved operational commands to stack users.

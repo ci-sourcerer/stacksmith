@@ -646,16 +646,16 @@ class TestEvaluatePlanValidations:
         assert {result.name for result in results} == {"one", "two"}
 
     def test_redact_sensitive_plan_value_dict_order_and_mapping(self):
-        from stacksmith.validations.summarize import _redact_sensitive_plan_value
+        from stacksmith.validations.summarize import redact_sensitive_plan_value
 
         value = {"a": 1, "b": 2}
         sensitivity = {"a": False, "b": False}
-        res = _redact_sensitive_plan_value(value, sensitivity)
+        res = redact_sensitive_plan_value(value, sensitivity)
         assert res == {"a": 1, "b": 2}
 
         # Test sensitive values
         sensitivity_with_secret = {"a": False, "b": True}
-        res_secret = _redact_sensitive_plan_value(value, sensitivity_with_secret)
+        res_secret = redact_sensitive_plan_value(value, sensitivity_with_secret)
         assert res_secret == {"a": 1, "b": "<sensitive>"}
 
         # Test nested structures and preservation of original dictionary order
@@ -667,7 +667,7 @@ class TestEvaluatePlanValidations:
             "meta": {"env": False, "region": True},
             "data": {"host": True, "port": False},
         }
-        res_nested = _redact_sensitive_plan_value(nested, nested_sens)
+        res_nested = redact_sensitive_plan_value(nested, nested_sens)
         assert res_nested == {
             "meta": {"env": "prod", "region": "<sensitive>"},
             "data": {"host": "<sensitive>", "port": 80},

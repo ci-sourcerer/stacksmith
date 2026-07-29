@@ -205,7 +205,7 @@ def test_run_stack_operation_passes_runtime_flags(
 
     monkeypatch.setattr(
         api,
-        "_load_runtime_config",
+        "load_runtime_config",
         lambda *args, **kwargs: (tmp_path, [], _config()),
     )
     monkeypatch.setattr(

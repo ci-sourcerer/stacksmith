@@ -1,0 +1,5 @@
+project: stacksmith
+first_name: first
+second_name: second
+environment: dev
+message: Hello from the simple stack dev environment!

@@ -42,7 +42,7 @@ class TestParseModuleVariables:
 
     def test_returns_empty_set_when_no_variables(self, tmp_path: Path):
         (tmp_path / "main.tf").write_text(
-            'resource "null_resource" "this" {}\n',
+            'resource "terraform_data" "this" {}\n',
             encoding="utf-8",
         )
 
@@ -108,7 +108,7 @@ class TestResolveModuleDir:
             options={"base_path": tmp_path},
         )
 
-        with patch("stacksmith.introspection._clone_git_repo") as mock_clone:
+        with patch("stacksmith.introspection.clone_git_repo") as mock_clone:
             result = resolve_module_dir(source, version, cache_dir=tmp_path)
 
         assert result == module_dir.resolve()

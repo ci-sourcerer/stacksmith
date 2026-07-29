@@ -109,7 +109,15 @@ def parse_input_layers(
     return normalized_layers
 
 
-def _path_type(value: str) -> Path:
+def path_type(value: str) -> Path:
+    """Expand a command-line path value.
+
+    Args:
+        value: Raw path supplied on the command line.
+
+    Returns:
+        Expanded path with a leading user-home marker resolved.
+    """
     return Path(value).expanduser()
 
 
@@ -174,7 +182,7 @@ def _add_logging_verbosity_args(parser: argparse.ArgumentParser) -> None:
 def _add_env_file_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--env-file",
-        type=_path_type,
+        type=path_type,
         action="append",
         default=None,
         help=(
@@ -185,7 +193,15 @@ def _add_env_file_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_plan_output_args(parser: argparse.ArgumentParser) -> None:
+def add_plan_output_args(parser: argparse.ArgumentParser) -> None:
+    """Add plan output options to a command parser.
+
+    Args:
+        parser: Parser that receives the plan output options.
+
+    Returns:
+        None.
+    """
     parser.add_argument(
         "--destroy",
         action="store_true",
@@ -194,9 +210,15 @@ def _add_plan_output_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--save-plan-json",
-        type=_path_type,
+        type=path_type,
         default=None,
         help="Save rendered plan JSON to the given file or directory.",
+    )
+    parser.add_argument(
+        "--out",
+        type=path_type,
+        default=None,
+        help="Save generated execution plan to the given file or directory.",
     )
     parser.add_argument(
         "--fail-on-changes",
@@ -206,12 +228,40 @@ def _add_plan_output_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_target_selection_args(
+def add_apply_args(parser: argparse.ArgumentParser) -> None:
+    """Add apply-specific options to a command parser.
+
+    Args:
+        parser: Parser that receives the apply options.
+
+    Returns:
+        None.
+    """
+    parser.add_argument(
+        "--plan",
+        type=path_type,
+        default=None,
+        help="Path or directory to a pre-generated execution plan to apply.",
+    )
+
+
+def add_target_selection_args(
     parser: argparse.ArgumentParser,
     include_auto_approve: bool = False,
     tag_help: str | None = None,
     tag_expr_help: str | None = None,
 ) -> None:
+    """Add component target-selection options to a command parser.
+
+    Args:
+        parser: Parser that receives the target-selection options.
+        include_auto_approve: Whether to include the automatic approval option.
+        tag_help: Optional replacement help text for tag selection.
+        tag_expr_help: Optional replacement help text for tag expressions.
+
+    Returns:
+        None.
+    """
     parser.add_argument(
         "--tag",
         action="append",
@@ -232,7 +282,15 @@ def _add_target_selection_args(
         )
 
 
-def _add_common_args(parser: argparse.ArgumentParser) -> None:
+def add_common_args(parser: argparse.ArgumentParser) -> None:
+    """Add options shared by Stacksmith commands.
+
+    Args:
+        parser: Parser that receives the shared options.
+
+    Returns:
+        None.
+    """
     parser.add_argument(
         "--runfile",
         action="append",
@@ -287,7 +345,7 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--build-dir",
-        type=_path_type,
+        type=path_type,
         default=None,
         help="Build output directory (default: .stacksmith/ alongside stack file)",
     )
@@ -351,7 +409,15 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     _add_logging_verbosity_args(parser)
 
 
-def _add_validation_report_format_arg(parser: argparse.ArgumentParser) -> None:
+def add_validation_report_format_arg(parser: argparse.ArgumentParser) -> None:
+    """Add the validation report format option to a command parser.
+
+    Args:
+        parser: Parser that receives the validation report format option.
+
+    Returns:
+        None.
+    """
     parser.add_argument(
         "--validation-report-format",
         choices=[format_name.value for format_name in ValidationReportFormat],
@@ -363,7 +429,15 @@ def _add_validation_report_format_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _configure_inspect_parser(parser: argparse.ArgumentParser) -> None:
+def configure_inspect_parser(parser: argparse.ArgumentParser) -> None:
+    """Configure arguments for the module inspection command.
+
+    Args:
+        parser: Parser for the module inspection command.
+
+    Returns:
+        None.
+    """
     parser.add_argument(
         "component_type",
         nargs="*",
@@ -381,18 +455,26 @@ def _configure_inspect_parser(parser: argparse.ArgumentParser) -> None:
         default=False,
         help="Show only input, validation, and transform columns in the module table.",
     )
-    _add_common_args(parser)
+    add_common_args(parser)
 
 
-def _configure_diagnose_parser(parser: argparse.ArgumentParser) -> None:
-    _add_stack_arg(parser)
+def configure_diagnose_parser(parser: argparse.ArgumentParser) -> None:
+    """Configure arguments for the cache diagnostics command.
+
+    Args:
+        parser: Parser for the cache diagnostics command.
+
+    Returns:
+        None.
+    """
+    add_stack_arg(parser)
     parser.add_argument(
         "--format",
         choices=[format_name.value for format_name in InspectOutputFormat],
         default=InspectOutputFormat.TABLE.value,
         help="Output format for diagnostics.",
     )
-    _add_common_args(parser)
+    add_common_args(parser)
 
 
 def _add_gitops_discovery_args(
@@ -459,7 +541,15 @@ def _add_gitops_discovery_args(
         )
 
 
-def _configure_info_environments_parser(parser: argparse.ArgumentParser) -> None:
+def configure_info_environments_parser(parser: argparse.ArgumentParser) -> None:
+    """Configure arguments for environment discovery previews.
+
+    Args:
+        parser: Parser for the environment information command.
+
+    Returns:
+        None.
+    """
     _add_gitops_discovery_args(
         parser,
         include_event_context=True,
@@ -474,7 +564,15 @@ def _configure_info_environments_parser(parser: argparse.ArgumentParser) -> None
     )
 
 
-def _configure_ci_validate_parser(parser: argparse.ArgumentParser) -> None:
+def configure_ci_validate_parser(parser: argparse.ArgumentParser) -> None:
+    """Configure arguments for CI input validation.
+
+    Args:
+        parser: Parser for the CI validation command.
+
+    Returns:
+        None.
+    """
     _add_gitops_discovery_args(
         parser,
         include_event_context=False,
@@ -507,7 +605,15 @@ def _configure_ci_validate_parser(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
+def configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
+    """Configure arguments for CI manifest preparation.
+
+    Args:
+        parser: Parser for the CI preparation command.
+
+    Returns:
+        None.
+    """
     _add_gitops_discovery_args(
         parser,
         include_event_context=True,
@@ -605,10 +711,18 @@ def _configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _configure_ci_execute_parser(parser: argparse.ArgumentParser) -> None:
+def configure_ci_execute_parser(parser: argparse.ArgumentParser) -> None:
+    """Configure arguments for CI manifest execution.
+
+    Args:
+        parser: Parser for the CI execution command.
+
+    Returns:
+        None.
+    """
     parser.add_argument(
         "--manifest",
-        type=_path_type,
+        type=path_type,
         required=True,
         help="Path to a JSON manifest emitted by stacksmith ci prepare.",
     )
@@ -619,7 +733,7 @@ def _configure_ci_execute_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--validation-report-output",
-        type=_path_type,
+        type=path_type,
         default=None,
         help=(
             "Optional path for plan validation report output. "
@@ -628,7 +742,15 @@ def _configure_ci_execute_parser(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _configure_ci_prepare_from_env_parser(parser: argparse.ArgumentParser) -> None:
+def configure_ci_prepare_from_env_parser(parser: argparse.ArgumentParser) -> None:
+    """Configure arguments for environment-based CI preparation.
+
+    Args:
+        parser: Parser for the environment-based CI preparation command.
+
+    Returns:
+        None.
+    """
     parser.add_argument(
         "--provider",
         choices=CI_ADAPTER_PROVIDERS,
@@ -640,19 +762,27 @@ def _configure_ci_prepare_from_env_parser(parser: argparse.ArgumentParser) -> No
     )
     parser.add_argument(
         "--manifest-file",
-        type=_path_type,
+        type=path_type,
         default=None,
         help="Optional file path where the generated manifest JSON is written.",
     )
     parser.add_argument(
         "--github-output",
-        type=_path_type,
+        type=path_type,
         default=None,
         help="Optional override path for GITHUB_OUTPUT when provider is github-actions.",
     )
 
 
-def _configure_ci_execute_from_env_parser(parser: argparse.ArgumentParser) -> None:
+def configure_ci_execute_from_env_parser(parser: argparse.ArgumentParser) -> None:
+    """Configure arguments for environment-based CI execution.
+
+    Args:
+        parser: Parser for the environment-based CI execution command.
+
+    Returns:
+        None.
+    """
     parser.add_argument(
         "--provider",
         choices=CI_ADAPTER_PROVIDERS,
@@ -661,7 +791,7 @@ def _configure_ci_execute_from_env_parser(parser: argparse.ArgumentParser) -> No
     )
     parser.add_argument(
         "--manifest-file",
-        type=_path_type,
+        type=path_type,
         default=None,
         help=(
             "Optional manifest file path override. "
@@ -678,7 +808,7 @@ def _configure_ci_execute_from_env_parser(parser: argparse.ArgumentParser) -> No
     )
     parser.add_argument(
         "--validation-report-output",
-        type=_path_type,
+        type=path_type,
         default=None,
         help=(
             "Optional plan validation report output path override. "
@@ -687,10 +817,19 @@ def _configure_ci_execute_from_env_parser(parser: argparse.ArgumentParser) -> No
     )
 
 
-def _add_stack_arg(
+def add_stack_arg(
     parser: argparse.ArgumentParser,
     include_positional: bool = True,
 ) -> None:
+    """Add stack-selection arguments to a command parser.
+
+    Args:
+        parser: Parser that receives the stack-selection arguments.
+        include_positional: Whether to accept a positional stack file.
+
+    Returns:
+        None.
+    """
     parser.add_argument(
         "--stack",
         action="append",
@@ -703,7 +842,7 @@ def _add_stack_arg(
     if include_positional:
         parser.add_argument(
             "stack_file",
-            type=_path_type,
+            type=path_type,
             nargs="?",
             default=(
                 Path(stacksmith_env("STACK"))

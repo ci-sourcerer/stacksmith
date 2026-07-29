@@ -43,6 +43,7 @@ def _should_run_plan_validation_flow(
     args: list[str],
     config: ToolConfig | None,
     save_plan_json: Path | None = None,
+    save_plan_binary: Path | None = None,
     fail_on_changes: bool = False,
 ) -> bool:
     return bool(
@@ -51,6 +52,7 @@ def _should_run_plan_validation_flow(
         and "-destroy" not in args
         and (
             save_plan_json is not None
+            or save_plan_binary is not None
             or (config is not None and _has_enabled_plan_validations(config))
             or fail_on_changes
         )
@@ -113,6 +115,14 @@ def _resolve_plan_json_output_path(
 ) -> Path:
     if multiple or base_path.suffix.lower() != ".json":
         return base_path / f"{stack_name}.json"
+    return base_path
+
+
+def _resolve_plan_binary_output_path(
+    base_path: Path, stack_name: str, multiple: bool = False
+) -> Path:
+    if multiple or base_path.is_dir():
+        return base_path / f"{stack_name}.tfplan"
     return base_path
 
 
@@ -211,6 +221,7 @@ def run_terragrunt(
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
     save_plan_json: Path | None = None,
+    save_plan_binary: Path | None = None,
     strict_validation_warnings: bool = False,
     fail_on_changes: bool = False,
     plan_validation_results: list[PlanValidationResult] | None = None,
@@ -227,6 +238,7 @@ def run_terragrunt(
         cache_dir: Cache directory for fetching remote scripts.
         auth_config: Optional host-keyed auth configuration for remote fetching.
         save_plan_json: Optional file path used to persist rendered plan JSON.
+        save_plan_binary: Optional file path used to persist execution plan binary.
         strict_validation_warnings: When `True`, warning outcomes from plan
             validations are treated as failures.
         plan_validation_results: Optional list to collect per-rule plan
@@ -260,6 +272,7 @@ def run_terragrunt(
         args,
         config,
         save_plan_json=save_plan_json,
+        save_plan_binary=save_plan_binary,
         fail_on_changes=fail_on_changes,
     ):
         enabled_rules = (
@@ -277,10 +290,14 @@ def run_terragrunt(
             cache_dir=cache_dir,
             auth_config=auth_config,
             save_plan_json=save_plan_json,
+            save_plan_binary=save_plan_binary,
             strict_validation_warnings=strict_validation_warnings,
             fail_on_changes=fail_on_changes,
             plan_validation_results=plan_validation_results,
         )
+
+    if save_plan_binary:
+        cmd.extend(["-out", str(save_plan_binary)])
 
     return _run_terragrunt_streaming(
         cmd,
@@ -298,18 +315,27 @@ def _run_plan_validations(
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
     save_plan_json: Path | None = None,
+    save_plan_binary: Path | None = None,
     strict_validation_warnings: bool = False,
     fail_on_changes: bool = False,
     plan_validation_results: list[PlanValidationResult] | None = None,
 ) -> int | PlanValidationExitCode:
     plan_cmd_prefix = plan_cmd[: len(plan_cmd) - len(args)]
-    with tempfile.NamedTemporaryFile(
-        dir=working_dir,
-        prefix="stacksmith-",
-        suffix=".plan",
-        delete=False,
-    ) as tmp_plan:
-        plan_path = Path(tmp_plan.name)
+
+    # If the user requested to persist the plan, use their path instead of a temp file
+    if save_plan_binary:
+        plan_path = save_plan_binary
+        # We don't cleanup the file at the end
+        cleanup_plan = False
+    else:
+        with tempfile.NamedTemporaryFile(
+            dir=working_dir,
+            prefix="stacksmith-",
+            suffix=".plan",
+            delete=False,
+        ) as tmp_plan:
+            plan_path = Path(tmp_plan.name)
+        cleanup_plan = True
 
     try:
         plan_with_out_cmd = [
@@ -393,7 +419,8 @@ def _run_plan_validations(
 
         return PlanValidationExitCode.PASS
     finally:
-        plan_path.unlink(missing_ok=True)
+        if cleanup_plan:
+            plan_path.unlink(missing_ok=True)
 
 
 def run_terragrunt_all_ordered(

@@ -29,11 +29,11 @@ from stacksmith.testing import StacksmithTestGenerator
 from stacksmith.utils import parse_bool
 
 from ..api import (
-    _load_runtime_config,
     generate_stack,
     inspect_cache_diagnostics,
     inspect_environments,
     inspect_modules,
+    load_runtime_config,
     prepare_ci_execution,
     run_all_stacks,
     run_stack_action,
@@ -63,7 +63,7 @@ from .args import (
     is_quiet_enabled,
     parse_input_layers,
 )
-from .parser import build_parser as _build_parser
+from .parser import build_parser
 
 
 def _make_category_filter(name: str, root_level_no: int):
@@ -380,7 +380,7 @@ def _pytest_merge_args(merge_mode: MergeConfig) -> list[str]:
 def _cmd_test(args: argparse.Namespace) -> int:
     _apply_runfile(args)
     merge_mode = _merge_mode_arg(args)
-    cache_dir, config_paths, _ = _load_runtime_config(
+    cache_dir, config_paths, _ = load_runtime_config(
         args.config,
         args.build_dir,
         no_cache=args.no_cache,
@@ -487,6 +487,8 @@ def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
         tags=args.tag,
         tag_expr=args.tag_expr,
         save_plan_json=getattr(args, "save_plan_json", None),
+        out=getattr(args, "out", None),
+        plan=getattr(args, "plan", None),
         strict_validation_warnings=args.strict_validation_warnings,
         fail_on_changes=getattr(args, "fail_on_changes", False),
         no_cas=getattr(args, "no_cas", False),
@@ -788,7 +790,7 @@ def _execute_ci_manifest(manifest: CiExecutionManifest, environment: str) -> int
     original_directory = Path.cwd()
     try:
         os.chdir(manifest.workdir)
-        execution_args = _build_parser().parse_args(
+        execution_args = build_parser().parse_args(
             build_ci_execution_argv(manifest, environment)
         )
         if manifest.command == "operation":
@@ -894,6 +896,8 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
         tags=args.tag,
         tag_expr=args.tag_expr,
         save_plan_json=args.save_plan_json,
+        out=getattr(args, "out", None),
+        plan=getattr(args, "plan", None),
         strict_validation_warnings=args.strict_validation_warnings,
         fail_on_changes=getattr(args, "fail_on_changes", False),
         no_cas=getattr(args, "no_cas", False),
@@ -905,7 +909,7 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
 
 def main() -> None:
     """CLI entry point."""
-    parser = _build_parser()
+    parser = build_parser()
     args = parser.parse_args()
     if not (
         args.command == "ci"

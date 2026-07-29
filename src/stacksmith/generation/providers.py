@@ -86,9 +86,18 @@ def _evaluate_provider_config(
     return evaluated
 
 
-def _build_required_providers(
+def build_required_providers(
     config: ToolConfig, formatter_options: Mapping[str, Any] | None = None
 ) -> dict[str, dict[str, str]]:
+    """Build Terraform required-provider declarations.
+
+    Args:
+        config: Stacksmith configuration containing provider mappings.
+        formatter_options: Optional provider source formatter settings.
+
+    Returns:
+        Required-provider declarations keyed by provider name.
+    """
     return {
         provider_name: render_provider_source_for(
             "terraform",
@@ -99,13 +108,29 @@ def _build_required_providers(
     }
 
 
-def _build_provider_blocks(
+def build_provider_blocks(
     config: ToolConfig,
     context: dict[str, Any],
     base_path: Path | None,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
+    """Build evaluated Terraform provider blocks.
+
+    Args:
+        config: Stacksmith configuration containing provider mappings.
+        context: Values supplied to executable provider configurations.
+        base_path: Base directory for local provider configuration scripts.
+        cache_dir: Optional cache directory for remote scripts.
+        auth_config: Optional authentication settings for remote scripts.
+
+    Returns:
+        Provider block lists keyed by provider name.
+
+    Raises:
+        StacksmithConfigError: If an aliased provider is invalid or provider
+            configuration evaluation fails.
+    """
     provider_blocks: dict[str, list[dict[str, Any]]] = {}
     for provider_name, provider_family in config.provider_mappings.items():
         instances = []
@@ -132,7 +157,19 @@ def _build_provider_blocks(
     return provider_blocks
 
 
-def _render_provider_reference(config: ToolConfig, provider_reference: str) -> str:
+def render_provider_reference(config: ToolConfig, provider_reference: str) -> str:
+    """Render a configured provider instance as a Terraform reference.
+
+    Args:
+        config: Stacksmith configuration containing provider mappings.
+        provider_reference: Provider instance reference to render.
+
+    Returns:
+        Terraform provider reference, including an alias when configured.
+
+    Raises:
+        StacksmithConfigError: If a non-default provider instance has no alias.
+    """
     provider_name, instance_name = parse_provider_instance_reference(provider_reference)
     instance = config.provider_mappings[provider_name].instances[instance_name]
     if instance_name == "default":
