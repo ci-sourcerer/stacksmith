@@ -884,10 +884,7 @@ def test_cmd_operation_run_passes_runtime_flags(monkeypatch, parser, capsys):
     assert operation_name == "deploy_app"
     assert kwargs["no_cas"] is True
     assert kwargs["force_rerun"] is True
-    assert json.loads(capsys.readouterr().out) == {
-        "exit_code": 0,
-        "operation": "deploy_app",
-    }
+    assert capsys.readouterr().out == ('{"exit_code":0,"operation":"deploy_app"}\n')
 
 
 def test_operation_force_rerun_reads_environment(monkeypatch):
@@ -1477,6 +1474,9 @@ def test_cmd_diagnose_json_emits_stdout(monkeypatch, parser, capsys):
     payload = json.loads(captured.out)
     assert exit_code == 0
     assert payload["stack_file"] == "stack.yaml"
+    assert captured.out == (
+        f"{json.dumps(_diagnostics_payload(), separators=(',', ':'), sort_keys=True)}\n"
+    )
     assert captured.err == ""
 
 
@@ -1526,6 +1526,8 @@ def test_cmd_info_environments_emits_json(monkeypatch, parser, capsys):
     payload = json.loads(captured.out)
     assert exit_code == 0
     assert payload["selected_environments"] == ["dev"]
+    assert captured.out.count("\n") == 1
+    assert ": " not in captured.out
 
 
 def test_cmd_ci_validate_uses_api(monkeypatch, parser, capsys):
@@ -1568,6 +1570,8 @@ def test_cmd_ci_validate_uses_api(monkeypatch, parser, capsys):
     payload = json.loads(captured.out)
     assert exit_code == 0
     assert payload["status"] == "pass"
+    assert captured.out.count("\n") == 1
+    assert ": " not in captured.out
     assert calls["validate"]["runfile"] == "common/stacksmith.yaml"
     assert calls["validate"]["validation_report_format"] == "json"
 
@@ -1749,7 +1753,10 @@ def test_cmd_ci_prepare_emits_manifest(monkeypatch, parser, capsys):
     exit_code = cli_main._cmd_ci_prepare(args)
 
     assert exit_code == 0
-    assert json.loads(capsys.readouterr().out)["matrix"][0]["environment"] == "dev"
+    output = capsys.readouterr().out
+    assert json.loads(output)["matrix"][0]["environment"] == "dev"
+    assert output.count("\n") == 1
+    assert ": " not in output
 
 
 def test_cmd_ci_prepare_from_env_emits_manifest(monkeypatch, parser, capsys):
@@ -1777,7 +1784,10 @@ def test_cmd_ci_prepare_from_env_emits_manifest(monkeypatch, parser, capsys):
     exit_code = cli_main._cmd_ci_prepare_from_env(args)
 
     assert exit_code == 0
-    assert json.loads(capsys.readouterr().out)["matrix"][0]["environment"] == "dev"
+    output = capsys.readouterr().out
+    assert json.loads(output)["matrix"][0]["environment"] == "dev"
+    assert output.count("\n") == 1
+    assert ": " not in output
 
 
 def test_cmd_ci_prepare_from_env_writes_github_outputs(monkeypatch, parser, tmp_path):
@@ -1910,6 +1920,8 @@ def test_cmd_inspect_json_emits_stdout(monkeypatch, parser, capsys):
     parsed = json.loads(captured.out)
     assert exit_code == 0
     assert "aws_s3_bucket" in parsed
+    assert captured.out.count("\n") == 1
+    assert ": " not in captured.out
     assert captured.err == ""
 
 

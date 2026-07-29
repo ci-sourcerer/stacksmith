@@ -637,8 +637,10 @@ def test_validate_stack_emits_single_json_report_block(
     report = api.validate_stack(tmp_path / "stack.yaml")
 
     assert report["exit_code"] == 0
-    payload = json.loads(capsys.readouterr().out)
+    output = capsys.readouterr().out
+    payload = json.loads(output)
     assert payload == report
+    assert output == (f"{json.dumps(report, separators=(',', ':'), sort_keys=True)}\n")
     assert report["command"] == "validate"
     assert report["status"] == "pass"
     assert report["summary"] == {"pass": 1, "warn": 0, "fail": 0}

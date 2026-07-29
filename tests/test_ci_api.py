@@ -6,6 +6,7 @@ from stacksmith.api import (
     prepare_ci_execution,
     validate_ci_inputs,
 )
+from stacksmith.ci.adapters import manifest_output_json
 from stacksmith.ci.contracts import (
     CiExecutionManifest,
     CiExecutionRow,
@@ -159,6 +160,25 @@ def test_prepare_ci_execution_returns_provider_neutral_manifest(tmp_path: Path):
             "environment_runfile": f"{tmp_path.as_posix()}/environments/dev.yaml",
         }
     ]
+
+
+def test_manifest_output_json_is_compact():
+    manifest = CiExecutionManifest(
+        command="plan",
+        config_ref="platform/stacksmith-config.yaml",
+        matrix=[
+            CiExecutionRow(
+                environment="dev",
+                runfile="common/stacksmith.yaml",
+            )
+        ],
+    )
+
+    output = manifest_output_json(manifest)
+
+    assert "\n" not in output
+    assert ": " not in output
+    assert ", " not in output
 
 
 def test_prepare_ci_execution_rejects_managed_config_override(tmp_path: Path):

@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,22 @@ ProviderSourceFormatter = Callable[
     [ProviderSourceReference, Mapping[str, Any] | None],
     dict[str, str],
 ]
+
+
+def compact_json(value: Any, *, sort_keys: bool = False) -> str:
+    """Serialize a value as compact JSON.
+
+    Args:
+        value: JSON-serializable value.
+        sort_keys: Whether to sort mapping keys.
+
+    Returns:
+        JSON text without insignificant whitespace.
+
+    Raises:
+        TypeError: If `value` contains data that cannot be serialized as JSON.
+    """
+    return json.dumps(value, separators=(",", ":"), sort_keys=sort_keys)
 
 
 def _render_file_reference_default(

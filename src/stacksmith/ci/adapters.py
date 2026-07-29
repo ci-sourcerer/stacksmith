@@ -1,9 +1,9 @@
-import json
 import os
 import tempfile
 from pathlib import Path
 
 from ..exceptions import StacksmithError
+from ..formatters import compact_json
 from ..utils import parse_bool
 from .contracts import CiExecutionManifest
 from .service import prepare_ci_execution
@@ -58,19 +58,16 @@ def prepare_ci_manifest_from_env() -> CiExecutionManifest:
     )
 
 
-def manifest_output_json(manifest: CiExecutionManifest, compact: bool = False) -> str:
+def manifest_output_json(manifest: CiExecutionManifest) -> str:
     """Serialize a CI execution manifest.
 
     Args:
         manifest: Manifest to serialize.
-        compact: Whether to omit insignificant whitespace.
 
     Returns:
         Manifest JSON text.
     """
-    if compact:
-        return json.dumps(manifest.model_dump(mode="json"), separators=(",", ":"))
-    return manifest.model_dump_json(indent=2)
+    return compact_json(manifest.model_dump(mode="json"))
 
 
 def write_github_output_manifest(
@@ -84,10 +81,8 @@ def write_github_output_manifest(
     """
     matrix = [row.model_dump(mode="json") for row in manifest.matrix]
     with github_output_path.open("a", encoding="utf-8") as output_stream:
-        output_stream.write(
-            f"manifest={manifest_output_json(manifest, compact=True)}\n"
-        )
-        output_stream.write(f"matrix={json.dumps(matrix, separators=(',', ':'))}\n")
+        output_stream.write(f"manifest={manifest_output_json(manifest)}\n")
+        output_stream.write(f"matrix={compact_json(matrix)}\n")
         output_stream.write(f"count={len(matrix)}\n")
 
 

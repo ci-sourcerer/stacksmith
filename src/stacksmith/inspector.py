@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 
 from .exceptions import StacksmithConfigError
+from .formatters import compact_json
 from .introspection import discover_module_variables
 from .models import (
     FileReference,
@@ -469,7 +470,7 @@ def format_json(results: list[ComponentTypeInfo], details: bool = True) -> str:
             resource_entry["tags"] = info.tags
         resource_entry["inputs"] = inputs_list
         output[info.component_type] = resource_entry
-    return json.dumps(output, indent=2, sort_keys=True)
+    return compact_json(output, sort_keys=True)
 
 
 def format_yaml(results: list[ComponentTypeInfo], details: bool = True) -> str:

@@ -56,6 +56,7 @@ from ..ci.contracts import CiExecutionManifest, build_ci_execution_argv
 from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME, TEST_FILE_CANDIDATES
 from ..enums import InspectOutputFormat, TerragruntAction, ValidationReportFormat
 from ..exceptions import StacksmithConfigError, StacksmithError
+from ..formatters import compact_json
 from ..inspector import format_json, format_table
 from ..utils import load_env_files
 from .args import (
@@ -514,7 +515,7 @@ def _cmd_operation_run(args: argparse.Namespace) -> int:
         force_rerun=args.force_rerun,
         merge_mode=_merge_mode_arg(args),
     )
-    print(json.dumps(result, sort_keys=True))
+    print(compact_json(result, sort_keys=True))
     return 0
 
 
@@ -668,7 +669,7 @@ def _emit_info_ci_output(
 
 
 def _format_info_ci_json(payload: Any) -> str:
-    return json.dumps(payload, sort_keys=True, indent=2)
+    return compact_json(payload, sort_keys=True)
 
 
 def _cmd_info_environments(args: argparse.Namespace) -> int:
@@ -738,7 +739,7 @@ def _cmd_ci_prepare(args: argparse.Namespace) -> int:
     )
     _emit_info_ci_output(
         InspectOutputFormat(args.format),
-        json_text_factory=lambda: manifest.model_dump_json(indent=2),
+        json_text_factory=lambda: manifest_output_json(manifest),
         table_renderer=lambda: _render_environment_preview_table(
             {
                 "gitops_root": args.gitops_root,

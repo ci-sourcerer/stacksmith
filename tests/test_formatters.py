@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.formatters import (
+    compact_json,
     render_file_reference_for,
     render_module_source_for,
     render_provider_source_for,
@@ -15,6 +16,16 @@ from stacksmith.models import (
     ProviderSourceReference,
     RegistrySourceReference,
 )
+
+
+def test_compact_json_omits_insignificant_whitespace():
+    assert (
+        compact_json(
+            {"message": "two words", "items": [1, 2]},
+            sort_keys=True,
+        )
+        == '{"items":[1,2],"message":"two words"}'
+    )
 
 
 def test_render_file_reference_for_cli_local_source():

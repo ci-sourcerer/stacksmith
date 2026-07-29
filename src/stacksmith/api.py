@@ -1,4 +1,3 @@
-import json
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
@@ -21,6 +20,7 @@ from .discovery import (
 )
 from .enums import MergeMode, TerragruntAction, ValidationReportFormat
 from .exceptions import StacksmithConfigError, StacksmithError
+from .formatters import compact_json
 from .generation import operation_module_name, write_terragrunt_json, write_tf_json
 from .inspector import (
     ComponentTypeInfo,
@@ -236,7 +236,7 @@ def _emit_validation_report(
     report_format: str | ValidationReportFormat = ValidationReportFormat.JSON,
 ) -> None:
     ValidationReportFormat(report_format)
-    print(json.dumps(report, sort_keys=True))
+    print(compact_json(report, sort_keys=True))
 
 
 def _summarize_plan_validation_results(
