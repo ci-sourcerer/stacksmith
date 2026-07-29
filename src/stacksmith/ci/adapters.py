@@ -58,10 +58,7 @@ def prepare_ci_manifest_from_env() -> CiExecutionManifest:
     )
 
 
-def manifest_output_json(
-    manifest: CiExecutionManifest,
-    compact: bool = False,
-) -> str:
+def manifest_output_json(manifest: CiExecutionManifest, compact: bool = False) -> str:
     """Serialize a CI execution manifest.
 
     Args:
@@ -77,8 +74,7 @@ def manifest_output_json(
 
 
 def write_github_output_manifest(
-    manifest: CiExecutionManifest,
-    github_output_path: Path,
+    manifest: CiExecutionManifest, github_output_path: Path
 ) -> None:
     """Append manifest outputs for a GitHub Actions workflow.
 
@@ -199,9 +195,7 @@ def resolve_ci_environment(explicit_environment: str) -> str:
 
 
 def resolve_validation_report_output(
-    explicit_output: Path | None,
-    manifest: CiExecutionManifest,
-    environment: str,
+    explicit_output: Path | None, manifest: CiExecutionManifest, environment: str
 ) -> Path | None:
     """Resolve the validation report output path for a CI execution.
 
