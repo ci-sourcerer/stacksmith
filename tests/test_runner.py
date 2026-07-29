@@ -189,6 +189,7 @@ def test_run_terragrunt_adds_no_cas_flag(monkeypatch, tmp_path):
 
     monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
     runner._TOOL_VERSION_CHECKED = False
+    monkeypatch.setattr(runner, "_RESOLVED_TOOLCHAIN", None)
 
     exit_code = runner.run_terragrunt(["plan"], tmp_path, no_cas=True)
 
@@ -293,6 +294,7 @@ def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path)
         ),
     )
     runner._TOOL_VERSION_CHECKED = False
+    monkeypatch.setattr(runner, "_RESOLVED_TOOLCHAIN", None)
 
     config = SimpleNamespace(
         plan_validations={"check": PlanValidation(rule=ValidationSpec(inline="'pass'"))}
@@ -334,6 +336,7 @@ def test_run_terragrunt_plan_destroy_skips_plan_validations(monkeypatch, tmp_pat
 
     monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
     runner._TOOL_VERSION_CHECKED = False
+    monkeypatch.setattr(runner, "_RESOLVED_TOOLCHAIN", None)
 
     config = SimpleNamespace(
         plan_validations={"check": PlanValidation(rule=ValidationSpec(inline="'pass'"))}
@@ -368,6 +371,7 @@ def test_run_terragrunt_strict_warning_mode_fails_on_warning(monkeypatch, tmp_pa
 
     monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
     runner._TOOL_VERSION_CHECKED = False
+    monkeypatch.setattr(runner, "_RESOLVED_TOOLCHAIN", None)
     monkeypatch.setattr(
         runner,
         "check_plan_validations",
@@ -418,6 +422,7 @@ def test_run_terragrunt_delegates_plan_result_processing(monkeypatch, tmp_path):
 
     monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
     runner._TOOL_VERSION_CHECKED = False
+    monkeypatch.setattr(runner, "_RESOLVED_TOOLCHAIN", None)
     monkeypatch.setattr(
         runner,
         "check_plan_validations",
@@ -482,6 +487,7 @@ def test_run_terragrunt_saves_plan_json(monkeypatch, tmp_path):
 
     monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
     runner._TOOL_VERSION_CHECKED = False
+    monkeypatch.setattr(runner, "_RESOLVED_TOOLCHAIN", None)
 
     output_path = tmp_path / "saved-plan.json"
     exit_code = runner.run_terragrunt(
@@ -520,6 +526,7 @@ def test_run_terragrunt_fail_on_changes(monkeypatch, tmp_path):
 
     monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
     runner._TOOL_VERSION_CHECKED = False
+    monkeypatch.setattr(runner, "_RESOLVED_TOOLCHAIN", None)
 
     exit_code = runner.run_terragrunt(
         ["plan"],
@@ -555,6 +562,7 @@ def test_run_terragrunt_fail_on_changes_no_change(monkeypatch, tmp_path):
 
     monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
     runner._TOOL_VERSION_CHECKED = False
+    monkeypatch.setattr(runner, "_RESOLVED_TOOLCHAIN", None)
 
     exit_code = runner.run_terragrunt(
         ["plan"],
@@ -601,6 +609,7 @@ def test_check_required_tool_versions_runs_both_tools(monkeypatch):
 
     monkeypatch.setattr(runner, "resolve_toolchain", _fake_resolve_toolchain)
     runner._TOOL_VERSION_CHECKED = False
+    monkeypatch.setattr(runner, "_RESOLVED_TOOLCHAIN", None)
 
     runner._check_required_tool_versions()
 
@@ -622,6 +631,7 @@ def test_check_required_tool_versions_skips_when_disabled(monkeypatch):
 
     monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
     runner._TOOL_VERSION_CHECKED = False
+    monkeypatch.setattr(runner, "_RESOLVED_TOOLCHAIN", None)
 
     runner._check_required_tool_versions()
 

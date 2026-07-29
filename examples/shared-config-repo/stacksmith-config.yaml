@@ -2,6 +2,7 @@ description: Shared platform configuration for the Stacksmith examples.
 
 # Configure the AWS provider instances available to mapped modules.
 provider_mappings:
+  aws:
     source:
       source: registry
       data:

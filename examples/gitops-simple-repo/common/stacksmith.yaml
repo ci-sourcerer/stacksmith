@@ -7,7 +7,7 @@ configs:
       path: ../../shared-config-repo/stacksmith-base-config.yaml
   - source: local
     data:
-      path: ../../shared-config-repo/terraform-data-config.yaml
+      path: ../../shared-config-repo/stacksmith-config.yaml
 stacks:
   - source: local
     data:
