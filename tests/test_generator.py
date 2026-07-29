@@ -1330,7 +1330,12 @@ class TestLocalModuleVendoring:
         )
         stack = load_stack(stack_path)
 
-        config = load_config([Path("examples/shared-config-repo/stacksmith-base-config.yaml"), Path("examples/shared-config-repo/stacksmith-config.yaml")])
+        config = load_config(
+            [
+                Path("examples/shared-config-repo/stacksmith-base-config.yaml"),
+                Path("examples/shared-config-repo/stacksmith-config.yaml"),
+            ]
+        )
         config.module_mappings["helm_app"].properties = {
             "version": ModulePropertySpec(mapped_to="chart_version")
         }
@@ -1371,7 +1376,12 @@ class TestLocalModuleVendoring:
         )
 
         stack = load_stack(stack_path)
-        config = load_config([Path("examples/shared-config-repo/stacksmith-base-config.yaml"), Path("examples/shared-config-repo/stacksmith-config.yaml")])
+        config = load_config(
+            [
+                Path("examples/shared-config-repo/stacksmith-base-config.yaml"),
+                Path("examples/shared-config-repo/stacksmith-config.yaml"),
+            ]
+        )
 
         result = generate_tf_json(stack, config, {"id": 1234})
 

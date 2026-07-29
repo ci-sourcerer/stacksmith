@@ -194,7 +194,9 @@ def test_run_terragrunt_adds_no_cas_flag(monkeypatch, tmp_path):
     exit_code = runner.run_terragrunt(["plan"], tmp_path, no_cas=True)
 
     assert exit_code == 0
-    assert seen_commands == [["terragrunt", "--no-cas", "plan"]]
+    assert len(seen_commands) == 1
+    assert _command_name(seen_commands[0]) == "terragrunt"
+    assert seen_commands[0][1:] == ["--no-cas", "plan"]
 
 
 def test_check_plan_validations_uses_config_base_path(tmp_path):

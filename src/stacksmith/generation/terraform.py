@@ -114,16 +114,19 @@ def _generate_terraform_block(
     provider_source_formatter_options: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     state_key = derive_stack_state_key(stack.name, stack.source_path, root)
-    return {
-        "required_version": f"= {config.tools.tofu.version}",
-        "backend": {
-            config.backend.type: config.backend.config_with_state_key(state_key)
-        },
+    block = {
         "required_providers": build_required_providers(
             config,
             formatter_options=provider_source_formatter_options,
         ),
     }
+    if config.tools and config.tools.tofu:
+        block["required_version"] = f"= {config.tools.tofu.version}"
+    if config.backend:
+        block["backend"] = {
+            config.backend.type: config.backend.config_with_state_key(state_key)
+        }
+    return block
 
 
 def _generate_module_blocks(
