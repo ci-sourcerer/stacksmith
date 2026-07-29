@@ -1,5 +1,3 @@
-"""Generate pytest modules from Stacksmith YAML test manifests."""
-
 from dataclasses import dataclass
 from pprint import pformat
 

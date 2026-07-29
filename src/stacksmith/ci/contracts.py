@@ -223,7 +223,7 @@ def build_ci_execution_argv(
         return [
             "plan",
             *common_args,
-            "--save-plan-json",
+            "--save-redacted-plan-json",
             f".stacksmith-ci/{row.environment}/plan.json",
             "--validation-report-format",
             manifest.validation_report_format,

@@ -1,6 +1,8 @@
 from .api import (
     generate_stack,
     prepare_ci_execution,
+    redact_plan,
+    redact_plan_file,
     run_all_stacks,
     run_stack_action,
     validate_stack,
@@ -40,6 +42,8 @@ __all__ = [
     "MergePolicy",
     "MergeRule",
     "prepare_ci_execution",
+    "redact_plan",
+    "redact_plan_file",
     "run_all_stacks",
     "run_stack_action",
     "StacksmithConfigError",

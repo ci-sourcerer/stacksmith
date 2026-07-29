@@ -3,8 +3,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
-from loguru import logger as LOGGER
 
+from .exceptions import StacksmithConfigError
 from .introspection import discover_module_variables
 from .models import (
     FileReference,
@@ -238,6 +238,9 @@ def inspect_component_type(
 
     Returns:
         An `ComponentTypeInfo` containing input metadata for the module.
+
+    Raises:
+        StacksmithConfigError: If the module cannot be introspected.
     """
     mapping_source, mapping_version = render_module_source_identity(
         mapping.source,
@@ -257,15 +260,12 @@ def inspect_component_type(
             auth_config=auth_config,
             vendor_dir=vendor_dir or get_vendor_dir(),
         )
-    except Exception as exc:
-        LOGGER.warning(
-            "Could not introspect module for {rt}: {exc}",
-            rt=component_type,
-            exc=exc,
-        )
-        discovered_vars = set()
+    except (OSError, RuntimeError, StacksmithConfigError) as exc:
+        raise StacksmithConfigError(
+            f"Could not introspect module for {component_type}: {exc}"
+        ) from exc
 
-    inputs: list[InputInfo] = []
+    inputs = []
 
     # 1. Inputs explicitly configured in property specs
     seen_vars = set()

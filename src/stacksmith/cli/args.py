@@ -208,11 +208,21 @@ def add_plan_output_args(parser: argparse.ArgumentParser) -> None:
         default=False,
         help="Plan destroy operations instead of a create/update when action is plan.",
     )
-    parser.add_argument(
+    plan_json_group = parser.add_mutually_exclusive_group()
+    plan_json_group.add_argument(
         "--save-plan-json",
         type=path_type,
         default=None,
-        help="Save rendered plan JSON to the given file or directory.",
+        help=(
+            "Save raw rendered plan JSON to the given file or directory. "
+            "The raw document can contain sensitive values."
+        ),
+    )
+    plan_json_group.add_argument(
+        "--save-redacted-plan-json",
+        type=path_type,
+        default=None,
+        help="Save archive-safe redacted plan JSON to the given file or directory.",
     )
     parser.add_argument(
         "--out",
@@ -814,6 +824,33 @@ def configure_ci_execute_from_env_parser(parser: argparse.ArgumentParser) -> Non
             "Optional plan validation report output path override. "
             "When omitted, STACKSMITH_VALIDATION_REPORT_PATH or provider defaults are used."
         ),
+    )
+
+
+def configure_ci_redact_plan_parser(parser: argparse.ArgumentParser) -> None:
+    """Configure arguments for archive-safe plan redaction.
+
+    Args:
+        parser: Parser for the plan redaction command.
+
+    Returns:
+        None.
+    """
+    parser.add_argument(
+        "input",
+        type=path_type,
+        help="Path to raw OpenTofu plan JSON.",
+    )
+    output_group = parser.add_mutually_exclusive_group(required=True)
+    output_group.add_argument(
+        "--output",
+        type=path_type,
+        help="Write redacted plan JSON to this path.",
+    )
+    output_group.add_argument(
+        "--in-place",
+        action="store_true",
+        help="Atomically replace the input file with its redacted form.",
     )
 
 

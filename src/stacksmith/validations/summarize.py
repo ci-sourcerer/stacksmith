@@ -1,6 +1,8 @@
 from collections import Counter
 from typing import Any
 
+from ..plan_redaction import redact_sensitive_plan_value
+
 
 def summarize_value(value: Any, max_len: int = 200) -> str:
     """Render a compact description of a validation value.
@@ -39,74 +41,6 @@ def _extract_plan_values(value: Any) -> dict[str, Any] | None:
         return value
 
     return None
-
-
-def redact_sensitive_plan_value(value: Any, sensitivity: Any = None) -> Any:
-    """Replace sensitive Terraform plan values with redaction markers.
-
-    Args:
-        value: Terraform plan value tree.
-        sensitivity: Sensitivity tree corresponding to `value`.
-
-    Returns:
-        A copy of the value tree with sensitive nodes replaced.
-    """
-    if sensitivity is True:
-        return "<sensitive>"
-
-    # Use a stack for DFS traversal
-    # Stack entries: (value, sensitivity, is_return_visit)
-    # is_return_visit indicates we've processed all children
-    stack = [(value, sensitivity, False)]
-    value_stack: list[Any] = []  # Stack to hold processed values
-
-    while stack:
-        current_value, current_sens, is_return = stack.pop()
-
-        if is_return:
-            # Returning from processing children: reconstruct parent
-            if isinstance(current_value, dict):
-                num_keys = len(current_value)
-                items_reversed = [value_stack.pop() for _ in range(num_keys)]
-                result = {
-                    k: v for k, v in zip(current_value.keys(), reversed(items_reversed))
-                }
-            elif isinstance(current_value, list):
-                num_items = len(current_value)
-                items = []
-                for _ in range(num_items):
-                    items.insert(0, value_stack.pop())
-                result = items
-            else:
-                result = current_value
-            value_stack.append(result)
-            continue
-
-        # First visit: prepare children for processing
-        if current_sens is True:
-            value_stack.append("<sensitive>")
-        elif isinstance(current_value, dict):
-            # Mark for return visit, then push all children in reverse order
-            stack.append((current_value, current_sens, True))
-            for key in reversed(current_value.keys()):
-                child_sens = (
-                    current_sens.get(key) if isinstance(current_sens, dict) else None
-                )
-                stack.append((current_value[key], child_sens, False))
-        elif isinstance(current_value, list):
-            # Mark for return visit, then push all children in reverse order
-            stack.append((current_value, current_sens, True))
-            for i in reversed(range(len(current_value))):
-                child_sens = (
-                    current_sens[i]
-                    if isinstance(current_sens, list) and i < len(current_sens)
-                    else None
-                )
-                stack.append((current_value[i], child_sens, False))
-        else:
-            value_stack.append(current_value)
-
-    return value_stack[0] if value_stack else value
 
 
 def _summarize_redacted_value(

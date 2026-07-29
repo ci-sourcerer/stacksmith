@@ -344,7 +344,7 @@ If `STACKSMITH_ROOT` is set, it is used as the default root path. If not, root d
 
 When `action` is `plan`, you can also pass `--destroy` to run `terragrunt plan -destroy` for every stack.
 
-When `action` is `plan`, you can also pass `--save-plan-json <dir>` to keep the rendered plan JSON for each discovered stack.
+When `action` is `plan`, pass `--save-redacted-plan-json <dir>` to keep archive-safe plan JSON for each discovered stack. Use `--save-plan-json <dir>` only when a trusted local consumer requires the raw rendered plan because OpenTofu includes sensitive values in its machine-readable output.
 
 Use `--clean` on `run-all` to remove the existing build directory before regeneration.
 
@@ -710,6 +710,10 @@ Both implementations reserve the command selector, operation name, runfiles, bui
 ["--vars", "vars/common.yaml", "--var", "replicas=3", "--tag", "service", "--debug"]
 ```
 
+Plan artifacts produced by the managed GitHub Actions and Jenkins entrypoints are redacted in memory before Stacksmith writes them. The archive profile replaces schema-marked sensitive values with `<sensitive>` and omits input variables, configuration expressions, check problem messages, import details, generated configuration, replacement paths, and unrecognized fields because those locations do not consistently carry sensitivity metadata. The resulting JSON is intended for review and diagnostics, not as a complete substitute for raw `tofu show -json` output.
+
+Use `stacksmith ci redact-plan <plan.json> --output <redacted-plan.json>` to sanitize an existing raw plan, or pass `--in-place` to atomically replace it. Keep the input file protected until redaction finishes.
+
 If you vendor either entrypoint into a consumer repository, put it under a platform-owned path or submodule and protect it with a CODEOWNERS file so ordinary contributors cannot change the enforcement entrypoint. For example:
 
 ```text
@@ -829,7 +833,7 @@ The reusable workflow also supports the `folders` and `flat-files` discovery mod
 
 #### Jenkins
 
-Configure a Jenkins Multibranch Pipeline with [`Jenkinsfile`](./Jenkinsfile) as its pipeline script path. The pipeline checks out the branch, prepares its CI manifest once, runs each selected environment in parallel, requests manual approval for `apply` and `operation`, and archives plan JSON and validation reports when artifact uploads are enabled. It maps Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically.
+Configure a Jenkins Multibranch Pipeline with [`Jenkinsfile`](./Jenkinsfile) as its pipeline script path. The pipeline checks out the branch, prepares its CI manifest once, runs each selected environment in parallel, requests manual approval for `apply` and `operation`, and archives redacted plan JSON and validation reports when artifact uploads are enabled. It maps Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically.
 
 Choose one execution mode through Jenkins folder properties or the job environment:
 
@@ -883,6 +887,8 @@ Stacksmith exposes a stable Python API for applications, automation, and CI syst
 | `run_stack_action` | Generate one stack and run a Terragrunt action. |
 | `run_all_stacks` | Discover or select stacks and run an action in dependency order. |
 | `prepare_ci_execution` | Build a provider-neutral CI execution manifest. |
+| `redact_plan` | Create an archive-safe copy of a parsed OpenTofu plan. |
+| `redact_plan_file` | Redact an OpenTofu plan JSON file into an archive-safe artifact. |
 
 The workflow functions accept the same layered stack, managed-config, variable, targeting, cache, and validation options used by the corresponding CLI commands. Execution functions return process-style exit codes, while generation returns the generated directory.
 
@@ -896,7 +902,7 @@ exit_code = run_stack_action(
     "plan",
     "stack.yaml",
     config=["stacksmith-config.yaml"],
-    save_plan_json=Path("artifacts/plan.json"),
+    save_redacted_plan_json=Path("artifacts/plan.json"),
 )
 sys.exit(exit_code)
 ```
@@ -1159,8 +1165,9 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
                           [--strict-validation-warnings] [--use-local-modules | --no-local-modules] [--debug |
                           -q] [--validation-report-format {json}] [--destroy]
-                          [--save-plan-json SAVE_PLAN_JSON] [--out OUT] [--fail-on-changes] [--plan PLAN]
-                          [--tag TAG] [--tag-expr TAG_EXPR] [--include-tag INCLUDE_TAG]
+                          [--save-plan-json SAVE_PLAN_JSON |
+                          --save-redacted-plan-json SAVE_REDACTED_PLAN_JSON] [--out OUT] [--fail-on-changes]
+                          [--plan PLAN] [--tag TAG] [--tag-expr TAG_EXPR] [--include-tag INCLUDE_TAG]
                           [--exclude-tag EXCLUDE_TAG] [--clean] [--auto-approve]
                           {init,plan,apply,destroy}
 ```
@@ -1187,7 +1194,8 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 | `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
 | `--destroy` | Plan destroy operations instead of a create/update when action is plan. |
-| `--save-plan-json` | Save rendered plan JSON to the given file or directory. |
+| `--save-plan-json` | Save raw rendered plan JSON to the given file or directory. The raw document can contain sensitive values. |
+| `--save-redacted-plan-json` | Save archive-safe redacted plan JSON to the given file or directory. |
 | `--out` | Save generated execution plan to the given file or directory. |
 | `--fail-on-changes` | Return a non-zero exit code if the plan contains any resource changes. |
 | `--plan` | Path or directory to a pre-generated execution plan to apply. |
@@ -1235,8 +1243,9 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
                        [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                        [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
                        [--use-local-modules | --no-local-modules] [--debug | -q] [--destroy]
-                       [--save-plan-json SAVE_PLAN_JSON] [--out OUT] [--fail-on-changes] [--tag TAG]
-                       [--tag-expr TAG_EXPR] [--validation-report-format {json}]
+                       [--save-plan-json SAVE_PLAN_JSON | --save-redacted-plan-json SAVE_REDACTED_PLAN_JSON]
+                       [--out OUT] [--fail-on-changes] [--tag TAG] [--tag-expr TAG_EXPR]
+                       [--validation-report-format {json}]
                        [stack_file]
 ```
 
@@ -1260,7 +1269,8 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 | `--destroy` | Plan destroy operations instead of a create/update when action is plan. |
-| `--save-plan-json` | Save rendered plan JSON to the given file or directory. |
+| `--save-plan-json` | Save raw rendered plan JSON to the given file or directory. The raw document can contain sensitive values. |
+| `--save-redacted-plan-json` | Save archive-safe redacted plan JSON to the given file or directory. |
 | `--out` | Save generated execution plan to the given file or directory. |
 | `--fail-on-changes` | Return a non-zero exit code if the plan contains any resource changes. |
 | `--tag` | Select components by tag. Repeat to require multiple tags. |
@@ -1560,6 +1570,18 @@ stacksmith ci execute-from-env [-h] [--provider {generic,github-actions,jenkins}
 | `--environment` | Optional environment name override. When omitted, STACKSMITH_ENVIRONMENT or ENVIRONMENT is used. |
 | `--validation-report-output` | Optional plan validation report output path override. When omitted, STACKSMITH_VALIDATION_REPORT_PATH or provider defaults are used. |
 
+### `stacksmith ci redact-plan`
+
+```text
+stacksmith ci redact-plan [-h] (--output OUTPUT | --in-place) input
+```
+
+| Argument | Description |
+| - | - |
+| `input` | Path to raw OpenTofu plan JSON. |
+| `--output` | Write redacted plan JSON to this path. |
+| `--in-place` | Atomically replace the input file with its redacted form. |
+
 <!-- END GENERATED CLI REFERENCE -->
 
 #### Targeted execution
@@ -1577,11 +1599,11 @@ stacksmith plan --tag prod --tag shared
 
 stacksmith plan --tag-expr "contains(tags, 'prod') && (contains(tags, 'shared') || contains(tags, 'critical'))"
 
-stacksmith plan --debug --save-plan-json ./plan.json
+stacksmith plan --debug --save-redacted-plan-json ./plan.json
 
 stacksmith run-all apply --tag prod --tag-expr "tag.experimental == `false`"
 
-stacksmith run-all plan --debug --save-plan-json ./plans
+stacksmith run-all plan --debug --save-redacted-plan-json ./plans
 
 stacksmith run-all plan --tag-expr "tag.prod && tag.experimental == `false`"
 

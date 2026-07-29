@@ -818,6 +818,11 @@ def test_cmd_run_all_uses_runner(monkeypatch, parser):
             "contains(tags, 'prod')",
         ),
         (["--save-plan-json", "plans"], "save_plan_json", Path("plans")),
+        (
+            ["--save-redacted-plan-json", "plans"],
+            "save_redacted_plan_json",
+            Path("plans"),
+        ),
         (["--fail-on-changes"], "fail_on_changes", True),
         (["--validation-report-format", "json"], "validation_report_format", "json"),
     ],
@@ -904,6 +909,11 @@ def test_operation_force_rerun_reads_environment(monkeypatch):
             "contains(tags, 'prod')",
         ),
         (["--save-plan-json", "plan.json"], "save_plan_json", Path("plan.json")),
+        (
+            ["--save-redacted-plan-json", "plan.json"],
+            "save_redacted_plan_json",
+            Path("plan.json"),
+        ),
         (["--fail-on-changes"], "fail_on_changes", True),
         (["--validation-report-format", "json"], "validation_report_format", "json"),
     ],
@@ -1168,6 +1178,20 @@ def test_cmd_run_all_rejects_tag_expr_for_init(parser):
 def test_validation_report_format_rejects_csv(parser):
     with pytest.raises(SystemExit):
         parser.parse_args(["run-all", "plan", "--validation-report-format", "csv"])
+
+
+def test_plan_json_output_modes_are_mutually_exclusive(parser):
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "plan",
+                "stack.yaml",
+                "--save-plan-json",
+                "raw.json",
+                "--save-redacted-plan-json",
+                "redacted.json",
+            ]
+        )
 
 
 def test_cmd_run_all_uses_ordered_runner(monkeypatch, tmp_path):
@@ -1636,6 +1660,61 @@ def test_ci_execute_from_env_has_adapter_inputs(parser):
     assert args.manifest_file == Path("manifest.json")
     assert args.environment == "dev"
     assert args.validation_report_output == Path("report.json")
+
+
+def test_ci_redact_plan_requires_output_mode(parser, tmp_path):
+    input_path = tmp_path / "plan.json"
+    output_path = tmp_path / "redacted-plan.json"
+
+    args = parser.parse_args(
+        [
+            "ci",
+            "redact-plan",
+            str(input_path),
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    assert args.input == input_path
+    assert args.output == output_path
+    assert args.in_place is False
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["ci", "redact-plan", str(input_path)])
+
+
+def test_cmd_ci_redact_plan_supports_in_place(parser, tmp_path):
+    input_path = tmp_path / "plan.json"
+    input_path.write_text(
+        json.dumps(
+            {
+                "format_version": "1.0",
+                "variables": {"password": {"value": "credential"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    args = parser.parse_args(["ci", "redact-plan", str(input_path), "--in-place"])
+
+    assert cli_main._cmd_ci_redact_plan(args) == 0
+    assert "credential" not in input_path.read_text(encoding="utf-8")
+
+
+def test_cmd_ci_redact_plan_requires_explicit_in_place_mode(parser, tmp_path):
+    input_path = tmp_path / "plan.json"
+    args = parser.parse_args(
+        [
+            "ci",
+            "redact-plan",
+            str(input_path),
+            "--output",
+            str(input_path),
+        ]
+    )
+
+    with pytest.raises(ValueError, match="--in-place"):
+        cli_main._cmd_ci_redact_plan(args)
 
 
 def test_cmd_ci_prepare_emits_manifest(monkeypatch, parser, capsys):

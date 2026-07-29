@@ -195,6 +195,7 @@ def validate_action_options(
     tags: list[str] | None,
     tag_expr: str | None,
     save_plan_json: Path | None,
+    save_redacted_plan_json: Path | None,
     out: Path | None,
     plan: Path | None,
     tag_support_label: str,
@@ -207,6 +208,7 @@ def validate_action_options(
         tags: Required component tags.
         tag_expr: Optional component tag expression.
         save_plan_json: Optional plan JSON output value.
+        save_redacted_plan_json: Optional redacted plan JSON output value.
         out: Optional exact plan binary output value.
         plan: Optional exact plan binary input for apply operations.
         tag_support_label: Command label used in targeting errors.
@@ -230,6 +232,14 @@ def validate_action_options(
     if save_plan_json is not None and action_enum != TerragruntAction.PLAN:
         raise StacksmithConfigError(
             f"--save-plan-json is only supported for {save_plan_label}"
+        )
+    if save_redacted_plan_json is not None and action_enum != TerragruntAction.PLAN:
+        raise StacksmithConfigError(
+            f"--save-redacted-plan-json is only supported for {save_plan_label}"
+        )
+    if save_plan_json is not None and save_redacted_plan_json is not None:
+        raise StacksmithConfigError(
+            "--save-plan-json and --save-redacted-plan-json cannot be used together"
         )
     if out is not None and action_enum != TerragruntAction.PLAN:
         raise StacksmithConfigError(f"--out is only supported for {save_plan_label}")

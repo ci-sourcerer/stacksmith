@@ -473,16 +473,16 @@ def test_inspect_component_type_uses_var_validation_script_location(tmp_path):
     assert aws_region_input.validation.endswith("scripts/validate_aws_region.py")
 
 
-def test_inspect_component_type_introspection_failure(_simple_mapping):
-    with patch(
-        "stacksmith.inspector.discover_module_variables",
-        side_effect=RuntimeError("clone failed"),
+def test_inspect_component_type_introspection_failure_raises(_simple_mapping):
+    with pytest.raises(
+        StacksmithConfigError,
+        match="Could not introspect module for aws_s3_bucket: clone failed",
     ):
-        result = inspect_component_type("aws_s3_bucket", _simple_mapping)
-
-    assert result.component_type == "aws_s3_bucket"
-    names = [i.name for i in result.inputs]
-    assert "acl" in names
+        with patch(
+            "stacksmith.inspector.discover_module_variables",
+            side_effect=RuntimeError("clone failed"),
+        ):
+            inspect_component_type("aws_s3_bucket", _simple_mapping)
 
 
 def test_inspect_all_filters_by_component_type(sample_config_yaml):

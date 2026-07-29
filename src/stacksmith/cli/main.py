@@ -35,6 +35,7 @@ from ..api import (
     inspect_modules,
     load_runtime_config,
     prepare_ci_execution,
+    redact_plan_file,
     run_all_stacks,
     run_stack_action,
     run_stack_operation,
@@ -487,6 +488,7 @@ def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
         tags=args.tag,
         tag_expr=args.tag_expr,
         save_plan_json=getattr(args, "save_plan_json", None),
+        save_redacted_plan_json=getattr(args, "save_redacted_plan_json", None),
         out=getattr(args, "out", None),
         plan=getattr(args, "plan", None),
         strict_validation_warnings=args.strict_validation_warnings,
@@ -838,6 +840,18 @@ def _cmd_ci_execute_from_env(args: argparse.Namespace) -> int:
             ssh_key_path.unlink(missing_ok=True)
 
 
+def _cmd_ci_redact_plan(args: argparse.Namespace) -> int:
+    if args.output is not None and args.output.resolve() == args.input.resolve():
+        raise ValueError(
+            "--output must differ from the input path; use --in-place to replace it."
+        )
+    redact_plan_file(
+        args.input,
+        args.input if args.in_place else args.output,
+    )
+    return 0
+
+
 def _cmd_diagnose(args: argparse.Namespace) -> int:
     _apply_runfile(args)
     payload = inspect_cache_diagnostics(
@@ -866,6 +880,12 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
         return 1
     if args.action != TerragruntAction.PLAN.value and args.save_plan_json is not None:
         LOGGER.error("--save-plan-json is only supported for run-all plan")
+        return 1
+    if (
+        args.action != TerragruntAction.PLAN.value
+        and getattr(args, "save_redacted_plan_json", None) is not None
+    ):
+        LOGGER.error("--save-redacted-plan-json is only supported for run-all plan")
         return 1
     if args.action != TerragruntAction.PLAN.value and getattr(
         args, "fail_on_changes", False
@@ -896,6 +916,7 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
         tags=args.tag,
         tag_expr=args.tag_expr,
         save_plan_json=args.save_plan_json,
+        save_redacted_plan_json=getattr(args, "save_redacted_plan_json", None),
         out=getattr(args, "out", None),
         plan=getattr(args, "plan", None),
         strict_validation_warnings=args.strict_validation_warnings,
@@ -913,7 +934,8 @@ def main() -> None:
     args = parser.parse_args()
     if not (
         args.command == "ci"
-        and args.ci_command in {"execute", "execute-from-env", "prepare-from-env"}
+        and args.ci_command
+        in {"execute", "execute-from-env", "prepare-from-env", "redact-plan"}
     ):
         env_files = get_env_file_paths()
         if env_files:
@@ -1003,6 +1025,8 @@ def main() -> None:
                         exit_code = _cmd_ci_prepare_from_env(args)
                     case "execute-from-env":
                         exit_code = _cmd_ci_execute_from_env(args)
+                    case "redact-plan":
+                        exit_code = _cmd_ci_redact_plan(args)
                     case _:
                         parser.print_help(sys.stderr)
                         exit_code = 1

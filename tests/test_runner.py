@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -52,6 +53,7 @@ def _patch_run_terragrunt(monkeypatch, handler):
         cache_dir=None,
         auth_config=None,
         save_plan_json=None,
+        save_redacted_plan_json=None,
         strict_validation_warnings: bool = False,
         fail_on_changes: bool = False,
         plan_validation_results=None,
@@ -62,6 +64,7 @@ def _patch_run_terragrunt(monkeypatch, handler):
             working_dir=working_dir,
             auto_approve=auto_approve,
             save_plan_json=save_plan_json,
+            save_redacted_plan_json=save_redacted_plan_json,
             strict_validation_warnings=strict_validation_warnings,
             plan_validation_results=plan_validation_results,
             no_cas=no_cas,
@@ -272,6 +275,7 @@ def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path)
         cache_dir=None,
         auth_config=None,
         save_plan_json=None,
+        save_redacted_plan_json=None,
         save_plan_binary=None,
         strict_validation_warnings: bool = False,
         fail_on_changes: bool = False,
@@ -282,6 +286,7 @@ def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path)
         calls["working_dir"] = working_dir
         calls["stack_name"] = stack_name
         calls["save_plan_json"] = save_plan_json
+        calls["save_redacted_plan_json"] = save_redacted_plan_json
         calls["strict_validation_warnings"] = strict_validation_warnings
         calls["plan_validation_results"] = plan_validation_results
         return 0
@@ -316,6 +321,7 @@ def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path)
     assert calls["working_dir"] == tmp_path
     assert calls["stack_name"] == "web"
     assert calls["save_plan_json"] is None
+    assert calls["save_redacted_plan_json"] is None
     assert calls["strict_validation_warnings"] is False
     assert calls["plan_validation_results"] is report_results
 
@@ -505,6 +511,63 @@ def test_run_terragrunt_saves_plan_json(monkeypatch, tmp_path):
     assert '"ok": true' in output_path.read_text(encoding="utf-8")
 
 
+def test_run_terragrunt_saves_redacted_plan_json(monkeypatch, tmp_path):
+    class FakeResult:
+        def __init__(self, returncode=0, stdout="", stderr=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def _fake_subprocess_run(cmd, **kwargs):
+        if _matches_command(cmd, "terragrunt", "--version") or _matches_command(
+            cmd, "tofu", "-version"
+        ):
+            return _supported_tool_version_result(cmd)
+        if _matches_command(cmd, "terragrunt", "plan"):
+            return FakeResult(returncode=0)
+        if _matches_command(cmd, "terragrunt", "show", "-json"):
+            return FakeResult(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "format_version": "1.0",
+                        "variables": {"password": {"value": "canary-credential"}},
+                        "planned_values": {
+                            "root_module": {
+                                "resources": [
+                                    {
+                                        "address": "terraform_data.example",
+                                        "values": {"password": "canary-credential"},
+                                        "sensitive_values": {"password": True},
+                                    }
+                                ]
+                            }
+                        },
+                    }
+                ),
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
+    runner._TOOL_VERSION_CHECKED = False
+    monkeypatch.setattr(runner, "_RESOLVED_TOOLCHAIN", None)
+
+    output_path = tmp_path / "redacted-plan.json"
+
+    assert (
+        runner.run_terragrunt(
+            ["plan"],
+            tmp_path,
+            config=None,
+            stack_name="web",
+            save_redacted_plan_json=output_path,
+        )
+        == 0
+    )
+    assert "canary-credential" not in output_path.read_text(encoding="utf-8")
+    assert "<sensitive>" in output_path.read_text(encoding="utf-8")
+
+
 def test_run_terragrunt_fail_on_changes(monkeypatch, tmp_path):
     class FakeResult:
         def __init__(self, returncode=0, stdout="", stderr=""):
@@ -599,6 +662,31 @@ def test_run_terragrunt_all_ordered_saves_stack_specific_plan_json(
     )
 
     assert exit_code == 0
+    assert calls == [output_dir / "vpc.json", output_dir / "web.json"]
+
+
+def test_run_terragrunt_all_ordered_saves_stack_specific_redacted_plan_json(
+    monkeypatch,
+    tmp_path,
+):
+    calls: list[Path | None] = []
+
+    def _handler(**kwargs) -> int:
+        calls.append(kwargs["save_redacted_plan_json"])
+        return 0
+
+    _patch_run_terragrunt(monkeypatch, _handler)
+
+    output_dir = tmp_path / "plans"
+
+    assert (
+        runner.run_terragrunt_all_ordered(
+            "plan",
+            _stack_dirs(tmp_path, names=("vpc", "web")),
+            save_redacted_plan_json=output_dir,
+        )
+        == 0
+    )
     assert calls == [output_dir / "vpc.json", output_dir / "web.json"]
 
 

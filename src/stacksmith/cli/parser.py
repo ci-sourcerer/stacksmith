@@ -15,6 +15,7 @@ from .args import (
     configure_ci_execute_parser,
     configure_ci_prepare_from_env_parser,
     configure_ci_prepare_parser,
+    configure_ci_redact_plan_parser,
     configure_ci_validate_parser,
     configure_diagnose_parser,
     configure_info_environments_parser,
@@ -242,6 +243,12 @@ def build_parser() -> argparse.ArgumentParser:
         ci_subparsers.add_parser(
             "execute-from-env",
             help="Execute CI manifest adapter inputs from environment variables",
+        )
+    )
+    configure_ci_redact_plan_parser(
+        ci_subparsers.add_parser(
+            "redact-plan",
+            help="Create an archive-safe redacted OpenTofu plan JSON artifact",
         )
     )
     return parser

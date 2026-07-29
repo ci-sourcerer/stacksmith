@@ -10,6 +10,7 @@ from loguru import logger as LOGGER
 
 from .enums import TerragruntAction
 from .models import RemoteAuthConfig, ToolConfig
+from .plan_redaction import write_redacted_plan
 from .remote import apply_terragrunt_auth_env
 from .tooling import ResolvedToolchain, resolve_toolchain
 from .utils import env_truthy
@@ -43,6 +44,7 @@ def _should_run_plan_validation_flow(
     args: list[str],
     config: ToolConfig | None,
     save_plan_json: Path | None = None,
+    save_redacted_plan_json: Path | None = None,
     save_plan_binary: Path | None = None,
     fail_on_changes: bool = False,
 ) -> bool:
@@ -52,6 +54,7 @@ def _should_run_plan_validation_flow(
         and "-destroy" not in args
         and (
             save_plan_json is not None
+            or save_redacted_plan_json is not None
             or save_plan_binary is not None
             or (config is not None and _has_enabled_plan_validations(config))
             or fail_on_changes
@@ -226,6 +229,7 @@ def run_terragrunt(
     fail_on_changes: bool = False,
     plan_validation_results: list[PlanValidationResult] | None = None,
     no_cas: bool = False,
+    save_redacted_plan_json: Path | None = None,
 ) -> int:
     """Run a single-stack Terragrunt command.
 
@@ -243,10 +247,16 @@ def run_terragrunt(
             validations are treated as failures.
         plan_validation_results: Optional list to collect per-rule plan
             validation outcomes for external reporting.
+        save_redacted_plan_json: Optional file path used to persist archive-safe
+            redacted plan JSON.
 
     Returns:
         Process exit code.
     """
+    if save_plan_json is not None and save_redacted_plan_json is not None:
+        raise ValueError(
+            "Raw and redacted plan JSON outputs cannot be requested together."
+        )
     _check_required_tool_versions(
         config=config,
         cache_dir=cache_dir,
@@ -272,6 +282,7 @@ def run_terragrunt(
         args,
         config,
         save_plan_json=save_plan_json,
+        save_redacted_plan_json=save_redacted_plan_json,
         save_plan_binary=save_plan_binary,
         fail_on_changes=fail_on_changes,
     ):
@@ -290,6 +301,7 @@ def run_terragrunt(
             cache_dir=cache_dir,
             auth_config=auth_config,
             save_plan_json=save_plan_json,
+            save_redacted_plan_json=save_redacted_plan_json,
             save_plan_binary=save_plan_binary,
             strict_validation_warnings=strict_validation_warnings,
             fail_on_changes=fail_on_changes,
@@ -315,6 +327,7 @@ def _run_plan_validations(
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
     save_plan_json: Path | None = None,
+    save_redacted_plan_json: Path | None = None,
     save_plan_binary: Path | None = None,
     strict_validation_warnings: bool = False,
     fail_on_changes: bool = False,
@@ -377,18 +390,25 @@ def _run_plan_validations(
                 LOGGER.error(show_result.stderr.strip())
             return show_result.returncode
 
-        if save_plan_json is not None:
-            save_path = _resolve_plan_json_output_path(save_plan_json, stack_name)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            save_path.write_text(show_result.stdout, encoding="utf-8")
-            LOGGER.info("Saved plan JSON to {path}", path=save_path)
-
         try:
             plan_data = json.loads(show_result.stdout)
             LOGGER.debug("Parsed plan")
         except json.JSONDecodeError as exc:
             LOGGER.error("Failed to parse plan JSON output: {exc}", exc=exc)
             return 1
+
+        if save_plan_json is not None:
+            save_path = _resolve_plan_json_output_path(save_plan_json, stack_name)
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            save_path.write_text(show_result.stdout, encoding="utf-8")
+            LOGGER.info("Saved raw plan JSON to {path}", path=save_path)
+        if save_redacted_plan_json is not None:
+            save_path = _resolve_plan_json_output_path(
+                save_redacted_plan_json,
+                stack_name,
+            )
+            write_redacted_plan(plan_data, save_path)
+            LOGGER.info("Saved redacted plan JSON to {path}", path=save_path)
 
         if config is None or not _has_enabled_plan_validations(config):
             if fail_on_changes and _has_plan_changes(plan_data):
@@ -436,6 +456,7 @@ def run_terragrunt_all_ordered(
     fail_on_changes: bool = False,
     plan_validation_results: list[PlanValidationResult] | None = None,
     no_cas: bool = False,
+    save_redacted_plan_json: Path | None = None,
 ) -> int:
     """Run Terragrunt across generated stack directories in dependency order.
 
@@ -455,10 +476,16 @@ def run_terragrunt_all_ordered(
             validations are treated as failures.
         plan_validation_results: Optional list to collect per-rule plan
             validation outcomes for external reporting.
+        save_redacted_plan_json: Optional directory used to persist archive-safe
+            redacted plan JSON for each planned stack.
 
     Returns:
         Process exit code (first non-zero code short-circuits the run).
     """
+    if save_plan_json is not None and save_redacted_plan_json is not None:
+        raise ValueError(
+            "Raw and redacted plan JSON outputs cannot be requested together."
+        )
     action_name = action[0] if isinstance(action, list) else action
     action_enum = _parse_terragrunt_action(action_name)
 
@@ -481,6 +508,7 @@ def run_terragrunt_all_ordered(
 
         LOGGER.info("Stack: {stack_name}", stack_name=stack_name)
         stack_save_plan_json = None
+        stack_save_redacted_plan_json = None
         if (
             save_plan_json is not None
             and terragrunt_args
@@ -488,6 +516,16 @@ def run_terragrunt_all_ordered(
         ):
             stack_save_plan_json = _resolve_plan_json_output_path(
                 save_plan_json,
+                stack_name,
+                multiple=True,
+            )
+        if (
+            save_redacted_plan_json is not None
+            and terragrunt_args
+            and terragrunt_args[0] == TerragruntAction.PLAN.value
+        ):
+            stack_save_redacted_plan_json = _resolve_plan_json_output_path(
+                save_redacted_plan_json,
                 stack_name,
                 multiple=True,
             )
@@ -500,6 +538,7 @@ def run_terragrunt_all_ordered(
             cache_dir=cache_dir,
             auth_config=auth_config,
             save_plan_json=stack_save_plan_json,
+            save_redacted_plan_json=stack_save_redacted_plan_json,
             strict_validation_warnings=strict_validation_warnings,
             fail_on_changes=fail_on_changes,
             plan_validation_results=plan_validation_results,

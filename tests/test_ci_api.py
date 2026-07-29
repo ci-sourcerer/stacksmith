@@ -6,6 +6,11 @@ from stacksmith.api import (
     prepare_ci_execution,
     validate_ci_inputs,
 )
+from stacksmith.ci.contracts import (
+    CiExecutionManifest,
+    CiExecutionRow,
+    build_ci_execution_argv,
+)
 from stacksmith.exceptions import StacksmithConfigError
 
 
@@ -222,3 +227,25 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert "stacksmith ci execute-from-env" in actions_executor
     assert "stacksmith ci prepare-from-env" in jenkins_pipeline
     assert "stacksmith ci execute-from-env" in jenkins_pipeline
+
+
+def test_ci_plan_execution_only_writes_redacted_plan_json():
+    argv = build_ci_execution_argv(
+        CiExecutionManifest(
+            command="plan",
+            config_ref="platform/stacksmith-config.yaml",
+            matrix=[
+                CiExecutionRow(
+                    environment="dev",
+                    runfile="common/stacksmith.yaml",
+                )
+            ],
+        ),
+        "dev",
+    )
+
+    assert "--save-redacted-plan-json" in argv
+    assert "--save-plan-json" not in argv
+    assert argv[argv.index("--save-redacted-plan-json") + 1] == (
+        ".stacksmith-ci/dev/plan.json"
+    )

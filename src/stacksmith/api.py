@@ -41,6 +41,7 @@ from .models import (
     StackDefinition,
     ToolConfig,
 )
+from .plan_redaction import redact_plan, redact_plan_file
 from .remote import is_remote_url, resolve_references
 from .runner import run_terragrunt, run_terragrunt_all_ordered
 from .targeting import (
@@ -59,6 +60,8 @@ __all__ = [
     "inspect_environments",
     "inspect_modules",
     "prepare_ci_execution",
+    "redact_plan",
+    "redact_plan_file",
     "run_all_stacks",
     "run_stack_action",
     "run_stack_operation",
@@ -874,6 +877,7 @@ def run_stack_action(
     validation_report_format: (
         str | ValidationReportFormat
     ) = ValidationReportFormat.JSON,
+    save_redacted_plan_json: Path | None = None,
 ) -> int:
     """Generate files for a stack and run a Terragrunt action.
 
@@ -903,6 +907,8 @@ def run_stack_action(
         merge_mode: Merge strategy used for layered stacks, configs, and vars.
         validation_report_format: Format used for machine-readable validation
             report output.
+        save_redacted_plan_json: Optional file or directory path used to persist
+            archive-safe redacted plan JSON output for plan actions.
 
     Returns:
         Process-style exit code from the Terragrunt action.
@@ -924,6 +930,7 @@ def run_stack_action(
         tags=tags,
         tag_expr=tag_expr,
         save_plan_json=save_plan_json,
+        save_redacted_plan_json=save_redacted_plan_json,
         out=out,
         plan=plan,
         tag_support_label="plan, apply, and destroy",
@@ -991,6 +998,7 @@ def run_stack_action(
         cache_dir=cache_dir,
         auth_config=loaded_config.remote_auth or None,
         save_plan_json=save_plan_json,
+        save_redacted_plan_json=save_redacted_plan_json,
         save_plan_binary=out,
         strict_validation_warnings=strict_validation_warnings,
         fail_on_changes=fail_on_changes,
@@ -1041,6 +1049,7 @@ def run_all_stacks(
     validation_report_format: (
         str | ValidationReportFormat
     ) = ValidationReportFormat.JSON,
+    save_redacted_plan_json: Path | None = None,
 ) -> int:
     """Generate all discovered stacks and run a Terragrunt action in order.
 
@@ -1076,6 +1085,8 @@ def run_all_stacks(
             explicit multi-layer stack refs in single-stack commands.
         validation_report_format: Format used for machine-readable validation
             report output.
+        save_redacted_plan_json: Optional directory used to persist archive-safe
+            redacted plan JSON output for each stack during plan actions.
 
     Returns:
         Process-style exit code from the Terragrunt action.
@@ -1098,6 +1109,7 @@ def run_all_stacks(
         tags=tags,
         tag_expr=tag_expr,
         save_plan_json=save_plan_json,
+        save_redacted_plan_json=save_redacted_plan_json,
         out=out,
         plan=plan,
         tag_support_label="run-all plan, apply, and destroy",
@@ -1177,6 +1189,7 @@ def run_all_stacks(
         auth_config=loaded_config.remote_auth or None,
         stack_args_by_name=stack_args_by_name,
         save_plan_json=save_plan_json,
+        save_redacted_plan_json=save_redacted_plan_json,
         strict_validation_warnings=strict_validation_warnings,
         fail_on_changes=fail_on_changes,
         plan_validation_results=plan_validation_results,
