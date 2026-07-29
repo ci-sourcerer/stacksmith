@@ -731,7 +731,7 @@ class ToolConfig(BaseModel):
     description: str | None = None
     backend: BackendConfig
     tools: ToolsConfig
-    provider_mappings: dict[str, ProviderFamily]
+    provider_mappings: dict[str, ProviderFamily] = Field(default_factory=dict)
     module_mappings: dict[str, ModuleMapping] = Field(default_factory=dict)
     default_module_mapping: DefaultModuleMapping | None = None
     operations: dict[str, OperationDefinition] = Field(default_factory=dict)

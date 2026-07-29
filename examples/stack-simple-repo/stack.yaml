@@ -1,25 +1,25 @@
-name: null-resources
-description: Credential-free resources used to demonstrate GitOps layering.
+name: terraform-data
+description: Credential-free resources used to demonstrate a standalone stack.
 
 tags:
-  - gitops
+  - stack
   - example
 
 components:
   first:
-    type: null_resource
+    type: terraform_data
     description: First placeholder resource.
     properties:
-      triggers:
+      input:
         environment: "{{ inputs.environment }}"
         message: "{{ inputs.message }}"
         name: "{{ inputs.first_name }}"
         project: "{{ inputs.project }}"
   second:
-    type: null_resource
+    type: terraform_data
     description: Second placeholder resource.
     properties:
-      triggers:
+      input:
         environment: "{{ inputs.environment }}"
         message: "{{ inputs.message }}"
         name: "{{ inputs.second_name }}"

@@ -6,7 +6,7 @@ The example provisions a small EC2 writer workload and S3 buckets, then wires IA
 
 The `gitops-repo` example is the canonical GitOps sample. It uses the hybrid `env-files` discovery mode with `environments/<env>.yaml` files and a shared `common/stacksmith.yaml` runfile.
 
-The `gitops-simple-repo` example uses the same discovery layout to plan two credential-free Terraform `null_resource` instances across `dev` and `prod`.
+The `gitops-simple-repo` example uses the same discovery layout to plan two credential-free Terraform `terraform_data` instances across `dev` and `prod`.
 
 The same workflow also supports the other two discovery styles.
 

@@ -42,7 +42,7 @@ class TestParseModuleVariables:
 
     def test_returns_empty_set_when_no_variables(self, tmp_path: Path):
         (tmp_path / "main.tf").write_text(
-            'resource "null_resource" "this" {}\n',
+            'resource "terraform_data" "this" {}\n',
             encoding="utf-8",
         )
 

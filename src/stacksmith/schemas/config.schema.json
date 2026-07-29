@@ -809,8 +809,7 @@
   },
   "required": [
     "backend",
-    "tools",
-    "provider_mappings"
+    "tools"
   ],
   "anyOf": [
     {
@@ -909,7 +908,6 @@
     },
     "provider_mappings": {
       "type": "object",
-      "minProperties": 1,
       "additionalProperties": {
         "$ref": "#/$defs/providerFamily"
       },

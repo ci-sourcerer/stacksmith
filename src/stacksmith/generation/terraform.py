@@ -350,24 +350,28 @@ def generate_tf_json(
     )
     modules.update(_generate_operation_blocks(stack, config, operation_names))
 
-    return {
+    doc = {
         "terraform": _generate_terraform_block(
             config,
             stack,
             root,
             provider_source_formatter_options=provider_source_options,
         ),
-        "provider": build_provider_blocks(
-            config,
-            context={"stack_name": stack.name, "inputs": resolved_inputs},
-            base_path=(
-                config.source_path.parent if config.source_path is not None else None
-            ),
-            cache_dir=cache_dir,
-            auth_config=auth_config,
-        ),
         "module": modules,
     }
+
+    providers = build_provider_blocks(
+        config,
+        context={"stack_name": stack.name, "inputs": resolved_inputs},
+        base_path=(
+            config.source_path.parent if config.source_path is not None else None
+        ),
+        cache_dir=cache_dir,
+        auth_config=auth_config,
+    )
+    if providers:
+        doc["provider"] = providers
+    return doc
 
 
 def write_tf_json(

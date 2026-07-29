@@ -9,6 +9,9 @@ merge_rules:
 configs:
   - source: local
     data:
+      path: ../../shared-config-repo/stacksmith-base-config.yaml
+  - source: local
+    data:
       path: ../../shared-config-repo/stacksmith-config.yaml
 stacks:
   - source: local
