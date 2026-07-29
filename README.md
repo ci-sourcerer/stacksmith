@@ -1622,8 +1622,6 @@ Targeted execution is additive. It does not replace normal multi-stack orchestra
 
 Use `--validation-report-format json` to explicitly select the currently supported output format. The flag is retained so more formats can be added later.
 
-Human-oriented logs, OpenTofu progress output, and diagnostics are written to stderr so stdout can be piped directly into tools like `jq`.
-
 ```json
 {
   "command": "plan",
