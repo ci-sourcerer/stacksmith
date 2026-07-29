@@ -1,5 +1,6 @@
 from .api import (
     generate_stack,
+    lock_stack,
     prepare_ci_execution,
     redact_plan,
     redact_plan_file,
@@ -39,6 +40,7 @@ __all__ = [
     "RepositoryStatus",
     "commit_and_push",
     "generate_stack",
+    "lock_stack",
     "MergePolicy",
     "MergeRule",
     "prepare_ci_execution",

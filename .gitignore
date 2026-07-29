@@ -218,6 +218,9 @@ __marimo__/
 .stacksmith/
 .secrets
 tmp/
+
+# Temporary until lockfile output is fully machine-portable.
+examples/**/stacksmith.lock.yaml
 .DS_Store
 
 # Local .terraform directories

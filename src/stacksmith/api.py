@@ -1,8 +1,13 @@
+import hashlib
 import shutil
+import subprocess
 from collections.abc import Sequence
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as metadata_version
 from pathlib import Path
 from typing import Any
 
+import yaml
 from jsonschema import exceptions as jsonschema_exceptions
 from loguru import logger as LOGGER
 
@@ -11,7 +16,12 @@ from .ci.service import (
     prepare_ci_execution,
     validate_ci_inputs,
 )
-from .constants import CACHE_DIR_NAME, DEFAULT_STACK_FILES, STACKSMITH_DIR_NAME
+from .constants import (
+    CACHE_DIR_NAME,
+    DEFAULT_LOCKFILE,
+    DEFAULT_STACK_FILES,
+    STACKSMITH_DIR_NAME,
+)
 from .discovery import (
     build_dependency_graph,
     discover_stacks,
@@ -37,19 +47,30 @@ from .loading import (
 )
 from .models import (
     FileReference,
+    InlineReference,
+    LockArtifact,
+    LockContext,
     MergeConfig,
     StackDefinition,
+    StackLockFile,
     ToolConfig,
+    VariableReference,
+    render_file_reference,
 )
 from .plan_redaction import redact_plan, redact_plan_file
-from .remote import is_remote_url, resolve_references
+from .remote import is_remote_url, parse_git_url, resolve_if_remote, resolve_references
 from .runner import run_terragrunt, run_terragrunt_all_ordered
 from .targeting import (
     build_terragrunt_args,
     resolve_tag_targets,
     validate_action_options,
 )
-from .utils import get_current_git_repository, stacksmith_env_list
+from .utils import (
+    cache_key,
+    env_truthy,
+    get_current_git_repository,
+    stacksmith_env_list,
+)
 from .validations import PlanValidationOutcome, PlanValidationResult
 from .variables import InputLayer, resolve_inputs
 from .vendor import get_vendor_dir, load_vendor_manifest
@@ -59,6 +80,7 @@ __all__ = [
     "inspect_cache_diagnostics",
     "inspect_environments",
     "inspect_modules",
+    "lock_stack",
     "prepare_ci_execution",
     "redact_plan",
     "redact_plan_file",
@@ -68,6 +90,218 @@ __all__ = [
     "validate_ci_inputs",
     "validate_stack",
 ]
+
+
+def _current_stacksmith_version() -> str:
+    try:
+        return metadata_version("stacksmith")
+    except PackageNotFoundError:
+        return "0+unknown"
+
+
+def _file_sha256(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _find_git_repo_root(path: Path) -> Path | None:
+    start = path if path.is_dir() else path.parent
+    for candidate in [start, *start.parents]:
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _git_commit_for_path(path: Path) -> str | None:
+    if (repo_root := _find_git_repo_root(path)) is None:
+        return None
+
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _resolve_reference_pairs(
+    references: Sequence[str | Path | FileReference],
+    cache_dir: Path,
+    auth_config: Any,
+    offline: bool = False,
+) -> list[tuple[str, Path]]:
+    pairs: list[tuple[str, Path]] = []
+    for reference in references:
+        rendered = render_file_reference(reference)
+        resolved = (
+            _resolve_reference_path_offline(reference, cache_dir)
+            if offline
+            else resolve_if_remote(reference, cache_dir, auth_config=auth_config)
+        )
+        if not resolved.exists():
+            if offline and is_remote_url(reference):
+                raise StacksmithConfigError(
+                    "Offline mode requires cached artifacts. Missing cached reference: "
+                    f"{rendered} (expected at {resolved})"
+                )
+            raise FileNotFoundError(f"Reference not found: {resolved}")
+        pairs.append((rendered, resolved.resolve()))
+    return pairs
+
+
+def _resolve_reference_path_offline(
+    reference: str | Path | FileReference,
+    cache_dir: Path,
+) -> Path:
+    rendered = render_file_reference(reference)
+    if not is_remote_url(reference):
+        return Path(rendered).expanduser()
+
+    if rendered.startswith("git+"):
+        parsed = parse_git_url(rendered)
+        ref_label = parsed.ref or "HEAD"
+        return (
+            cache_dir
+            / "git"
+            / f"{cache_key(parsed.repo_url)}-{cache_key(ref_label)}"
+            / parsed.path
+        )
+
+    filename = Path(rendered).name or "downloaded"
+    return cache_dir / "http" / cache_key(rendered) / filename
+
+
+def _iter_vars_references(
+    vars_file: (
+        str | Path | VariableReference | Sequence[str | Path | VariableReference] | None
+    ),
+    input_layers: Sequence[InputLayer] | None,
+) -> list[str | Path | FileReference]:
+    refs: list[str | Path | FileReference] = []
+
+    if vars_file is None:
+        refs.extend(stacksmith_env_list("VARS") or [])
+    elif isinstance(vars_file, (str, Path)) or hasattr(vars_file, "source"):
+        refs.append(vars_file)
+    else:
+        refs.extend(vars_file)
+
+    for kind, value in input_layers or []:
+        if kind == "vars":
+            refs.append(value)
+
+    file_refs: list[str | Path | FileReference] = []
+    for ref in refs:
+        if isinstance(ref, InlineReference):
+            continue
+        file_refs.append(ref)
+    return file_refs
+
+
+def _build_lock_artifact(
+    kind: str, reference: str, resolved_path: Path
+) -> LockArtifact:
+    artifact = LockArtifact(
+        kind=kind,
+        reference=reference,
+        resolved_path=str(resolved_path),
+        sha256=_file_sha256(resolved_path),
+    )
+    if is_remote_url(reference) and reference.startswith("git+"):
+        artifact.git_commit = _git_commit_for_path(resolved_path)
+    return artifact
+
+
+def _default_lockfile_path(
+    lockfile: Path | None,
+    runfiles: Sequence[str | Path | FileReference],
+    stack_references: Sequence[str | Path | FileReference],
+    stack_paths: Sequence[Path],
+) -> Path:
+    if lockfile is not None:
+        return lockfile.expanduser().resolve()
+
+    if runfiles:
+        primary_runfile = runfiles[0]
+        if not is_remote_url(primary_runfile):
+            return (
+                Path(render_file_reference(primary_runfile))
+                .expanduser()
+                .resolve()
+                .parent
+                / DEFAULT_LOCKFILE
+            )
+
+    if stack_references and not is_remote_url(stack_references[0]):
+        return (
+            Path(render_file_reference(stack_references[0]))
+            .expanduser()
+            .resolve()
+            .parent
+            / DEFAULT_LOCKFILE
+        )
+
+    if stack_paths:
+        return stack_paths[0].parent / DEFAULT_LOCKFILE
+    return Path.cwd() / DEFAULT_LOCKFILE
+
+
+def _enforce_lock_policy_for_inputs(
+    stack_file: Path | str | FileReference | Sequence[Path | str | FileReference],
+    config: list[str] | None,
+    vars_file: str | Sequence[str] | None,
+    input_layers: Sequence[InputLayer] | None,
+    runfiles: Sequence[str | Path | FileReference] | None,
+    build_dir: Path | None,
+    no_cache: bool,
+    merge_mode: MergeConfig,
+    lockfile: Path | None,
+    locked: bool,
+    offline: bool,
+) -> None:
+    if not (locked or offline):
+        if env_truthy(
+            "WARN_ON_UNLOCKED",
+            default=True,
+            prefix="STACKSMITH_",
+        ):
+            LOGGER.warning(
+                "Running without lockfile enforcement. Pass `locked=True` with a "
+                "Stacksmith lockfile to verify resolved inputs, or set "
+                "STACKSMITH_WARN_ON_UNLOCKED=0 to suppress this warning."
+            )
+        return
+
+    if no_cache and offline:
+        raise StacksmithConfigError(
+            "--offline cannot be combined with --no-cache because offline mode requires existing local cache artifacts."
+        )
+
+    summary = lock_stack(
+        stack_file,
+        config=config,
+        vars_file=vars_file,
+        input_layers=input_layers,
+        runfiles=runfiles,
+        build_dir=build_dir,
+        no_cache=False if offline else no_cache,
+        merge_mode=merge_mode,
+        lockfile=lockfile,
+        check=True,
+        offline=offline,
+    )
+    if not summary["lockfile_exists"]:
+        raise StacksmithConfigError(
+            f"Lockfile not found: {summary['lockfile_path']}. Run 'stacksmith lock' first."
+        )
+    if not summary["in_sync"]:
+        raise StacksmithConfigError(
+            f"Lockfile mismatch: {summary['lockfile_path']} does not match resolved inputs."
+        )
 
 
 def _default_config_paths() -> list[str]:
@@ -728,6 +962,10 @@ def generate_stack(
     no_cache: bool = False,
     use_local_modules: bool = False,
     merge_mode: MergeConfig = MergeMode.DEEP,
+    lockfile: Path | None = None,
+    locked: bool = False,
+    offline: bool = False,
+    runfiles: Sequence[str | Path | FileReference] | None = None,
 ) -> Path:
     """Generate OpenTofu and Terragrunt files for a single stack.
 
@@ -741,6 +979,10 @@ def generate_stack(
         no_cache: When `True`, clear the remote cache before resolving components.
         use_local_modules: When `True`, rewrite module sources to local vendored paths.
         merge_mode: Merge strategy used for layered stacks, configs, and vars.
+        lockfile: Optional lockfile path used by lock policy checks.
+        locked: Whether to enforce lockfile verification during generation.
+        offline: Whether to require offline-only artifact usage during generation.
+        runfiles: Optional runfile references used for lock verification.
 
     Returns:
         Output directory path containing generated files.
@@ -750,6 +992,19 @@ def generate_stack(
         build_dir,
         no_cache=no_cache,
         merge_mode=merge_mode,
+    )
+    _enforce_lock_policy_for_inputs(
+        stack_file,
+        config,
+        vars_file,
+        input_layers,
+        runfiles,
+        build_dir,
+        no_cache,
+        merge_mode,
+        lockfile,
+        locked,
+        offline,
     )
     LOGGER.debug(
         "Generating stack {stack_file} with config paths: {config_paths}",
@@ -773,6 +1028,140 @@ def generate_stack(
         use_local_modules=use_local_modules,
         merge_mode=merge_mode,
     )
+
+
+def lock_stack(
+    stack_file: Path | str | FileReference | Sequence[Path | str | FileReference],
+    config: list[str | FileReference] | None = None,
+    vars_file: (
+        str | Path | VariableReference | Sequence[str | Path | VariableReference] | None
+    ) = None,
+    input_layers: Sequence[InputLayer] | None = None,
+    runfiles: Sequence[str | Path | FileReference] | None = None,
+    build_dir: Path | None = None,
+    no_cache: bool = False,
+    merge_mode: MergeConfig = MergeMode.DEEP,
+    lockfile: Path | None = None,
+    check: bool = False,
+    offline: bool = False,
+    overwrite: bool = True,
+) -> dict[str, Any]:
+    """Resolve and persist a deterministic lockfile for stack inputs.
+
+    Args:
+        stack_file: Stack path, URL, file reference, or ordered stack sequence.
+        config: Optional configuration paths or references.
+        vars_file: Optional vars source reference(s).
+        input_layers: Optional ordered CLI input layers.
+        runfiles: Optional runfile reference(s) used for this invocation.
+        build_dir: Optional build output directory.
+        no_cache: Whether to clear remote cache before resolving references.
+        merge_mode: Merge strategy for layered stack and config resolution.
+        lockfile: Explicit lockfile output path.
+        check: When `True`, verify existing lockfile content without writing.
+        offline: When `True`, resolve remote references from cache paths only.
+        overwrite: When `False`, create a missing lockfile without replacing an
+            existing file. Ignored when `check` is `True`.
+
+    Returns:
+        Lock operation summary including output path and sync status.
+    """
+    cache_dir, config_paths, loaded_config = load_runtime_config(
+        config,
+        build_dir,
+        no_cache=no_cache,
+        merge_mode=merge_mode,
+    )
+    auth_config = loaded_config.remote_auth or None
+
+    stack_references = _normalize_stack_refs(stack_file)
+    stack_paths = _resolve_stack_paths(stack_file, cache_dir)
+    config_references = config if config is not None else _default_config_paths()
+    runfile_references = list(runfiles or [])
+    var_references = _iter_vars_references(vars_file, input_layers)
+
+    artifacts: list[LockArtifact] = []
+    for reference, resolved_path in zip(stack_references, stack_paths, strict=True):
+        artifacts.append(
+            _build_lock_artifact(
+                "stack", render_file_reference(reference), resolved_path
+            )
+        )
+
+    for reference, resolved_path in _resolve_reference_pairs(
+        config_references,
+        cache_dir,
+        auth_config,
+        offline=offline,
+    ):
+        artifacts.append(_build_lock_artifact("config", reference, resolved_path))
+
+    for reference, resolved_path in _resolve_reference_pairs(
+        runfile_references,
+        cache_dir,
+        auth_config,
+        offline=offline,
+    ):
+        artifacts.append(_build_lock_artifact("runfile", reference, resolved_path))
+
+    for reference, resolved_path in _resolve_reference_pairs(
+        var_references,
+        cache_dir,
+        auth_config,
+        offline=offline,
+    ):
+        artifacts.append(_build_lock_artifact("vars", reference, resolved_path))
+
+    artifacts = sorted(
+        artifacts,
+        key=lambda artifact: (
+            artifact.kind,
+            artifact.reference,
+            artifact.resolved_path,
+        ),
+    )
+
+    lock_document = StackLockFile(
+        stacksmith_version=_current_stacksmith_version(),
+        context=LockContext(
+            stack_paths=[str(path) for path in stack_paths],
+            config_paths=[str(path) for path in config_paths],
+            runfile_references=[
+                render_file_reference(ref) for ref in runfile_references
+            ],
+        ),
+        artifacts=artifacts,
+    )
+    lock_payload = lock_document.model_dump(mode="json", exclude_none=True)
+
+    lockfile_path = _default_lockfile_path(
+        lockfile,
+        runfile_references,
+        stack_references,
+        stack_paths,
+    )
+
+    lockfile_exists = lockfile_path.exists()
+    in_sync = False
+    if lockfile_exists:
+        existing_payload = yaml.safe_load(lockfile_path.read_text(encoding="utf-8"))
+        in_sync = existing_payload == lock_payload
+
+    if not check and (overwrite or not lockfile_exists):
+        lockfile_path.parent.mkdir(parents=True, exist_ok=True)
+        lockfile_path.write_text(
+            yaml.safe_dump(lock_payload, sort_keys=False),
+            encoding="utf-8",
+        )
+        in_sync = True
+
+    return {
+        "lockfile_path": str(lockfile_path),
+        "lockfile_exists": lockfile_exists,
+        "check": check,
+        "in_sync": in_sync,
+        "artifact_count": len(artifacts),
+    }
 
 
 def run_stack_operation(
@@ -878,6 +1267,10 @@ def run_stack_action(
         str | ValidationReportFormat
     ) = ValidationReportFormat.JSON,
     save_redacted_plan_json: Path | None = None,
+    lockfile: Path | None = None,
+    locked: bool = False,
+    offline: bool = False,
+    runfiles: Sequence[str | Path | FileReference] | None = None,
 ) -> int:
     """Generate files for a stack and run a Terragrunt action.
 
@@ -909,6 +1302,10 @@ def run_stack_action(
             report output.
         save_redacted_plan_json: Optional file or directory path used to persist
             archive-safe redacted plan JSON output for plan actions.
+        lockfile: Optional lockfile path used by lock policy checks.
+        locked: Whether to enforce lockfile verification before runtime actions.
+        offline: Whether to require offline-only artifact usage before runtime actions.
+        runfiles: Optional runfile references used for lock verification.
 
     Returns:
         Process-style exit code from the Terragrunt action.
@@ -918,6 +1315,19 @@ def run_stack_action(
         build_dir,
         no_cache=no_cache,
         merge_mode=merge_mode,
+    )
+    _enforce_lock_policy_for_inputs(
+        stack_file,
+        config,
+        vars_file,
+        input_layers,
+        runfiles,
+        build_dir,
+        no_cache,
+        merge_mode,
+        lockfile,
+        locked,
+        offline,
     )
     effective_no_cas = no_cas or no_cache
     if no_cache and not no_cas:

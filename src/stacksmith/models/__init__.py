@@ -53,6 +53,7 @@ from .configuration import (
     render_module_source_identity,
     render_provider_source_fields,
 )
+from .locking import LockArtifact, LockContext, LockPolicy, StackLockFile
 from .stacks import (
     ComponentDefinition,
     OperationInvocation,
@@ -90,6 +91,9 @@ __all__ = [
     "LocalOperationDefinition",
     "LocalReference",
     "LocalReferenceData",
+    "LockArtifact",
+    "LockContext",
+    "LockPolicy",
     "MergeConfig",
     "MergePolicy",
     "MergeRule",
@@ -119,6 +123,7 @@ __all__ = [
     "RemoteAuthEntry",
     "RunFile",
     "StackDefinition",
+    "StackLockFile",
     "StackMeta",
     "StacksmithTestFixtures",
     "StacksmithTestManifest",

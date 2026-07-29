@@ -439,6 +439,50 @@ def add_validation_report_format_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_lockfile_arg(parser: argparse.ArgumentParser) -> None:
+    """Add lockfile path configuration to a command parser.
+
+    Args:
+        parser: Parser receiving lockfile-related options.
+
+    Returns:
+        None.
+    """
+    parser.add_argument(
+        "--lockfile",
+        type=path_type,
+        default=None,
+        help=(
+            "Path to stacksmith.lock.yaml. When omitted, Stacksmith resolves the "
+            "default location beside the primary runfile or stack file."
+        ),
+    )
+
+
+def add_lock_policy_args(parser: argparse.ArgumentParser) -> None:
+    """Add runtime lock policy flags to a command parser.
+
+    Args:
+        parser: Parser receiving lock policy flags.
+
+    Returns:
+        None.
+    """
+    parser.add_argument(
+        "--locked",
+        action="store_true",
+        default=False,
+        help="Require inputs to match lockfile entries.",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        default=False,
+        help="Require locked artifacts to be available locally without network access.",
+    )
+    add_lockfile_arg(parser)
+
+
 def configure_inspect_parser(parser: argparse.ArgumentParser) -> None:
     """Configure arguments for the module inspection command.
 

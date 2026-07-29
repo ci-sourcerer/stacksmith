@@ -7,6 +7,8 @@ from ..utils import env_truthy, stacksmith_env
 from .args import (
     add_apply_args,
     add_common_args,
+    add_lock_policy_args,
+    add_lockfile_arg,
     add_plan_output_args,
     add_stack_arg,
     add_target_selection_args,
@@ -55,6 +57,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_stack_arg(generate_parser)
     add_common_args(generate_parser)
+    add_lock_policy_args(generate_parser)
+
+    lock_parser = subparsers.add_parser(
+        "lock",
+        help="Resolve stack inputs and write a deterministic lockfile",
+    )
+    add_stack_arg(lock_parser)
+    add_common_args(lock_parser)
+    add_lockfile_arg(lock_parser)
+    lock_parser.add_argument(
+        "--check",
+        action="store_true",
+        default=False,
+        help="Verify that the existing lockfile matches current resolved inputs.",
+    )
 
     test_parser = subparsers.add_parser(
         "test",
@@ -144,21 +161,26 @@ def build_parser() -> argparse.ArgumentParser:
             tag_expr=None,
         )
         match action:
+            case TerragruntAction.INIT:
+                add_lock_policy_args(action_parser)
             case TerragruntAction.PLAN:
                 add_plan_output_args(action_parser)
                 add_target_selection_args(action_parser)
                 add_validation_report_format_arg(action_parser)
+                add_lock_policy_args(action_parser)
             case TerragruntAction.APPLY:
                 add_apply_args(action_parser)
                 add_target_selection_args(
                     action_parser,
                     include_auto_approve=True,
                 )
+                add_lock_policy_args(action_parser)
             case TerragruntAction.DESTROY:
                 add_target_selection_args(
                     action_parser,
                     include_auto_approve=True,
                 )
+                add_lock_policy_args(action_parser)
 
     operation_parser = subparsers.add_parser(
         "operation",
