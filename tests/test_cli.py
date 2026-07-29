@@ -62,6 +62,25 @@ def _capture_run_stack_operation_call(
     return calls
 
 
+def _capture_automatic_lockfile_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[tuple[object, dict[str, object]]]:
+    calls: list[tuple[object, dict[str, object]]] = []
+
+    def _fake_lock_stack(stack_file, **kwargs):
+        calls.append((stack_file, kwargs))
+        return {
+            "lockfile_path": "stacksmith.lock.yaml",
+            "lockfile_exists": False,
+            "check": kwargs["check"],
+            "in_sync": True,
+            "artifact_count": 2,
+        }
+
+    monkeypatch.setattr(cli_main, "lock_stack", _fake_lock_stack)
+    return calls
+
+
 def _diagnostics_payload(
     remote_cache_entries: list[dict[str, str]] | None = None,
 ) -> dict[str, object]:
@@ -913,6 +932,13 @@ def test_operation_force_rerun_reads_environment(monkeypatch):
         ),
         (["--fail-on-changes"], "fail_on_changes", True),
         (["--validation-report-format", "json"], "validation_report_format", "json"),
+        (["--locked"], "locked", True),
+        (["--offline"], "offline", True),
+        (
+            ["--lockfile", "stacksmith.lock.yaml"],
+            "lockfile",
+            Path("stacksmith.lock.yaml"),
+        ),
     ],
 )
 def test_cmd_terragrunt_action_passes_runtime_options(
@@ -928,6 +954,28 @@ def test_cmd_terragrunt_action_passes_runtime_options(
     assert calls["run"][2][keyword] == expected
     if "--tag" in option_args:
         assert calls["run"][2]["tags"] == ["prod"]
+
+
+def test_cmd_terragrunt_action_passes_runfile_references(monkeypatch, parser):
+    calls = _capture_run_stack_action_call(monkeypatch)
+    monkeypatch.setattr(cli_main, "_apply_runfile", lambda args: args)
+
+    args = parser.parse_args(["plan", "stack.yaml", "--runfile", "stacksmith.yaml"])
+
+    exit_code = cli_main._cmd_terragrunt_action(args, "plan")
+
+    assert exit_code == 0
+    assert calls["run"][2]["runfiles"] == ["stacksmith.yaml"]
+
+
+def test_cmd_terragrunt_action_require_lockfile_rejects_unlocked(monkeypatch, parser):
+    monkeypatch.setattr(cli_main, "_apply_runfile", lambda args: args)
+    monkeypatch.setenv("STACKSMITH_REQUIRE_LOCKFILE", "1")
+
+    args = parser.parse_args(["plan", "stack.yaml"])
+
+    with pytest.raises(StacksmithConfigError, match="requires --locked"):
+        cli_main._cmd_terragrunt_action(args, "plan")
 
 
 def test_cmd_validate_accepts_multiple_run_files(monkeypatch, tmp_path):
@@ -1420,11 +1468,183 @@ def test_cmd_generate_passes_use_local_modules(monkeypatch, parser):
 
     monkeypatch.setattr(cli_main, "generate_stack", _fake_generate_stack)
     monkeypatch.delenv("STACKSMITH_ONLY_USE_LOCAL_MODULES", raising=False)
+    _capture_automatic_lockfile_calls(monkeypatch)
 
     args = parser.parse_args(["generate", "stack.yaml", "--use-local-modules"])
     cli_main._cmd_generate(args)
 
     assert calls["gen"]["use_local_modules"] is True
+    assert calls["gen"]["locked"] is True
+
+
+def test_cmd_generate_passes_lock_policy_args(monkeypatch, parser):
+    calls: dict[str, object] = {}
+
+    def _fake_generate_stack(stack_file, **kwargs):
+        calls["gen"] = kwargs
+        return 0
+
+    monkeypatch.setattr(cli_main, "generate_stack", _fake_generate_stack)
+
+    args = parser.parse_args(
+        [
+            "generate",
+            "stack.yaml",
+            "--locked",
+            "--offline",
+            "--lockfile",
+            "custom.lock.yaml",
+        ]
+    )
+    cli_main._cmd_generate(args)
+
+    assert calls["gen"]["locked"] is True
+    assert calls["gen"]["offline"] is True
+    assert calls["gen"]["lockfile"] == Path("custom.lock.yaml")
+    assert calls["gen"]["runfiles"] == []
+
+
+def test_cmd_generate_creates_and_enforces_missing_lockfile(monkeypatch, parser):
+    calls: dict[str, object] = {}
+
+    def _fake_generate_stack(stack_file, **kwargs):
+        calls["gen"] = kwargs
+        return 0
+
+    monkeypatch.setattr(cli_main, "generate_stack", _fake_generate_stack)
+    monkeypatch.setattr(cli_main, "_apply_runfile", lambda args: args)
+    monkeypatch.delenv("STACKSMITH_REQUIRE_LOCKFILE", raising=False)
+    lock_calls = _capture_automatic_lockfile_calls(monkeypatch)
+
+    args = parser.parse_args(["generate", "stack.yaml"])
+    cli_main._cmd_generate(args)
+
+    assert [call[1]["check"] for call in lock_calls] == [False]
+    assert lock_calls[0][1]["overwrite"] is False
+    assert calls["gen"]["locked"] is True
+
+
+def test_cmd_generate_require_lockfile_uses_automatic_lock(monkeypatch, parser):
+    calls: dict[str, object] = {}
+
+    def _fake_generate_stack(stack_file, **kwargs):
+        calls["gen"] = kwargs
+        return 0
+
+    monkeypatch.setattr(cli_main, "generate_stack", _fake_generate_stack)
+    monkeypatch.setattr(cli_main, "_apply_runfile", lambda args: args)
+    monkeypatch.setenv("STACKSMITH_REQUIRE_LOCKFILE", "1")
+    _capture_automatic_lockfile_calls(monkeypatch)
+
+    args = parser.parse_args(["generate", "stack.yaml"])
+    cli_main._cmd_generate(args)
+
+    assert calls["gen"]["locked"] is True
+
+
+def test_cmd_generate_require_lockfile_allows_locked(monkeypatch, parser):
+    calls: dict[str, object] = {}
+
+    def _fake_generate_stack(stack_file, **kwargs):
+        calls["gen"] = kwargs
+        return 0
+
+    monkeypatch.setattr(cli_main, "generate_stack", _fake_generate_stack)
+    monkeypatch.setattr(cli_main, "_apply_runfile", lambda args: args)
+    monkeypatch.setenv("STACKSMITH_REQUIRE_LOCKFILE", "1")
+
+    args = parser.parse_args(["generate", "stack.yaml", "--locked"])
+    cli_main._cmd_generate(args)
+
+    assert calls["gen"]["locked"] is True
+
+
+def test_cmd_generate_passes_runfile_references(monkeypatch, parser):
+    calls: dict[str, object] = {}
+
+    def _fake_generate_stack(stack_file, **kwargs):
+        calls["gen"] = kwargs
+        return 0
+
+    monkeypatch.setattr(cli_main, "generate_stack", _fake_generate_stack)
+    monkeypatch.setattr(cli_main, "_apply_runfile", lambda args: args)
+    _capture_automatic_lockfile_calls(monkeypatch)
+
+    args = parser.parse_args(["generate", "stack.yaml", "--runfile", "stacksmith.yaml"])
+    cli_main._cmd_generate(args)
+
+    assert calls["gen"]["runfiles"] == ["stacksmith.yaml"]
+
+
+def test_cmd_init_creates_and_enforces_missing_lockfile(monkeypatch, parser):
+    calls = _capture_run_stack_action_call(monkeypatch)
+    lock_calls = _capture_automatic_lockfile_calls(monkeypatch)
+    monkeypatch.setattr(cli_main, "_apply_runfile", lambda args: args)
+
+    args = parser.parse_args(["init", "stack.yaml", "--lockfile", "custom.lock.yaml"])
+    cli_main._cmd_terragrunt_action(args, "init")
+
+    assert [call[1]["check"] for call in lock_calls] == [False]
+    assert lock_calls[0][1]["overwrite"] is False
+    assert calls["run"][2]["locked"] is True
+    assert calls["run"][2]["lockfile"] == Path("custom.lock.yaml")
+
+
+def test_lock_command_parses_flags(parser):
+    args = parser.parse_args(
+        [
+            "lock",
+            "stack.yaml",
+            "--lockfile",
+            "stacksmith.lock.yaml",
+            "--check",
+        ]
+    )
+
+    assert args.command == "lock"
+    assert args.stack_file == Path("stack.yaml")
+    assert args.lockfile == Path("stacksmith.lock.yaml")
+    assert args.check is True
+
+
+def test_cmd_lock_uses_api(monkeypatch, parser, capsys):
+    calls: dict[str, object] = {}
+
+    def _fake_lock_stack(stack_file, **kwargs):
+        calls["lock"] = (stack_file, kwargs)
+        return {
+            "lockfile_path": "stacksmith.lock.yaml",
+            "check": False,
+            "in_sync": True,
+            "artifact_count": 3,
+        }
+
+    monkeypatch.setattr(cli_main, "lock_stack", _fake_lock_stack)
+
+    args = parser.parse_args(["lock", "stack.yaml"])
+    exit_code = cli_main._cmd_lock(args)
+
+    assert exit_code == 0
+    assert calls["lock"][0] == Path("stack.yaml")
+    assert calls["lock"][1]["check"] is False
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["artifact_count"] == 3
+
+
+def test_cmd_lock_check_mismatch_returns_non_zero(monkeypatch, parser):
+    monkeypatch.setattr(
+        cli_main,
+        "lock_stack",
+        lambda *args, **kwargs: {
+            "lockfile_path": "stacksmith.lock.yaml",
+            "check": True,
+            "in_sync": False,
+            "artifact_count": 2,
+        },
+    )
+
+    args = parser.parse_args(["lock", "stack.yaml", "--check"])
+    assert cli_main._cmd_lock(args) == 2
 
 
 def test_cmd_run_all_passes_use_local_modules(monkeypatch):

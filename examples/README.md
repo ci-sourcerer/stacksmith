@@ -204,6 +204,69 @@ stacksmith run-all plan \
     --tag-expr "contains(stack_tags, 'prod') && tag.web"
 ```
 
+## Lockfile workflow for examples/stack-repo
+
+The current example workflow supports a reproducible lockfile, but the generated lockfile is intentionally ignored in this repo until the output becomes fully machine-portable. `generate` and `init` create the file automatically when it is missing and enforce it during that command.
+
+Generate or intentionally update a lockfile for the example stack.
+
+```bash
+cd examples/stack-repo
+stacksmith lock stack.yaml \
+  --config ../shared-config-repo/stacksmith-config.yaml \
+  --vars vars.dev.yaml
+```
+
+Verify the existing lockfile matches resolved inputs:
+
+```bash
+stacksmith lock stack.yaml \
+  --config ../shared-config-repo/stacksmith-config.yaml \
+  --vars vars.dev.yaml \
+  --check
+```
+
+Use it for generation and plan/apply runs:
+
+```bash
+stacksmith generate stack.yaml \
+  --config ../shared-config-repo/stacksmith-config.yaml \
+  --vars vars.dev.yaml
+
+stacksmith plan stack.yaml \
+  --config ../shared-config-repo/stacksmith-config.yaml \
+  --vars vars.dev.yaml \
+  --locked
+
+stacksmith apply stack.yaml \
+  --config ../shared-config-repo/stacksmith-config.yaml \
+  --vars vars.dev.yaml \
+  --locked
+```
+
+If the artifact cache is already warmed, add `--offline` to require local-only resolution:
+
+```bash
+stacksmith generate stack.yaml \
+  --config ../shared-config-repo/stacksmith-config.yaml \
+  --vars vars.dev.yaml \
+  --locked --offline
+```
+
+Unlocked runtime calls warn by default. Suppress that warning when the calling environment manages reproducibility another way.
+
+```bash
+export STACKSMITH_WARN_ON_UNLOCKED=0
+stacksmith plan stack.yaml --config ../shared-config-repo/stacksmith-config.yaml --vars vars.dev.yaml
+```
+
+Enable strict lockfile requirement for CI or gated environments:
+
+```bash
+export STACKSMITH_REQUIRE_LOCKFILE=1
+stacksmith plan stack.yaml --config ../shared-config-repo/stacksmith-config.yaml --vars vars.dev.yaml --locked
+```
+
 ## Additional commands and options
 
 Initialize providers and backend for one stack.

@@ -18,6 +18,7 @@ DEFAULT_STACK_FILES = (
 
 DEFAULT_CONFIG_FILE = "stacksmith-config.yaml"
 DEFAULT_RUNFILE = "stacksmith.yaml"
+DEFAULT_LOCKFILE = "stacksmith.lock.yaml"
 
 STACKSMITH_DIR_NAME = ".stacksmith"
 CACHE_DIR_NAME = ".cache"

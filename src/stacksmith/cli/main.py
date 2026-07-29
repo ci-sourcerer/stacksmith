@@ -34,6 +34,7 @@ from ..api import (
     inspect_environments,
     inspect_modules,
     load_runtime_config,
+    lock_stack,
     prepare_ci_execution,
     redact_plan_file,
     run_all_stacks,
@@ -66,6 +67,8 @@ from .args import (
     parse_input_layers,
 )
 from .parser import build_parser
+
+_RUNTIME_LOCK_REQUIRE_ENV = "STACKSMITH_REQUIRE_LOCKFILE"
 
 
 def _make_category_filter(name: str, root_level_no: int):
@@ -283,6 +286,9 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
 def _cmd_generate(args: argparse.Namespace) -> int:
     _apply_runfile(args)
+    if not (args.locked or args.offline):
+        _ensure_command_lockfile(args)
+    _enforce_runtime_lock_policy("generate", args)
     generate_stack(
         _stack_arg(args),
         config=args.config,
@@ -292,8 +298,87 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         no_cache=args.no_cache,
         use_local_modules=args.use_local_modules,
         merge_mode=_merge_mode_arg(args),
+        lockfile=getattr(args, "lockfile", None),
+        locked=getattr(args, "locked", False),
+        offline=getattr(args, "offline", False),
+        runfiles=_runfile_refs_for_lock(args),
     )
     return 0
+
+
+def _runfile_refs_for_lock(
+    args: argparse.Namespace,
+) -> list[Path | str | FileReference]:
+    runfile_refs: list[Path | str | FileReference] = list(
+        getattr(args, "runfile", None) or []
+    )
+    if not runfile_refs:
+        if default_runfile := get_default_run_file():
+            runfile_refs.append(default_runfile)
+    return runfile_refs
+
+
+def _cmd_lock(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    summary = _lock_stack_from_args(args, check=args.check)
+    print(compact_json(summary, sort_keys=True))
+    if args.check and not summary["in_sync"]:
+        LOGGER.error(
+            "Lockfile check failed: {path} does not match current resolved inputs.",
+            path=summary["lockfile_path"],
+        )
+        return 2
+    return 0
+
+
+def _lock_stack_from_args(
+    args: argparse.Namespace,
+    *,
+    check: bool,
+    overwrite: bool = True,
+) -> dict[str, Any]:
+    return lock_stack(
+        _stack_arg(args),
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        runfiles=_runfile_refs_for_lock(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        merge_mode=_merge_mode_arg(args),
+        lockfile=getattr(args, "lockfile", None),
+        check=check,
+        overwrite=overwrite,
+    )
+
+
+def _ensure_command_lockfile(args: argparse.Namespace) -> None:
+    summary = _lock_stack_from_args(args, check=False, overwrite=False)
+    if summary["lockfile_exists"]:
+        if not summary["in_sync"]:
+            raise StacksmithConfigError(
+                f"Lockfile mismatch: {summary['lockfile_path']} does not match "
+                "resolved inputs. Run 'stacksmith lock' to update it."
+            )
+    else:
+        LOGGER.info(
+            "Created Stacksmith lockfile at {path}.",
+            path=summary["lockfile_path"],
+        )
+    args.locked = True
+
+
+def _enforce_runtime_lock_policy(
+    command_name: str,
+    args: argparse.Namespace,
+) -> None:
+    locked = bool(getattr(args, "locked", False))
+    require_lockfile = parse_bool(os.getenv(_RUNTIME_LOCK_REQUIRE_ENV))
+
+    if require_lockfile and not locked:
+        raise StacksmithConfigError(
+            f"{_RUNTIME_LOCK_REQUIRE_ENV}=1 requires --locked for '{command_name}' runs."
+        )
 
 
 def _default_test_manifest_paths(config_paths: list[Path]) -> list[Path]:
@@ -475,6 +560,9 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 
 def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
     _apply_runfile(args)
+    if action == TerragruntAction.INIT.value and not (args.locked or args.offline):
+        _ensure_command_lockfile(args)
+    _enforce_runtime_lock_policy(action, args)
     return run_stack_action(
         action,
         _stack_arg(args),
@@ -497,6 +585,10 @@ def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
         no_cas=getattr(args, "no_cas", False),
         merge_mode=_merge_mode_arg(args),
         validation_report_format=_validation_report_format(args),
+        lockfile=getattr(args, "lockfile", None),
+        locked=getattr(args, "locked", False),
+        offline=getattr(args, "offline", False),
+        runfiles=_runfile_refs_for_lock(args),
     )
 
 
@@ -1001,6 +1093,8 @@ def main() -> None:
                 exit_code = _cmd_generate(args)
                 if exit_code != 0:
                     exit_code = 6  # Module/configuration error
+            case "lock":
+                exit_code = _cmd_lock(args)
             case "test":
                 exit_code = _cmd_test(args)
             case "info":

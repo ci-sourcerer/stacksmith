@@ -289,6 +289,22 @@ If `--runfile` is omitted, Stacksmith checks `STACKSMITH_RUN_FILE` and then auto
 
 `--merge-mode` on the CLI always takes precedence over the runfile `merge_mode` value and disables its `merge_rules`, making the selected mode a force-all override for that invocation.
 
+### Lockfiles
+
+Stacksmith lockfiles record the resolved stack, managed configuration, runfile, and variable inputs used by a single-stack workflow. Commit `stacksmith.lock.yaml` alongside the runfile or stack so changes to remote or local inputs can be reviewed.
+
+`stacksmith generate` and `stacksmith init` create a missing lockfile automatically and enforce it during the same command. They do not replace an existing mismatched lockfile; use `stacksmith lock` when you intend to update the recorded inputs.
+
+```bash
+stacksmith lock stack.yaml --config stacksmith-config.yaml
+stacksmith lock stack.yaml --config stacksmith-config.yaml --check
+stacksmith plan stack.yaml --config stacksmith-config.yaml --locked
+```
+
+Pass `--locked` to `generate`, `init`, `plan`, `apply`, or `destroy` to reject missing or mismatched lock data. Add `--offline` to resolve locked remote inputs only from the local cache.
+
+Unlocked CLI and Python API runtime calls warn by default. Set `STACKSMITH_WARN_ON_UNLOCKED=0` to suppress that warning, or set `STACKSMITH_REQUIRE_LOCKFILE=1` to require CLI runtime commands to use lock enforcement.
+
 ### Monorepo orchestration
 
 In a monorepo, stacksmith recursively discovers all `stack.yaml`/`stack.yml`/`stack.json` files from a root directory and builds a dependency graph from `depends_on` declarations.
@@ -884,6 +900,7 @@ Stacksmith exposes a stable Python API for applications, automation, and CI syst
 | - | - |
 | `validate_stack` | Validate a stack and its resolved inputs, returning a structured report. |
 | `generate_stack` | Generate the OpenTofu and Terragrunt files for a stack. |
+| `lock_stack` | Create or verify a deterministic Stacksmith lockfile. |
 | `run_stack_action` | Generate one stack and run a Terragrunt action. |
 | `run_all_stacks` | Discover or select stacks and run an action in dependency order. |
 | `prepare_ci_execution` | Build a provider-neutral CI execution manifest. |
@@ -891,6 +908,8 @@ Stacksmith exposes a stable Python API for applications, automation, and CI syst
 | `redact_plan_file` | Redact an OpenTofu plan JSON file into an archive-safe artifact. |
 
 The workflow functions accept the same layered stack, managed-config, variable, targeting, cache, and validation options used by the corresponding CLI commands. Execution functions return process-style exit codes, while generation returns the generated directory.
+
+Direct `generate_stack` and `run_stack_action` calls warn unless `locked=True` or `offline=True` enables lockfile enforcement. Set `STACKSMITH_WARN_ON_UNLOCKED=0` when an embedding application intentionally manages reproducibility another way.
 
 ```python
 import sys
@@ -1039,7 +1058,7 @@ Single-stack commands default to `stack.yaml` in the current directory, with fal
 
 ```text
 stacksmith [-h] [--version]
-                  {validate,generate,test,run-all,init,plan,apply,destroy,operation,info,ci} ...
+                  {validate,generate,lock,test,run-all,init,plan,apply,destroy,operation,info,ci} ...
 ```
 
 YAML/JSON-driven Terragrunt wrapper
@@ -1054,6 +1073,7 @@ YAML/JSON-driven Terragrunt wrapper
 | - | - |
 | `validate` | Validate stack schema and variables |
 | `generate` | Generate .tf.json and terragrunt.hcl.json |
+| `lock` | Resolve stack inputs and write a deterministic lockfile |
 | `test` | Run declarative tests.yaml manifests for managed config layers |
 | `run-all` | Discover all stacks and run terragrunt run-all |
 | `init` | Generate + terragrunt init |
@@ -1103,7 +1123,7 @@ stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-
                            [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}]
                            [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
                            [--strict-validation-warnings] [--use-local-modules | --no-local-modules]
-                           [--debug | -q]
+                           [--debug | -q] [--locked] [--offline] [--lockfile LOCKFILE]
                            [stack_file]
 ```
 
@@ -1126,6 +1146,42 @@ stacksmith generate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+| `--locked` | Require inputs to match lockfile entries. |
+| `--offline` | Require locked artifacts to be available locally without network access. |
+| `--lockfile` | Path to stacksmith.lock.yaml. When omitted, Stacksmith resolves the default location beside the primary runfile or stack file. |
+
+### `stacksmith lock`
+
+```text
+stacksmith lock [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
+                       [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                       [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
+                       [--use-local-modules | --no-local-modules] [--debug | -q] [--lockfile LOCKFILE]
+                       [--check]
+                       [stack_file]
+```
+
+| Argument | Description |
+| - | - |
+| `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
+| `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. |
+| `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+| `--lockfile` | Path to stacksmith.lock.yaml. When omitted, Stacksmith resolves the default location beside the primary runfile or stack file. |
+| `--check` | Verify that the existing lockfile matches current resolved inputs. |
 
 ### `stacksmith test`
 
@@ -1212,7 +1268,8 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
 stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
                        [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                        [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
-                       [--use-local-modules | --no-local-modules] [--debug | -q]
+                       [--use-local-modules | --no-local-modules] [--debug | -q] [--locked] [--offline]
+                       [--lockfile LOCKFILE]
                        [stack_file]
 ```
 
@@ -1235,6 +1292,9 @@ stacksmith init [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+| `--locked` | Require inputs to match lockfile entries. |
+| `--offline` | Require locked artifacts to be available locally without network access. |
+| `--lockfile` | Path to stacksmith.lock.yaml. When omitted, Stacksmith resolves the default location beside the primary runfile or stack file. |
 
 ### `stacksmith plan`
 
@@ -1245,7 +1305,7 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
                        [--use-local-modules | --no-local-modules] [--debug | -q] [--destroy]
                        [--save-plan-json SAVE_PLAN_JSON | --save-redacted-plan-json SAVE_REDACTED_PLAN_JSON]
                        [--out OUT] [--fail-on-changes] [--tag TAG] [--tag-expr TAG_EXPR]
-                       [--validation-report-format {json}]
+                       [--validation-report-format {json}] [--locked] [--offline] [--lockfile LOCKFILE]
                        [stack_file]
 ```
 
@@ -1276,6 +1336,9 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 | `--tag` | Select components by tag. Repeat to require multiple tags. |
 | `--tag-expr` | JMESPath expression used to select resource targets. |
 | `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
+| `--locked` | Require inputs to match lockfile entries. |
+| `--offline` | Require locked artifacts to be available locally without network access. |
+| `--lockfile` | Path to stacksmith.lock.yaml. When omitted, Stacksmith resolves the default location beside the primary runfile or stack file. |
 
 ### `stacksmith apply`
 
@@ -1284,7 +1347,7 @@ stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-fil
                         [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                         [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
                         [--use-local-modules | --no-local-modules] [--debug | -q] [--plan PLAN] [--tag TAG]
-                        [--tag-expr TAG_EXPR] [--auto-approve]
+                        [--tag-expr TAG_EXPR] [--auto-approve] [--locked] [--offline] [--lockfile LOCKFILE]
                         [stack_file]
 ```
 
@@ -1311,6 +1374,9 @@ stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-fil
 | `--tag` | Select components by tag. Repeat to require multiple tags. |
 | `--tag-expr` | JMESPath expression used to select resource targets. |
 | `--auto-approve` | Skip interactive approval |
+| `--locked` | Require inputs to match lockfile entries. |
+| `--offline` | Require locked artifacts to be available locally without network access. |
+| `--lockfile` | Path to stacksmith.lock.yaml. When omitted, Stacksmith resolves the default location beside the primary runfile or stack file. |
 
 ### `stacksmith destroy`
 
@@ -1319,7 +1385,8 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-f
                           [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}]
                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
                           [--strict-validation-warnings] [--use-local-modules | --no-local-modules] [--debug |
-                          -q] [--tag TAG] [--tag-expr TAG_EXPR] [--auto-approve]
+                          -q] [--tag TAG] [--tag-expr TAG_EXPR] [--auto-approve] [--locked] [--offline]
+                          [--lockfile LOCKFILE]
                           [stack_file]
 ```
 
@@ -1345,6 +1412,9 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-f
 | `--tag` | Select components by tag. Repeat to require multiple tags. |
 | `--tag-expr` | JMESPath expression used to select resource targets. |
 | `--auto-approve` | Skip interactive approval |
+| `--locked` | Require inputs to match lockfile entries. |
+| `--offline` | Require locked artifacts to be available locally without network access. |
+| `--lockfile` | Path to stacksmith.lock.yaml. When omitted, Stacksmith resolves the default location beside the primary runfile or stack file. |
 
 ### `stacksmith operation run`
 
@@ -1713,12 +1783,6 @@ stacksmith ci validate \
 ### Roadmap
 
 The roadmap is ordered roughly by expected impact. Reproducibility and deployment safety come first, followed by operability and developer-experience improvements.
-
-#### Reproducible source locking and offline execution
-
-Add a `stacksmith lock` command that resolves every remote input into an immutable identity and records the result in a lockfile. The lockfile should include Git commit SHAs, HTTP content hashes, module and provider versions, tool versions and checksums, and hashes for remotely loaded validation, transform, and provider configuration scripts.
-
-Runtime commands should support `--locked` to reject inputs that disagree with the lockfile and `--offline` to prohibit network access and require every locked artifact to be available locally. This would make a runfile reproducible across machines even when its authored references use mutable branches, tags, or HTTP URLs. The lock data should be deterministic so that teams can review and commit it alongside their runfiles.
 
 #### Resolution provenance and effective configuration inspection
 

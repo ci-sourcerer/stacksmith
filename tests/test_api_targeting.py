@@ -3,6 +3,7 @@ from io import StringIO
 from pathlib import Path
 
 import pytest
+import yaml
 from loguru import logger as LOGGER
 from stacksmith import api
 from stacksmith.exceptions import StacksmithConfigError
@@ -358,6 +359,13 @@ def test_generate_stack_returns_output_path(
     config = load_config(sample_config_yaml)
     stack = load_stack(sample_stack_yaml)
     calls: dict[str, object] = {}
+    warnings: list[str] = []
+    monkeypatch.delenv("STACKSMITH_WARN_ON_UNLOCKED", raising=False)
+    monkeypatch.setattr(
+        api.LOGGER,
+        "warning",
+        lambda message, *args, **kwargs: warnings.append(message),
+    )
     monkeypatch.setattr(
         api,
         "load_runtime_config",
@@ -384,6 +392,7 @@ def test_generate_stack_returns_output_path(
 
     assert output_dir == tmp_path / ".stacksmith"
     assert calls == {"stack": stack, "config": config}
+    assert any("without lockfile enforcement" in warning for warning in warnings)
 
 
 def test_generate_stack_renders_component_template_before_generation(
@@ -405,6 +414,13 @@ def test_generate_stack_renders_component_template_before_generation(
     )
     config = load_config(sample_config_yaml)
     generated = {}
+    warnings: list[str] = []
+    monkeypatch.setenv("STACKSMITH_WARN_ON_UNLOCKED", "0")
+    monkeypatch.setattr(
+        api.LOGGER,
+        "warning",
+        lambda message, *args, **kwargs: warnings.append(message),
+    )
 
     monkeypatch.setattr(
         api,
@@ -427,6 +443,7 @@ def test_generate_stack_renders_component_template_before_generation(
 
     assert set(generated["stack"].components) == {"blue", "green"}
     assert generated["stack"].components["blue"].properties["bucket"] == "blue"
+    assert warnings == []
 
 
 def test_generate_stack_exposes_git_repository_to_stack_templates(
@@ -936,3 +953,159 @@ def test_run_all_plan_emits_json_report_block_when_requested(
     assert report["results"][0]["name"] == "fail_rule"
     assert report["results"][0]["message"] == "policy failure"
     assert report["results"][0]["detail"] == "plan values: redacted"
+
+
+def test_lock_stack_writes_lockfile(
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+) -> None:
+    lockfile = tmp_path / "stacksmith.lock.yaml"
+
+    summary = api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        lockfile=lockfile,
+    )
+
+    assert summary["in_sync"] is True
+    assert summary["artifact_count"] >= 2
+    payload = yaml.safe_load(lockfile.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 1
+    assert payload["context"]["stack_paths"]
+    assert payload["context"]["config_paths"]
+
+
+def test_lock_stack_check_reports_mismatch_without_writing(
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+    sample_values_yaml: Path,
+) -> None:
+    lockfile = tmp_path / "stacksmith.lock.yaml"
+
+    api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        lockfile=lockfile,
+    )
+    summary = api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        vars_file=[str(sample_values_yaml)],
+        lockfile=lockfile,
+        check=True,
+    )
+
+    assert summary["check"] is True
+    assert summary["in_sync"] is False
+
+
+def test_lock_stack_overwrite_false_preserves_existing_mismatch(
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+    sample_values_yaml: Path,
+) -> None:
+    lockfile = tmp_path / "stacksmith.lock.yaml"
+    api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        lockfile=lockfile,
+    )
+    original_lockfile = lockfile.read_text(encoding="utf-8")
+
+    summary = api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        vars_file=[str(sample_values_yaml)],
+        lockfile=lockfile,
+        overwrite=False,
+    )
+
+    assert summary["in_sync"] is False
+    assert lockfile.read_text(encoding="utf-8") == original_lockfile
+
+
+def test_generate_stack_locked_enforces_matching_lockfile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+    sample_values_yaml: Path,
+) -> None:
+    lockfile = tmp_path / "stacksmith.lock.yaml"
+    warnings: list[str] = []
+    monkeypatch.delenv("STACKSMITH_WARN_ON_UNLOCKED", raising=False)
+    monkeypatch.setattr(
+        api.LOGGER,
+        "warning",
+        lambda message, *args, **kwargs: warnings.append(message),
+    )
+    api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        vars_file=[str(sample_values_yaml)],
+        lockfile=lockfile,
+    )
+
+    output_dir = api.generate_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        vars_file=[str(sample_values_yaml)],
+        build_dir=tmp_path / "build",
+        locked=True,
+        lockfile=lockfile,
+    )
+
+    assert output_dir.exists()
+    assert warnings == []
+
+
+def test_generate_stack_locked_raises_on_mismatch(
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+    sample_values_yaml: Path,
+) -> None:
+    lockfile = tmp_path / "stacksmith.lock.yaml"
+    api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        lockfile=lockfile,
+    )
+
+    with pytest.raises(StacksmithConfigError, match="Lockfile mismatch"):
+        api.generate_stack(
+            sample_stack_yaml,
+            config=[str(sample_config_yaml)],
+            vars_file=[str(sample_values_yaml)],
+            build_dir=tmp_path / "build",
+            locked=True,
+            lockfile=lockfile,
+        )
+
+
+def test_generate_stack_offline_rejects_no_cache(
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+) -> None:
+    lockfile = tmp_path / "stacksmith.lock.yaml"
+    api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        lockfile=lockfile,
+    )
+
+    with pytest.raises(
+        StacksmithConfigError, match="cannot be combined with --no-cache"
+    ):
+        api.generate_stack(
+            sample_stack_yaml,
+            config=[str(sample_config_yaml)],
+            build_dir=tmp_path / "build",
+            offline=True,
+            no_cache=True,
+            lockfile=lockfile,
+        )
