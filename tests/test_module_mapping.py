@@ -57,7 +57,8 @@ def test_resolve_module_mapping_renders_type_and_name():
                 "https://github.com/org/{{ component.type | replace('-', '_') }}"
                 "-{{ component.name }}.git"
             ),
-            "auto_inject": True,
+            "auto_inject_inputs": True,
+            "auto_expose_outputs": True,
             "tags": ["default"],
             "properties": {"region": {"mapped_to": "aws_region"}},
         }
@@ -67,7 +68,8 @@ def test_resolve_module_mapping_renders_type_and_name():
 
     assert mapping.source.data.repo == "https://github.com/org/web_service-checkout.git"
     assert mapping.description is None
-    assert mapping.auto_inject is True
+    assert mapping.auto_inject_inputs is True
+    assert mapping.auto_expose_outputs is True
     assert mapping.tags == {"default"}
     assert mapping.properties["region"].mapped_to == "aws_region"
 

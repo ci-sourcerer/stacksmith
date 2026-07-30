@@ -2142,7 +2142,7 @@ def test_cmd_info_modules_and_policies_json_emits_stdout(monkeypatch, parser, ca
         display_name="AWS S3 bucket",
         module_source="https://github.com/org/s3.git",
         module_version="1.0.0",
-        auto_inject=False,
+        auto_inject_inputs=False,
         inputs=[InputInfo(name="bucket_name", module_variable="bucket_name")],
     )
     monkeypatch.setattr(cli_main, "inspect_modules", lambda **kwargs: ([result], []))
@@ -2165,7 +2165,7 @@ def test_cmd_info_modules_and_policies_table_emits_stderr(monkeypatch, parser, c
         display_name="AWS S3 bucket",
         module_source="https://github.com/org/s3.git",
         module_version="1.0.0",
-        auto_inject=False,
+        auto_inject_inputs=False,
         inputs=[InputInfo(name="bucket_name", module_variable="bucket_name")],
     )
     monkeypatch.setattr(cli_main, "inspect_modules", lambda **kwargs: ([result], []))

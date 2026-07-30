@@ -1,10 +1,6 @@
 {
   "name": "my-stack",
   "tags": ["networking", "storage"],
-  "mock_outputs": {
-    "vpc_id": "mock-vpc-123",
-    "subnet_ids": ["mock-subnet-a", "mock-subnet-b"]
-  },
   "components": {
     "my-bucket": {
       "type": "aws_s3_bucket",

@@ -1,16 +1,19 @@
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from jinja2.sandbox import SandboxedEnvironment
 from loguru import logger as LOGGER
 
+from ..component_references import bind_component_references
 from ..exceptions import StacksmithTransformError, StacksmithValidationError
-from ..models import ModulePropertySpec, RemoteAuthConfig, ToolConfig
+from ..models import (
+    ModulePropertySpec,
+    RemoteAuthConfig,
+    StackDefinition,
+    ToolConfig,
+)
+from ..transforms import render_jinja_transform
 from ..validations import InputValidationOutcome, apply_transform, validate_value
-
-_JINJA_ENV = SandboxedEnvironment()
 
 
 def _resolve_module_input_path(value: str, base_paths: list[Path]) -> str:
@@ -50,22 +53,6 @@ def _normalize_module_input_value(
     return value
 
 
-def _render_transform_jinja(
-    template: str,
-    value: Any,
-    context: dict[str, Any],
-) -> Any:
-    property_context = context.get("property", {}).copy()
-    property_context["value"] = value
-    new_context = context.copy()
-    new_context["property"] = property_context
-    rendered = _JINJA_ENV.from_string(template).render(new_context)
-    try:
-        return json.loads(rendered)
-    except json.JSONDecodeError:
-        return rendered
-
-
 def apply_property_spec(
     value: Any,
     property_spec: ModulePropertySpec | None,
@@ -98,10 +85,11 @@ def apply_property_spec(
     if property_spec.transform is not None:
         try:
             if property_spec.transform.jinja is not None:
-                rendered = _render_transform_jinja(
+                rendered = render_jinja_transform(
                     property_spec.transform.jinja,
                     rendered,
                     property_context,
+                    "property",
                 )
             else:
                 rendered = apply_transform(
@@ -194,6 +182,7 @@ class PropertyRenderer:
 
     Attributes:
         config: Managed Stacksmith configuration.
+        stack_definition: Final stack definition containing referenced components.
         resolved_inputs: Inputs available to property processing.
         stack: Stack metadata available to property processing.
         component_name: Component instance name.
@@ -202,9 +191,11 @@ class PropertyRenderer:
         git_repository: Optional source repository URL.
         cache_dir: Optional cache directory for remote scripts.
         auth_config: Optional remote authentication configuration.
+        vendor_dir: Optional vendored module root used for output introspection.
     """
 
     config: ToolConfig
+    stack_definition: StackDefinition
     resolved_inputs: dict[str, Any]
     stack: dict[str, Any]
     component_name: str
@@ -213,6 +204,7 @@ class PropertyRenderer:
     git_repository: str | None = None
     cache_dir: Path | None = None
     auth_config: RemoteAuthConfig | None = None
+    vendor_dir: Path | None = None
 
     def output_name(
         self,
@@ -263,7 +255,15 @@ class PropertyRenderer:
         return output_name, _normalize_module_input_value(
             output_name,
             apply_property_spec(
-                value,
+                bind_component_references(
+                    value,
+                    self.stack_definition,
+                    self.config,
+                    self.component_name,
+                    self.cache_dir,
+                    self.auth_config,
+                    self.vendor_dir,
+                ),
                 property_spec,
                 build_property_context(
                     name=name,

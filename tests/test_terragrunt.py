@@ -56,7 +56,7 @@ class TestGenerateTerragruntJson:
         assert "vpc" in doc["dependency"]
         dep = doc["dependency"]["vpc"]
         assert dep["config_path"] == "/build/networking/vpc"
-        assert dep["mock_outputs"]["vpc_id"] == "mock-vpc-id"
+        assert dep["mock_outputs"]["vpc_id"] == "vpc://mock-vpc-id"
         assert dep["mock_outputs_allowed_terraform_commands"] == ["plan", "validate"]
 
     def test_inputs_include_resolved_vars(

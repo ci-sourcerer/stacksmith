@@ -1,7 +1,8 @@
+import re
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..enums import MergeMode
 from .configuration import FileReference, MergeRule, VariableReference
@@ -33,6 +34,26 @@ class OperationInvocation(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
 
 
+class StackOutputTransformSpec(BaseModel):
+    """Jinja transform applied to a stack output value."""
+
+    description: str | None = None
+    jinja: str = Field(min_length=1)
+
+
+class StackOutputDefinition(BaseModel):
+    """Public root output exported by a stack."""
+
+    description: str | None = None
+    value: Any
+    transform: StackOutputTransformSpec | None = None
+    sensitive: bool = False
+    mock: Any | None = None
+
+
+_STACK_OUTPUT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
 class StackDefinition(BaseModel):
     """Complete parsed stack definition from a YAML or JSON file."""
 
@@ -40,10 +61,22 @@ class StackDefinition(BaseModel):
     description: str | None = None
     tags: set[str] = Field(default_factory=set)
     depends_on: list[str] = Field(default_factory=list)
-    mock_outputs: dict[str, Any] = Field(default_factory=dict)
     components: dict[str, ComponentDefinition] = Field(default_factory=dict)
+    outputs: dict[str, StackOutputDefinition] = Field(default_factory=dict)
     operations: dict[str, OperationInvocation] = Field(default_factory=dict)
     source_path: Path | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def _validate_output_names(self) -> "StackDefinition":
+        invalid_names = sorted(
+            name for name in self.outputs if not _STACK_OUTPUT_NAME_RE.fullmatch(name)
+        )
+        if invalid_names:
+            raise ValueError(
+                "Stack output names must be identifiers containing only letters, "
+                f"numbers, and underscores: {', '.join(invalid_names)}"
+            )
+        return self
 
 
 class RunFile(BaseModel):

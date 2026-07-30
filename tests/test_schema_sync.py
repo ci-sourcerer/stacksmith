@@ -16,6 +16,7 @@ from stacksmith.models import (
     FixtureSpec,
     MergeRule,
     ModuleMapping,
+    ModuleOutputSpec,
     ModulePropertySpec,
     OperationInputSpec,
     OperationInvocation,
@@ -28,6 +29,8 @@ from stacksmith.models import (
     RunFile,
     StackDefinition,
     StackMeta,
+    StackOutputDefinition,
+    StackOutputTransformSpec,
     StacksmithTestFixtures,
     StacksmithTestManifest,
     ToolBinaryConfig,
@@ -59,8 +62,8 @@ def test_stack_definition_fields_match_stack_schema():
         "description",
         "tags",
         "depends_on",
-        "mock_outputs",
         "components",
+        "outputs",
         "operations",
     }
     assert schema_props == {
@@ -68,8 +71,8 @@ def test_stack_definition_fields_match_stack_schema():
         "description",
         "tags",
         "depends_on",
-        "mock_outputs",
         "components",
+        "outputs",
         "operations",
     }
 
@@ -105,6 +108,26 @@ def test_stack_definition_fields_match_stack_schema():
         "with",
         "rerun_token",
         "depends_on",
+    }
+    assert _field_names(StackOutputDefinition) == {
+        "description",
+        "value",
+        "transform",
+        "sensitive",
+        "mock",
+    }
+    assert set(
+        schema["properties"]["outputs"]["additionalProperties"]["properties"]
+    ) == {
+        "description",
+        "value",
+        "transform",
+        "sensitive",
+        "mock",
+    }
+    assert _field_names(StackOutputTransformSpec) == {
+        "description",
+        "jinja",
     }
 
 
@@ -171,36 +194,44 @@ def test_tool_config_fields_match_config_schema():
     assert _field_names(ModuleMapping) == {
         "description",
         "source",
-        "auto_inject",
+        "auto_inject_inputs",
+        "auto_expose_outputs",
         "tags",
         "providers",
         "properties",
+        "outputs",
     }
     assert _field_names(DefaultModuleMapping) == {
         "description",
         "source",
-        "auto_inject",
+        "auto_inject_inputs",
+        "auto_expose_outputs",
         "tags",
         "providers",
         "properties",
+        "outputs",
     }
     assert set(schema["$defs"]["defaultModuleMapping"]["properties"]) == {
         "description",
         "source",
-        "auto_inject",
+        "auto_inject_inputs",
+        "auto_expose_outputs",
         "tags",
         "providers",
         "properties",
+        "outputs",
     }
     assert set(
         schema["properties"]["module_mappings"]["additionalProperties"]["properties"]
     ) == {
         "description",
         "source",
-        "auto_inject",
+        "auto_inject_inputs",
+        "auto_expose_outputs",
         "tags",
         "providers",
         "properties",
+        "outputs",
     }
 
     assert _field_names(ModulePropertySpec) == {
@@ -209,7 +240,7 @@ def test_tool_config_fields_match_config_schema():
         "default",
         "transform",
         "validation",
-        "auto_inject",
+        "auto_inject_inputs",
     }
     assert set(schema["$defs"]["modulePropertySpec"]["properties"]) == {
         "description",
@@ -217,7 +248,17 @@ def test_tool_config_fields_match_config_schema():
         "default",
         "transform",
         "validation",
-        "auto_inject",
+        "auto_inject_inputs",
+    }
+    assert _field_names(ModuleOutputSpec) == {
+        "description",
+        "mapped_from",
+        "transform",
+    }
+    assert set(schema["$defs"]["moduleOutputSpec"]["properties"]) == {
+        "description",
+        "mapped_from",
+        "transform",
     }
     assert _field_names(OperationInputSpec) == {
         "description",
@@ -445,8 +486,8 @@ def test_vscode_associates_mergeable_documents_with_layer_schemas():
                 "description",
                 "tags",
                 "depends_on",
-                "mock_outputs",
                 "components",
+                "outputs",
                 "operations",
             },
         ),

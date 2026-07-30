@@ -31,12 +31,53 @@
         "type": "string",
         "minLength": 2
       },
-      "description": "List of stack names this stack depends on. All outputs from dependencies are passed as inputs."
+      "description": "List of stack names that must be applied before this stack. Terragrunt reads their declared root outputs while resolving the dependency graph."
     },
-    "mock_outputs": {
+    "outputs": {
       "type": "object",
-      "additionalProperties": true,
-      "description": "Mock output values for this stack. Used by dependent stacks during plan/validate when this stack has not been applied."
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional human-readable description emitted on the root OpenTofu output."
+          },
+          "value": {
+            "description": "Exported value. May contain deferred references to managed public component outputs."
+          },
+          "transform": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional human-readable description of the stack output transform."
+              },
+              "jinja": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Jinja template applied during generation with `output.value` and `output.name` in scope."
+              }
+            },
+            "description": "Optional safe Jinja transform applied after component output binding."
+          },
+          "sensitive": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether OpenTofu should mark this root output as sensitive."
+          },
+          "mock": {
+            "description": "Optional pre-transform mock value used by dependent stacks during plan and validate before this stack has been applied."
+          }
+        }
+      },
+      "description": "Explicit root outputs exported by this stack for dependent stacks and external consumers."
     },
     "components": {
       "type": "object",
@@ -65,7 +106,7 @@
           "properties": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Properties passed as inputs to the module. Values may contain Jinja2 expressions and Terraform references to other component module outputs."
+            "description": "Properties passed as inputs to the module. Values may contain Jinja expressions, including deferred references to managed public component outputs."
           }
         }
       },
@@ -90,7 +131,7 @@
           "with": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Declared operation inputs. Values may contain Jinja2 expressions and Terraform references to component module outputs."
+            "description": "Declared operation inputs. Values may contain Jinja expressions, including deferred references to managed public component outputs."
           },
           "rerun_token": {
             "type": "string",

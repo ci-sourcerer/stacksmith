@@ -25,9 +25,15 @@ def _stacks(root: Path) -> dict[str, StackDefinition]:
     return {
         "vpc": StackDefinition(
             name="vpc",
-            mock_outputs={
-                "subnet_ids": ["mock-subnet"],
-                "vpc_id": "mock-vpc",
+            outputs={
+                "subnet_ids": {
+                    "value": [],
+                    "mock": ["mock-subnet"],
+                },
+                "vpc_id": {
+                    "value": "vpc",
+                    "mock": "mock-vpc",
+                },
             },
             components={
                 "network": ComponentDefinition(
@@ -200,11 +206,13 @@ def test_run_all_dry_run_validates_without_writing_or_executing(
     (root / "application").mkdir()
     (root / "network" / "stack.yaml").write_text(
         "name: network\n"
-        "mock_outputs:\n"
-        "  bucket_id: mock-bucket\n"
         "components:\n"
         "  state:\n"
-        "    type: aws_s3_bucket\n",
+        "    type: aws_s3_bucket\n"
+        "outputs:\n"
+        "  bucket_id:\n"
+        '    value: "{{ components.state.bucket_id }}"\n'
+        "    mock: mock-bucket\n",
         encoding="utf-8",
     )
     (root / "application" / "stack.yaml").write_text(

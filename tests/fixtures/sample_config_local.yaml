@@ -32,9 +32,15 @@ module_mappings:
     properties:
       acl:
         mapped_to: bucket_acl
+    outputs:
+      bucket_id:
+        mapped_from: s3_bucket_id
   aws_ec2_instance:
     source:
       source: git
       data:
         repo: "https://github.com/org/terraform-aws-ec2.git"
         ref: "2.0.0"
+    outputs:
+      role_arn:
+        mapped_from: iam_role_arn

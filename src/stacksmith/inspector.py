@@ -6,10 +6,11 @@ import yaml
 
 from .exceptions import StacksmithConfigError
 from .formatters import compact_json
-from .introspection import discover_module_variables
+from .introspection import discover_module_outputs, discover_module_variables
 from .models import (
     FileReference,
     ModuleMapping,
+    ModuleOutputSpec,
     ModulePropertySpec,
     RemoteAuthConfig,
     ToolConfig,
@@ -18,7 +19,7 @@ from .models import (
     render_file_reference,
     render_module_source_identity,
 )
-from .module_mapping import resolve_module_mapping
+from .module_mapping import auto_exposed_output_names, resolve_module_mapping
 from .remote import is_remote_url
 from .vendor import get_vendor_dir
 
@@ -31,13 +32,27 @@ class InputInfo:
     module_variable: str
     description: str | None = None
     mapped_to: str | None = None
-    auto_inject: bool = False
+    auto_inject_inputs: bool = False
     validation: str | None = None
     validation_description: str | None = None
     validation_source: str | None = None
     transform: str | None = None
     transform_description: str | None = None
     transform_source: str | None = None
+    note: str | None = None
+
+
+@dataclass
+class OutputInfo:
+    """Metadata for a public component output."""
+
+    name: str
+    module_output: str
+    description: str | None = None
+    transform: str | None = None
+    transform_description: str | None = None
+    transform_source: str | None = None
+    auto_exposed: bool = False
     note: str | None = None
 
 
@@ -49,9 +64,11 @@ class ComponentTypeInfo:
     display_name: str
     module_source: str
     module_version: str
-    auto_inject: bool
+    auto_inject_inputs: bool
+    auto_expose_outputs: bool = False
     tags: list[str] = field(default_factory=list)
     inputs: list[InputInfo] = field(default_factory=list)
+    outputs: list[OutputInfo] = field(default_factory=list)
 
 
 @dataclass
@@ -210,7 +227,39 @@ def _build_property_input_info(
             else None
         ),
         transform_source=_describe_script_reference(property_spec.transform),
-        is_auto_injected=False,
+        is_auto_inject_inputsed=False,
+    )
+
+
+def _build_output_info(
+    name: str,
+    specification: ModuleOutputSpec,
+    component_type: str,
+    config: ToolConfig | None,
+    config_locations: dict[tuple[str, ...], str] | None,
+    mapping_location: tuple[str, ...] | None,
+) -> OutputInfo:
+    return OutputInfo(
+        name=name,
+        module_output=specification.mapped_from or name,
+        description=specification.description,
+        transform=_describe_transform_location(
+            specification.transform,
+            config,
+            config_locations,
+            (
+                *(mapping_location or ("module_mappings", component_type)),
+                "outputs",
+                name,
+                "transform",
+            ),
+        ),
+        transform_description=(
+            specification.transform.description
+            if specification.transform is not None
+            else None
+        ),
+        transform_source=_describe_script_reference(specification.transform),
     )
 
 
@@ -226,8 +275,8 @@ def inspect_component_type(
 ) -> ComponentTypeInfo:
     """Inspect a single configured component type.
 
-    Discovers the module's declared variables via introspection and merges
-    that information with any property specs from the configuration.
+    Discovers the module's declared interface and merges it with managed input
+    and output specifications.
 
     Args:
         component_type: The abstract component type name (e.g. `aws_s3_bucket`).
@@ -260,6 +309,17 @@ def inspect_component_type(
             cache_dir=cache_dir,
             auth_config=auth_config,
             vendor_dir=vendor_dir or get_vendor_dir(),
+        )
+        discovered_outputs = (
+            discover_module_outputs(
+                mapping_source,
+                mapping_version,
+                cache_dir=cache_dir,
+                auth_config=auth_config,
+                vendor_dir=vendor_dir or get_vendor_dir(),
+            )
+            if mapping.auto_expose_outputs
+            else set()
         )
     except (OSError, RuntimeError, StacksmithConfigError) as exc:
         raise StacksmithConfigError(
@@ -298,7 +358,7 @@ def inspect_component_type(
             InputInfo(
                 name=var_name,
                 module_variable=var_name,
-                auto_inject=mapping.auto_inject,
+                auto_inject_inputs=mapping.auto_inject_inputs,
                 validation=validation_location,
                 validation_description=(
                     validation_spec.description if validation_spec is not None else None
@@ -307,14 +367,37 @@ def inspect_component_type(
             )
         )
 
+    outputs = [
+        _build_output_info(
+            name,
+            specification,
+            component_type,
+            config,
+            config_locations,
+            mapping_location,
+        )
+        for name, specification in sorted(mapping.outputs.items())
+    ]
+    outputs.extend(
+        OutputInfo(
+            name=name,
+            module_output=name,
+            auto_exposed=True,
+            note="discovered via introspection",
+        )
+        for name in sorted(auto_exposed_output_names(mapping, discovered_outputs))
+    )
+
     return ComponentTypeInfo(
         component_type=component_type,
         display_name=mapping.description or component_type,
         module_source=mapping_source,
         module_version=mapping_version,
-        auto_inject=mapping.auto_inject,
+        auto_inject_inputs=mapping.auto_inject_inputs,
+        auto_expose_outputs=mapping.auto_expose_outputs,
         tags=sorted(mapping.tags),
         inputs=inputs,
+        outputs=outputs,
     )
 
 
@@ -328,7 +411,7 @@ def _build_input_info(
     transform_location: str | None = None,
     transform_description: str | None = None,
     transform_source: str | None = None,
-    is_auto_injected: bool = False,
+    is_auto_inject_inputsed: bool = False,
 ) -> InputInfo:
     mapped_to = property_spec.mapped_to if property_spec else None
     return InputInfo(
@@ -336,8 +419,8 @@ def _build_input_info(
         module_variable=mapped_to or var_name,
         description=description,
         mapped_to=mapped_to,
-        auto_inject=is_auto_injected
-        or (property_spec.auto_inject is not False if property_spec else False),
+        auto_inject_inputs=is_auto_inject_inputsed
+        or (property_spec.auto_inject_inputs is not False if property_spec else False),
         validation=validation_location,
         validation_description=validation_description,
         validation_source=validation_source,
@@ -449,7 +532,7 @@ def format_json(results: list[ComponentTypeInfo], details: bool = True) -> str:
                 entry["description"] = inp.description
             if inp.mapped_to:
                 entry["mapped_to"] = inp.mapped_to
-            entry["auto_inject"] = inp.auto_inject
+            entry["auto_inject_inputs"] = inp.auto_inject_inputs
             if details:
                 if inp.validation:
                     entry["validation"] = inp.validation
@@ -464,11 +547,37 @@ def format_json(results: list[ComponentTypeInfo], details: bool = True) -> str:
             "module_source": info.module_source,
             "module_version": info.module_version,
             "display_name": info.display_name,
-            "auto_inject": info.auto_inject,
+            "auto_inject_inputs": info.auto_inject_inputs,
+            "auto_expose_outputs": info.auto_expose_outputs,
         }
         if info.tags:
             resource_entry["tags"] = info.tags
         resource_entry["inputs"] = inputs_list
+        if info.outputs:
+            resource_entry["outputs"] = [
+                {
+                    "name": output.name,
+                    **(
+                        {"description": output.description}
+                        if output.description
+                        else {}
+                    ),
+                    "auto_exposed": output.auto_exposed,
+                    **({"module_output": output.module_output} if details else {}),
+                    **(
+                        {"transform": output.transform}
+                        if details and output.transform
+                        else {}
+                    ),
+                    **(
+                        {"transform_description": output.transform_description}
+                        if details and output.transform_description
+                        else {}
+                    ),
+                    **({"note": output.note} if details and output.note else {}),
+                }
+                for output in info.outputs
+            ]
         output[info.component_type] = resource_entry
     return compact_json(output, sort_keys=True)
 
@@ -515,8 +624,10 @@ def format_table(
         )
         if info.tags:
             console.print("  [magenta]Tags:[/magenta] " + ", ".join(info.tags))
-        if info.auto_inject:
-            console.print("  [green]auto_inject: enabled[/green]")
+        if info.auto_inject_inputs:
+            console.print("  [green]auto_inject_inputs: enabled[/green]")
+        if info.auto_expose_outputs:
+            console.print("  [green]auto_expose_outputs: enabled[/green]")
 
         table = Table(
             show_header=True,
@@ -532,7 +643,7 @@ def format_table(
             table.add_column("Input")
             table.add_column("Description")
             table.add_column("Mapped To")
-            table.add_column("Auto-Inject")
+            table.add_column("Auto-Inject Inputs")
             if details:
                 table.add_column("Validation")
                 table.add_column("Transform")
@@ -555,7 +666,7 @@ def format_table(
                     inp.name,
                     inp.description or "",
                     inp.mapped_to or "",
-                    "yes" if inp.auto_inject else "",
+                    "yes" if inp.auto_inject_inputs else "",
                 ]
                 if details:
                     row.append(
@@ -573,6 +684,35 @@ def format_table(
             table.add_row(*row)
 
         console.print(table)
+
+        if info.outputs:
+            output_table = Table(
+                show_header=True,
+                show_lines=True,
+                header_style="bold green",
+                padding=(0, 1),
+            )
+            output_table.add_column("Output")
+            output_table.add_column("Description")
+            if not basic:
+                output_table.add_column("Mapped From")
+                output_table.add_column("Auto-Expose Outputs")
+            if details or basic:
+                output_table.add_column("Transform")
+            for output in info.outputs:
+                row = [output.name, output.description or ""]
+                if not basic:
+                    row.append(output.module_output)
+                    row.append("yes" if output.auto_exposed else "no")
+                if details or basic:
+                    row.append(
+                        _format_rule_metadata(
+                            output.transform_description,
+                            output.transform,
+                        )
+                    )
+                output_table.add_row(*row)
+            console.print(output_table)
 
     if plan_validations and not basic:
         console.print()

@@ -16,7 +16,6 @@ def _stack(name: str, tags: list[str]) -> StackDefinition:
         name=name,
         tags=tags,
         depends_on=[],
-        mock_outputs={},
         components={"r": ComponentDefinition(type="t")},
     )
 

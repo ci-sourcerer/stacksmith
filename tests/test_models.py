@@ -144,6 +144,41 @@ class TestModuleSourceValidation:
         with pytest.raises(ValueError, match="default module mapping"):
             ToolConfig.model_validate(payload)
 
+    def test_component_output_defaults_to_same_module_output_name(self):
+        payload = _base_tool_config_payload()
+        payload["module_mappings"]["aws_s3_bucket"]["outputs"] = {
+            "id": {
+                "transform": {
+                    "jinja": "bucket/{{ output.value }}",
+                }
+            }
+        }
+
+        config = ToolConfig.model_validate(payload)
+
+        assert config.module_mappings["aws_s3_bucket"].outputs["id"].mapped_from is None
+        assert (
+            config.module_mappings["aws_s3_bucket"].outputs["id"].transform.jinja
+            == "bucket/{{ output.value }}"
+        )
+
+    @pytest.mark.parametrize("name", ["not-valid", "123invalid"])
+    def test_component_output_name_must_be_jinja_attribute_compatible(self, name: str):
+        payload = _base_tool_config_payload()
+        payload["module_mappings"]["aws_s3_bucket"]["outputs"] = {name: {}}
+
+        with pytest.raises(ValueError, match="output names"):
+            ToolConfig.model_validate(payload)
+
+    def test_underlying_module_output_name_must_be_an_identifier(self):
+        payload = _base_tool_config_payload()
+        payload["module_mappings"]["aws_s3_bucket"]["outputs"] = {
+            "id": {"mapped_from": "module.bucket.id"}
+        }
+
+        with pytest.raises(ValueError, match="mapped_from"):
+            ToolConfig.model_validate(payload)
+
 
 class TestProviderValidation:
     def test_provider_config_spec_requires_one_source(self):

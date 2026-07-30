@@ -2,7 +2,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from stacksmith.introspection import parse_module_variables, resolve_module_dir
+from stacksmith.introspection import (
+    parse_module_outputs,
+    parse_module_variables,
+    resolve_module_dir,
+)
 from stacksmith.models import LocalModuleSourceReference, render_module_source_identity
 from stacksmith.utils import cache_key
 
@@ -89,6 +93,40 @@ class TestParseModuleVariables:
         result = parse_module_variables(tmp_path)
 
         assert result == {"top"}
+
+
+class TestParseModuleOutputs:
+    def test_discovers_outputs_from_tf_and_tf_json_files(self, tmp_path: Path):
+        (tmp_path / "outputs.tf").write_text(
+            'output "id" {\n'
+            "  value = terraform_data.this.id\n"
+            "}\n"
+            "\n"
+            'output "endpoint" {\n'
+            "  value = terraform_data.this.output\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "generated.tf.json").write_text(
+            '{"output": {"metadata": {"value": {"managed": true}}}}',
+            encoding="utf-8",
+        )
+
+        assert parse_module_outputs(tmp_path) == {"endpoint", "id", "metadata"}
+
+    def test_ignores_nested_module_outputs(self, tmp_path: Path):
+        (tmp_path / "outputs.tf").write_text(
+            'output "top" {\n  value = "top"\n}\n',
+            encoding="utf-8",
+        )
+        nested = tmp_path / "modules" / "child"
+        nested.mkdir(parents=True)
+        (nested / "outputs.tf").write_text(
+            'output "nested" {\n  value = "nested"\n}\n',
+            encoding="utf-8",
+        )
+
+        assert parse_module_outputs(tmp_path) == {"top"}
 
 
 class TestResolveModuleDir:

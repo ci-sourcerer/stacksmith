@@ -2,8 +2,10 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from jinja2.sandbox import SandboxedEnvironment
-
+from ..component_references import (
+    validate_component_reference_locations,
+    with_component_reference_context,
+)
 from ..enums import MergeMode
 from ..merging import AddressAwareMerger
 from ..models import (
@@ -13,7 +15,10 @@ from ..models import (
     StacksmithTestManifest,
     ToolConfig,
 )
-from ..templating import render_jinja_template_values
+from ..templating import (
+    create_sandboxed_jinja_environment,
+    render_jinja_template_values,
+)
 from ..utils import get_current_git_repository, normalize_path_input
 from .files import load_object_file, load_object_file_with_locations
 from .references import (
@@ -36,7 +41,7 @@ def _merge_layer(
     return merger.merge(merged, deepcopy(layer))
 
 
-_JINJA_ENV = SandboxedEnvironment()
+_JINJA_ENV = create_sandboxed_jinja_environment()
 
 
 def _runfile_template_context(runfile_path: Path) -> dict[str, Any]:
@@ -156,6 +161,7 @@ def _dedupe_unique_ordered_list(items: list[Any]) -> list[Any]:
 
 
 def _build_stack(data: dict[str, Any], stack_paths: list[Path]) -> StackDefinition:
+    validate_component_reference_locations(data)
     validate_effective_document(
         data,
         "stack.schema.json",
@@ -193,6 +199,7 @@ def _merge_stack_layers(
         template_context,
         stack_paths[-1].resolve(),
     )
+    template_context = with_component_reference_context(template_context)
     for stack_path in stack_paths:
         resolved_path = stack_path.resolve()
         layer = load_object_file(
@@ -322,8 +329,8 @@ def load_stack_metadata(
     for field_name, default in {
         "tags": [],
         "depends_on": [],
-        "mock_outputs": {},
         "components": {},
+        "outputs": {},
         "operations": {},
     }.items():
         if data.get(field_name) is None:

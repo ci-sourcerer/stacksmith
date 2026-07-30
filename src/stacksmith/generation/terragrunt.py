@@ -7,6 +7,7 @@ from loguru import logger as LOGGER
 from ..constants import GENERATED_TG_JSON
 from ..enums import TerragruntAction
 from ..models import StackDefinition, ToolConfig
+from ..stack_outputs import build_stack_mock_outputs
 from ..utils import derive_stack_state_key
 
 
@@ -64,8 +65,8 @@ def generate_terragrunt_json(
                 config_path = str(dep_build_dir)
 
             dep_block = {"config_path": config_path}
-            if dep_stack and dep_stack.mock_outputs:
-                dep_block["mock_outputs"] = dep_stack.mock_outputs
+            if dep_stack and (mock_outputs := build_stack_mock_outputs(dep_stack)):
+                dep_block["mock_outputs"] = mock_outputs
                 dep_block["mock_outputs_allowed_terraform_commands"] = [
                     TerragruntAction.PLAN.value,
                     "validate",

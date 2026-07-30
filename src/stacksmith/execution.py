@@ -10,6 +10,7 @@ from .models import (
     ToolConfig,
 )
 from .runner import build_terragrunt_command
+from .stack_outputs import build_stack_mock_outputs
 from .targeting import build_terragrunt_args, resolve_tag_targets
 from .utils import derive_stack_state_key
 
@@ -37,17 +38,19 @@ def _dependency_previews(
     stacks: dict[str, StackDefinition],
     action: TerragruntAction,
 ) -> list[DependencyPreview]:
-    return [
-        DependencyPreview(
-            name=dependency,
-            uses_mock_outputs=(
-                action == TerragruntAction.PLAN
-                and bool(stacks[dependency].mock_outputs)
-            ),
-            mock_output_keys=sorted(stacks[dependency].mock_outputs),
+    previews = []
+    for dependency in stack.depends_on:
+        mock_outputs = build_stack_mock_outputs(stacks[dependency])
+        previews.append(
+            DependencyPreview(
+                name=dependency,
+                uses_mock_outputs=(
+                    action == TerragruntAction.PLAN and bool(mock_outputs)
+                ),
+                mock_output_keys=sorted(mock_outputs),
+            )
         )
-        for dependency in stack.depends_on
-    ]
+    return previews
 
 
 def build_execution_preview(

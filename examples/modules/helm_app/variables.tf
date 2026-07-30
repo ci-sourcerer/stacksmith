@@ -43,7 +43,7 @@ variable "atomic" {
 }
 
 variable "values_files" {
-  type    = list(string)
-  default = []
+  type        = list(string)
+  default     = []
   description = "List of Helm values YAML files to render into the chart deployment."
 }

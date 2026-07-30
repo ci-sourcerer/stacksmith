@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
 import yaml
-from jinja2.sandbox import SandboxedEnvironment
 
 from .enums import MergeMode
 from .exceptions import StacksmithConfigError, StacksmithValidationError
@@ -22,11 +21,14 @@ from .models import (
     VariableReference,
 )
 from .remote import resolve_if_remote
-from .templating import render_jinja_template_values
+from .templating import (
+    create_sandboxed_jinja_environment,
+    render_jinja_template_values,
+)
 from .utils import get_current_git_repository, stacksmith_env_list
 from .validations import InputValidationOutcome, validate_value
 
-_JINJA_ENV = SandboxedEnvironment()
+_JINJA_ENV = create_sandboxed_jinja_environment()
 
 _ENV_PREFIX = "STACKSMITH_VAR_"
 InputLayer: TypeAlias = tuple[Literal["vars", "var"], str | VariableReference]

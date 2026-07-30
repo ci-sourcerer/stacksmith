@@ -21,7 +21,8 @@ def test_shared_config_demonstrates_convention_based_module_mapping() -> None:
     mapping = resolve_module_mapping(config, "custom-component", "example")
 
     assert mapping.source.data.repo == "https://github.com/my-org/custom_component"
-    assert mapping.auto_inject is True
+    assert mapping.auto_inject_inputs is True
+    assert mapping.auto_expose_outputs is True
 
 
 def test_transform_s3_write_policy_uses_actual_bucket_arn_from_inputs() -> None:

@@ -69,9 +69,9 @@ def _install_fake_boto3(
     monkeypatch.setitem(sys.modules, "botocore.exceptions", fake_botocore_exceptions)
 
 
-def _disable_auto_inject(config) -> None:
+def _disable_auto_inject_inputs(config) -> None:
     for mapping in config.module_mappings.values():
-        mapping.auto_inject = False
+        mapping.auto_inject_inputs = False
 
 
 def _load_shared_example_config():
@@ -92,7 +92,7 @@ class TestGenerateTfJson:
     ):
         stack = load_stack(sample_stack_yaml)
         config = load_config(sample_config_yaml)
-        _disable_auto_inject(config)
+        _disable_auto_inject_inputs(config)
 
         module_options_calls: list[dict[str, object] | None] = []
         provider_options_calls: list[dict[str, object] | None] = []
@@ -548,13 +548,28 @@ class TestGenerateTfJson:
         assert result["module"]["my-bucket"]["bucket"] == "my-bucket-jinja"
 
     def test_component_property_preserves_other_component_output_reference(
-        self, sample_stack_yaml: Path, sample_config_yaml: Path
+        self, tmp_path: Path, sample_config_yaml: Path
     ):
-        stack = load_stack(sample_stack_yaml)
+        stack_file = tmp_path / "stack.yaml"
+        stack_file.write_text(
+            "name: component-outputs\n"
+            "components:\n"
+            "  my-bucket:\n"
+            "    type: aws_s3_bucket\n"
+            "  my-instance:\n"
+            "    type: aws_ec2_instance\n"
+            "    properties:\n"
+            "      bucket_id: '{{ components[\"my-bucket\"].bucket_id }}'\n",
+            encoding="utf-8",
+        )
+        stack = load_stack(
+            stack_file,
+            template_context={
+                "inputs": {},
+                "stack": {"name": "component-outputs", "tags": []},
+            },
+        )
         config = load_config(sample_config_yaml)
-        stack.components["my-instance"].properties[
-            "bucket_id"
-        ] = "${module.my-bucket.s3_bucket_id}"
 
         result = generate_tf_json(stack, config, {"bucket_name": "my-bucket"})
 
@@ -617,7 +632,7 @@ class TestGenerateTfJson:
         _install_fake_boto3(monkeypatch, arn="arn:aws:iam::123456789012:root")
 
         config = _load_shared_example_config()
-        _disable_auto_inject(config)
+        _disable_auto_inject_inputs(config)
         stack = load_stack(sample_stack_yaml)
 
         result = generate_tf_json(
@@ -645,7 +660,7 @@ class TestGenerateTfJson:
         _install_fake_boto3(monkeypatch, arn="arn:aws:iam::123456789012:user/example")
 
         config = _load_shared_example_config()
-        _disable_auto_inject(config)
+        _disable_auto_inject_inputs(config)
         stack = load_stack(sample_stack_yaml)
 
         result = generate_tf_json(
@@ -674,7 +689,7 @@ class TestGenerateTfJson:
         _install_fake_boto3(monkeypatch, raise_error=True)
 
         config = _load_shared_example_config()
-        _disable_auto_inject(config)
+        _disable_auto_inject_inputs(config)
         stack = load_stack(sample_stack_yaml)
 
         result = generate_tf_json(
@@ -1099,7 +1114,7 @@ class TestAutoInjectVars:
 
     _DISCOVER = "stacksmith.generation.terraform.discover_module_variables"
 
-    def test_auto_injects_platform_declared_properties(
+    def test_auto_inject_inputss_platform_declared_properties(
         self, sample_stack_yaml: Path, sample_config_yaml: Path
     ):
         """Always-on injection adds platform-declared properties from resolved inputs."""
@@ -1111,7 +1126,7 @@ class TestAutoInjectVars:
             },
         )
         config = load_config(sample_config_yaml)
-        config.module_mappings["aws_s3_bucket"].auto_inject = True
+        config.module_mappings["aws_s3_bucket"].auto_inject_inputs = True
         config.module_mappings["aws_s3_bucket"].properties["bucket_name"] = (
             ModulePropertySpec(mapped_to="bucket")
         )
@@ -1126,13 +1141,13 @@ class TestAutoInjectVars:
             )
         assert result["module"]["my-bucket"]["bucket"] == "my-bucket"
 
-    def test_auto_injects_discovered_same_name_inputs(
+    def test_auto_inject_inputss_discovered_same_name_inputs(
         self, sample_stack_yaml: Path, sample_config_yaml: Path
     ):
         """Inputs matching discovered module variables are injected without explicit declarations."""
         stack = load_stack(sample_stack_yaml)
         config = load_config(sample_config_yaml)
-        config.module_mappings["aws_s3_bucket"].auto_inject = True
+        config.module_mappings["aws_s3_bucket"].auto_inject_inputs = True
 
         with patch(
             self._DISCOVER,
@@ -1152,14 +1167,14 @@ class TestAutoInjectVars:
         assert result["module"]["my-bucket"]["aws_region"] == "us-east-1"
         assert "environment" not in result["module"]["my-bucket"]
 
-    def test_auto_inject_property_opt_out_blocks_injection(
+    def test_auto_inject_inputs_property_opt_out_blocks_injection(
         self, sample_stack_yaml: Path, sample_config_yaml: Path
     ):
         stack = load_stack(sample_stack_yaml)
         config = load_config(sample_config_yaml)
-        config.module_mappings["aws_s3_bucket"].auto_inject = True
+        config.module_mappings["aws_s3_bucket"].auto_inject_inputs = True
         config.module_mappings["aws_s3_bucket"].properties["bucket_name"] = (
-            ModulePropertySpec(auto_inject=False)
+            ModulePropertySpec(auto_inject_inputs=False)
         )
 
         with patch(
@@ -1178,13 +1193,13 @@ class TestAutoInjectVars:
         assert "bucket_name" not in result["module"]["my-bucket"]
         assert result["module"]["my-bucket"]["aws_region"] == "us-east-1"
 
-    def test_auto_inject_vars_explicit_takes_precedence(
+    def test_auto_inject_inputs_vars_explicit_takes_precedence(
         self, sample_stack_yaml: Path, sample_config_yaml: Path
     ):
         """Explicitly defined properties take precedence over auto-injected vars."""
         stack = load_stack(sample_stack_yaml)
         config = load_config(sample_config_yaml)
-        config.module_mappings["aws_s3_bucket"].auto_inject = True
+        config.module_mappings["aws_s3_bucket"].auto_inject_inputs = True
         stack.components["my-bucket"].properties["tags"] = "explicit-tags"
 
         with patch(
@@ -1197,7 +1212,7 @@ class TestAutoInjectVars:
             )
         assert result["module"]["my-bucket"]["tags"] == "explicit-tags"
 
-    def test_auto_inject_is_disabled_by_default(
+    def test_auto_inject_inputs_is_disabled_by_default(
         self, sample_config_yaml: Path, tmp_path: Path
     ):
         stack_file = tmp_path / "stack.yaml"
@@ -1210,7 +1225,7 @@ class TestAutoInjectVars:
 
         assert "bucket_name" not in result["module"]["my-bucket"]
 
-    def test_auto_inject_mapped_property_uses_mapped_name(
+    def test_auto_inject_inputs_mapped_property_uses_mapped_name(
         self, sample_config_yaml: Path, tmp_path: Path
     ):
         stack_file = tmp_path / "stack.yaml"
@@ -1219,7 +1234,7 @@ class TestAutoInjectVars:
         )
         stack = load_stack(stack_file)
         config = load_config(sample_config_yaml)
-        config.module_mappings["aws_s3_bucket"].auto_inject = True
+        config.module_mappings["aws_s3_bucket"].auto_inject_inputs = True
         config.module_mappings["aws_s3_bucket"].properties["bucket_name"] = (
             ModulePropertySpec(mapped_to="bucket")
         )
@@ -1230,7 +1245,7 @@ class TestAutoInjectVars:
         assert result["module"]["my-bucket"]["bucket"] == "my-bucket"
         assert "bucket_name" not in result["module"]["my-bucket"]
 
-    def test_auto_inject_skips_inputs_not_in_discovered_vars(
+    def test_auto_inject_inputs_skips_inputs_not_in_discovered_vars(
         self, sample_config_yaml: Path, tmp_path: Path
     ):
         """Inputs that don't match any discovered module variable are not injected."""
@@ -1240,7 +1255,7 @@ class TestAutoInjectVars:
         )
         stack = load_stack(stack_file)
         config = load_config(sample_config_yaml)
-        config.module_mappings["aws_s3_bucket"].auto_inject = True
+        config.module_mappings["aws_s3_bucket"].auto_inject_inputs = True
 
         with patch(self._DISCOVER, return_value={"bucket_acl"}):
             result = generate_tf_json(

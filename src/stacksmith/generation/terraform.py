@@ -18,6 +18,7 @@ from ..models import (
     render_module_source_identity,
 )
 from ..module_mapping import resolve_module_mapping
+from ..stack_outputs import build_stack_output_blocks
 from ..utils import derive_stack_state_key, get_current_git_repository
 from ..vendor import get_vendor_dir, resolve_module_source
 from .operations import build_operation_module_spec
@@ -74,7 +75,12 @@ def _write_operation_runner_assets(output_dir: Path, tf_json: dict[str, Any]) ->
 
 
 def _generate_operation_blocks(
-    stack: StackDefinition, config: ToolConfig, operation_names: set[str] | None = None
+    stack: StackDefinition,
+    config: ToolConfig,
+    operation_names: set[str] | None = None,
+    cache_dir: Path | None = None,
+    auth_config: RemoteAuthConfig | None = None,
+    vendor_dir: Path | None = None,
 ) -> dict[str, Any]:
     modules = {}
     for name, invocation in stack.operations.items():
@@ -94,7 +100,14 @@ def _generate_operation_blocks(
         )
         modules[operation_module_name(name)] = {
             "source": "./.stacksmith-operation-runner",
-            "spec": build_operation_module_spec(stack, config, name),
+            "spec": build_operation_module_spec(
+                stack,
+                config,
+                name,
+                cache_dir=cache_dir,
+                auth_config=auth_config,
+                vendor_dir=vendor_dir,
+            ),
             **({"depends_on": dependencies} if dependencies else {}),
         }
     return modules
@@ -179,9 +192,9 @@ def _generate_module_blocks(
             source=mapping_source,
             version=mapping_version,
         )
-        if mapping.auto_inject:
+        if mapping.auto_inject_inputs:
             LOGGER.debug(
-                "Module mapping for component '{component_name}' has auto_inject enabled",
+                "Module mapping for component '{component_name}' has auto_inject_inputs enabled",
             )
 
         module_block = {}
@@ -223,6 +236,7 @@ def _generate_module_blocks(
 
         property_renderer = PropertyRenderer(
             config=config,
+            stack_definition=stack,
             resolved_inputs=resolved_inputs,
             stack=_stack_context(stack),
             component_name=component_name,
@@ -231,6 +245,7 @@ def _generate_module_blocks(
             git_repository=git_repository,
             cache_dir=cache_dir,
             auth_config=auth_config,
+            vendor_dir=vendor_dir,
         )
         for prop_name, prop_value in component.properties.items():
             property_spec = mapping.properties.get(prop_name)
@@ -241,7 +256,7 @@ def _generate_module_blocks(
             )
 
         injected_keys = []
-        if mapping.auto_inject:
+        if mapping.auto_inject_inputs:
             discovered_vars = discover_module_variables(
                 mapping_source,
                 mapping_version,
@@ -261,7 +276,10 @@ def _generate_module_blocks(
                     continue
 
                 property_spec = mapping.properties.get(input_name)
-                if property_spec is not None and property_spec.auto_inject is False:
+                if (
+                    property_spec is not None
+                    and property_spec.auto_inject_inputs is False
+                ):
                     continue
 
                 output_name = property_renderer.output_name(input_name, property_spec)
@@ -351,7 +369,16 @@ def generate_tf_json(
         vendor_dir=vendor_dir,
         module_source_formatter_options=module_source_options,
     )
-    modules.update(_generate_operation_blocks(stack, config, operation_names))
+    modules.update(
+        _generate_operation_blocks(
+            stack,
+            config,
+            operation_names,
+            cache_dir=cache_dir,
+            auth_config=auth_config,
+            vendor_dir=vendor_dir,
+        )
+    )
 
     doc = {
         "terraform": _generate_terraform_block(
@@ -362,6 +389,14 @@ def generate_tf_json(
         ),
         "module": modules,
     }
+    if output_blocks := build_stack_output_blocks(
+        stack,
+        config,
+        cache_dir=cache_dir,
+        auth_config=auth_config,
+        vendor_dir=vendor_dir,
+    ):
+        doc["output"] = output_blocks
 
     providers = build_provider_blocks(
         config,

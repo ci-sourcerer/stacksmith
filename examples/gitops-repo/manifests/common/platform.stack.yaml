@@ -71,4 +71,4 @@ operations:
     with:
       environment: "{{ inputs.environment }}"
       release_tag: platform
-      logs_bucket_id: "${module.logs_bucket.s3_bucket_id}"
+      logs_bucket_id: "{{ components.logs_bucket.id }}"

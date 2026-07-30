@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from stacksmith import api
 from stacksmith.generation import generate_tf_json, write_tf_json
+from stacksmith.loading import load_stack
 from stacksmith.models import ModuleMapping, StackDefinition, ToolConfig
 
 
@@ -87,18 +88,26 @@ def test_operation_descriptions_do_not_change_execution_identity():
     assert documented_identity == original_identity
 
 
-def test_operation_input_preserves_component_output_reference():
-    stack = StackDefinition.model_validate(
-        {
-            "name": "application",
-            "components": {"app": {"type": "application"}},
-            "operations": {
-                "deploy_app": {
-                    "use": "deploy",
-                    "with": {"release_tag": "production-${module.app.release_name}"},
-                }
-            },
-        }
+def test_operation_input_preserves_component_output_reference(tmp_path: Path):
+    stack_file = tmp_path / "stack.yaml"
+    stack_file.write_text(
+        "name: application\n"
+        "components:\n"
+        "  app:\n"
+        "    type: application\n"
+        "operations:\n"
+        "  deploy_app:\n"
+        "    use: deploy\n"
+        "    with:\n"
+        '      release_tag: "production-{{ components.app.release_name }}"\n',
+        encoding="utf-8",
+    )
+    stack = load_stack(
+        stack_file,
+        template_context={
+            "inputs": {},
+            "stack": {"name": "application", "tags": []},
+        },
     )
     config = _config()
     config.module_mappings["application"] = ModuleMapping.model_validate(
@@ -109,7 +118,14 @@ def test_operation_input_preserves_component_output_reference():
                     "address": "example/application",
                     "version": "1.0.0",
                 },
-            }
+            },
+            "outputs": {
+                "release_name": {
+                    "transform": {
+                        "jinja": "release/{{ output.value }}",
+                    }
+                }
+            },
         }
     )
 
@@ -117,7 +133,7 @@ def test_operation_input_preserves_component_output_reference():
 
     module = generated["module"]["stacksmith_operation_deploy_app"]
     assert module["spec"]["environment"] == {
-        "RELEASE_TAG": "production-${module.app.release_name}"
+        "RELEASE_TAG": "production-release/${module.app.release_name}"
     }
     assert module["depends_on"] == ["${module.app}"]
 

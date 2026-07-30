@@ -7,6 +7,7 @@ from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.inspector import (
     ComponentTypeInfo,
     InputInfo,
+    OutputInfo,
     PlanPolicyInfo,
     format_json,
     format_table,
@@ -36,15 +37,25 @@ def _simple_mapping() -> ModuleMapping:
                 "ref": "1.0.0",
             },
         },
-        auto_inject=False,
+        auto_inject_inputs=False,
         properties={
             "acl": ModulePropertySpec(mapped_to="bucket_acl"),
+        },
+        outputs={
+            "id": {
+                "description": "Stable bucket identifier.",
+                "mapped_from": "s3_bucket_id",
+                "transform": {
+                    "description": "Expose the identifier as an S3 URI.",
+                    "jinja": "s3://{{ output.value }}",
+                },
+            }
         },
     )
 
 
 @pytest.fixture
-def _auto_inject_mapping() -> ModuleMapping:
+def _auto_inject_inputs_mapping() -> ModuleMapping:
     return ModuleMapping(
         description="AWS EC2 instance",
         source={
@@ -54,7 +65,7 @@ def _auto_inject_mapping() -> ModuleMapping:
                 "ref": "2.0.0",
             },
         },
-        auto_inject=True,
+        auto_inject_inputs=True,
         properties={
             "tags": ModulePropertySpec(
                 description="Tags applied to the instance.",
@@ -85,12 +96,85 @@ def test_inspect_component_type_basic(_simple_mapping):
     assert result.display_name == "AWS S3 bucket"
     assert result.module_source == "https://github.com/org/terraform-aws-s3.git"
     assert result.module_version == "1.0.0"
-    assert result.auto_inject is False
+    assert result.auto_inject_inputs is False
 
     names = [i.name for i in result.inputs]
     assert "acl" in names
     assert "bucket_name" in names
     assert "tags" in names
+    assert result.outputs == [
+        OutputInfo(
+            name="id",
+            module_output="s3_bucket_id",
+            description="Stable bucket identifier.",
+            transform="inline",
+            transform_description="Expose the identifier as an S3 URI.",
+        )
+    ]
+
+
+def test_format_json_includes_public_component_outputs():
+    results = [
+        ComponentTypeInfo(
+            component_type="aws_s3_bucket",
+            display_name="AWS S3 bucket",
+            module_source="https://github.com/org/s3.git",
+            module_version="1.0.0",
+            auto_inject_inputs=False,
+            outputs=[
+                OutputInfo(
+                    name="id",
+                    module_output="s3_bucket_id",
+                    description="Stable bucket identifier.",
+                    transform="inline",
+                    transform_description="Expose the identifier as an S3 URI.",
+                )
+            ],
+        )
+    ]
+
+    assert json.loads(format_json(results))["aws_s3_bucket"]["outputs"] == [
+        {
+            "name": "id",
+            "description": "Stable bucket identifier.",
+            "auto_exposed": False,
+            "module_output": "s3_bucket_id",
+            "transform": "inline",
+            "transform_description": "Expose the identifier as an S3 URI.",
+        }
+    ]
+
+
+def test_inspect_component_type_includes_auto_exposed_outputs(_simple_mapping):
+    mapping = _simple_mapping.model_copy(update={"auto_expose_outputs": True})
+    with (
+        patch(
+            "stacksmith.inspector.discover_module_variables",
+            return_value={"bucket_acl"},
+        ),
+        patch(
+            "stacksmith.inspector.discover_module_outputs",
+            return_value={"endpoint", "s3_bucket_id"},
+        ),
+    ):
+        result = inspect_component_type("aws_s3_bucket", mapping)
+
+    assert result.auto_expose_outputs is True
+    assert result.outputs == [
+        OutputInfo(
+            name="id",
+            module_output="s3_bucket_id",
+            description="Stable bucket identifier.",
+            transform="inline",
+            transform_description="Expose the identifier as an S3 URI.",
+        ),
+        OutputInfo(
+            name="endpoint",
+            module_output="endpoint",
+            auto_exposed=True,
+            note="discovered via introspection",
+        ),
+    ]
 
 
 def test_inspect_table_uses_module_description(capsys):
@@ -100,7 +184,7 @@ def test_inspect_table_uses_module_description(capsys):
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
-            auto_inject=False,
+            auto_inject_inputs=False,
             inputs=[],
         )
     ]
@@ -124,26 +208,28 @@ def test_inspect_component_type_maps_property_spec(_simple_mapping):
     assert acl_input.module_variable == "bucket_acl"
 
 
-def test_inspect_component_type_auto_inject_flag(_auto_inject_mapping):
+def test_inspect_component_type_auto_inject_inputs_flag(_auto_inject_inputs_mapping):
     discovered = {"instance_type", "tags", "ami"}
     with patch(
         "stacksmith.inspector.discover_module_variables", return_value=discovered
     ):
-        result = inspect_component_type("aws_ec2_instance", _auto_inject_mapping)
+        result = inspect_component_type("aws_ec2_instance", _auto_inject_inputs_mapping)
 
-    assert result.auto_inject is True
+    assert result.auto_inject_inputs is True
     ami_input = next(i for i in result.inputs if i.name == "ami")
-    assert ami_input.auto_inject is True
+    assert ami_input.auto_inject_inputs is True
     assert ami_input.note == "discovered via introspection"
 
 
-def test_inspect_component_type_validation_transform_metadata(_auto_inject_mapping):
+def test_inspect_component_type_validation_transform_metadata(
+    _auto_inject_inputs_mapping,
+):
     with patch(
         "stacksmith.inspector.discover_module_variables", return_value={"tags", "ami"}
     ):
         result = inspect_component_type(
             "aws_ec2_instance",
-            _auto_inject_mapping,
+            _auto_inject_inputs_mapping,
             config_locations={
                 (
                     "modules",
@@ -378,7 +464,7 @@ def test_load_config_with_locations_reports_var_validation_block(tmp_path):
                         data:
                             repo: https://github.com/org/terraform-aws-s3.git
                             ref: "1.0.0"
-                    auto_inject: true
+                    auto_inject_inputs: true
                     properties:
                         bucket_name:
                             mapped_to: bucket
@@ -433,7 +519,7 @@ def test_inspect_component_type_uses_var_validation_script_location(tmp_path):
                         data:
                             repo: https://github.com/org/terraform-aws-s3.git
                             ref: "1.0.0"
-                    auto_inject: true
+                    auto_inject_inputs: true
                     properties:
                         bucket_name:
                             mapped_to: bucket
@@ -554,7 +640,7 @@ def test_format_json_basic():
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
-            auto_inject=False,
+            auto_inject_inputs=False,
             inputs=[
                 InputInfo(
                     name="bucket_name",
@@ -576,7 +662,7 @@ def test_format_json_includes_tags():
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
-            auto_inject=False,
+            auto_inject_inputs=False,
             tags=["storage", "prod"],
             inputs=[],
         )
@@ -592,7 +678,7 @@ def test_format_json_details_includes_metadata():
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
-            auto_inject=False,
+            auto_inject_inputs=False,
             inputs=[
                 InputInfo(
                     name="acl",
@@ -624,7 +710,7 @@ def test_format_json_no_details_omits_metadata():
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
-            auto_inject=False,
+            auto_inject_inputs=False,
             inputs=[
                 InputInfo(
                     name="acl",
@@ -650,7 +736,7 @@ def test_format_yaml_produces_valid_yaml():
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
-            auto_inject=False,
+            auto_inject_inputs=False,
             inputs=[],
         )
     ]
@@ -666,11 +752,13 @@ def test_format_table_runs_without_error(capsys):
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
-            auto_inject=True,
+            auto_inject_inputs=True,
             tags=["storage"],
             inputs=[
                 InputInfo(
-                    name="bucket_name", module_variable="bucket_name", auto_inject=True
+                    name="bucket_name",
+                    module_variable="bucket_name",
+                    auto_inject_inputs=True,
                 ),
             ],
         )
@@ -685,7 +773,7 @@ def test_format_table_includes_tags(capsys):
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
-            auto_inject=False,
+            auto_inject_inputs=False,
             tags=["storage", "prod"],
             inputs=[],
         )
@@ -696,6 +784,30 @@ def test_format_table_includes_tags(capsys):
     assert "storage, prod" in output
 
 
+def test_format_table_shows_no_for_explicit_outputs(capsys):
+    results = [
+        ComponentTypeInfo(
+            component_type="aws_s3_bucket",
+            display_name="AWS S3 bucket",
+            module_source="https://github.com/org/s3.git",
+            module_version="1.0.0",
+            auto_inject_inputs=False,
+            outputs=[
+                OutputInfo(
+                    name="id",
+                    module_output="bucket_id",
+                )
+            ],
+        )
+    ]
+
+    format_table(results, details=True)
+
+    output = capsys.readouterr().err
+    assert "Auto-Expose Outputs" in output
+    assert "no" in output
+
+
 def test_format_table_basic_mode_and_plan_validations(capsys):
     results = [
         ComponentTypeInfo(
@@ -703,7 +815,7 @@ def test_format_table_basic_mode_and_plan_validations(capsys):
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
-            auto_inject=False,
+            auto_inject_inputs=False,
             inputs=[
                 InputInfo(
                     name="bucket_name",
@@ -729,7 +841,7 @@ def test_format_table_basic_mode_and_plan_validations(capsys):
     assert "Validation" in output
     assert "Transform" in output
     assert "Mapped To" not in output
-    assert "Auto-Inject" not in output
+    assert "Auto-Inject Inputs" not in output
     assert "Plan Policies" not in output
 
 
@@ -740,7 +852,7 @@ def test_format_table_shows_plan_validations(capsys):
             display_name="AWS S3 bucket",
             module_source="https://github.com/org/s3.git",
             module_version="1.0.0",
-            auto_inject=False,
+            auto_inject_inputs=False,
             inputs=[],
         )
     ]

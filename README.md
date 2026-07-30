@@ -8,11 +8,13 @@
 
 Stacksmith is a CLI tool that lets teams define infrastructure stacks in a simple YAML (or JSON) format and deploy them via [OpenTofu](https://opentofu.org) and [Terragrunt](https://terragrunt.gruntwork.io). It bridges the gap between a developer writing a plain resource list and the OpenTofu ecosystem by abstracting module wiring, backend configuration, variable resolution, policy checks, and monorepo orchestration.
 
+In short: Stacksmith is a wrapper for Terragrunt, which itself is a wrapper for OpenTofu.
+
 ## Core concepts and examples
 
 ### Stack
 
-A stack is the unit of infrastructure authored by application or service teams. A stack file contains metadata (`stack`, `tags`, `depends_on`, `mock_outputs`) and a set of `components`. It is the "calling code" that references abstract [component](#components) types declared in the managed config and provides properties for those components.
+A stack is the unit of infrastructure authored by application or service teams. A stack file contains metadata, tags, dependency edges, components, explicit root outputs, and operation invocations. It is the "calling code" that references abstract [component](#components) types declared in the managed config and provides properties for those components.
 
 ### Managed config
 
@@ -33,8 +35,7 @@ A stack definition describes a logical unit of infrastructure. Developers write 
 ```yaml
 # stack.yaml
 
-stack:
-  name: my-app
+name: my-app
 
 tags:
   - apps
@@ -56,7 +57,9 @@ components:
 Stacksmith property templates can also access stack metadata via `stack.name` and `stack.tags`, plus `git_repository` when the current working directory is a Git repository with an `origin` remote.
 For example, you can compute values from the stack name like `{{ stack.name }}-{{ inputs.bucket_name }}`.
 
-Components in the same stack can consume each other's OpenTofu module outputs with native Terraform references. The component name becomes the module name, so `${module.app_server.private_ip}` passes the `private_ip` output from `app_server` to another component property. OpenTofu infers the dependency from the reference.
+Components in the same stack consume managed public outputs with ordinary Jinja syntax. The managed config maps each public output to an underlying OpenTofu module output and may transform that reference, so stack authors do not need to know the selected module's interface or repeat adapter logic. For example, `{{ components.app_server.private_ip }}` passes the public `private_ip` output from `app_server` to another component property. Stacksmith binds the deferred value to a native OpenTofu reference during generation, preserving dependency inference.
+
+Component outputs may be interpolated into component properties, stack output values, and operation inputs. They cannot be used in Jinja loops, conditionals, filters, calls, or calculations because their values are not known until OpenTofu evaluates the generated dependency graph. Component names containing hyphens use bracket notation, such as `{{ components["app-server"].private_ip }}`.
 
 #### Generating components with Jinja
 
@@ -126,11 +129,22 @@ module_mappings:
       data:
         repo: https://github.com/my-org/terraform-aws-s3.git
         ref: "3.2.1"
+    auto_expose_outputs: true
     providers:
       aws: aws.secondary
     properties:
       acl:
         mapped_to: bucket_acl
+    outputs:
+      id:
+        description: Stable bucket identifier.
+        mapped_from: s3_bucket_id
+      arn:
+        description: Bucket ARN for IAM policies.
+        mapped_from: s3_bucket_id
+        transform:
+          description: Adapt the bucket identifier into an ARN.
+          jinja: "arn:aws:s3:::{{ output.value }}"
   aws_ec2_instance:
     source:
       source: git
@@ -139,9 +153,13 @@ module_mappings:
         ref: "5.0.0"
 ```
 
-Provider definitions are grouped by provider family and can expose multiple named instances through `instances`. A `default` instance is optional; if omitted, Stacksmith emits an empty provider block for the unaliased provider. Non-default instances must define an explicit `alias`. Module mappings can optionally define a `providers` map that routes module provider names to an instance reference in `<provider>.<instance>` format. If a module mapping omits `providers`, Stacksmith uses the unaliased provider.
+Provider definitions are grouped by provider family and can expose multiple named instances through `instances`. A `default` instance is optional; if omitted, Stacksmith emits an empty provider block for the unaliased provider. Non-default instances must define an explicit `alias`. Module mappings can optionally define a `providers` map that routes module provider names to an instance reference in `<provider>.<instance>` format. If a module mapping omits `providers`, Stacksmith uses the unaliased provider. The optional `outputs` map defines the component's public output contract. Each key is the name stack authors use under `components.<instance>`, while `mapped_from` selects the underlying module output and defaults to the public name. An output `transform` adapts the unresolved native OpenTofu reference before it reaches consumers. Jinja output transforms receive `output.value`, `output.name`, and `output.module_output`, plus component and stack metadata. Python output transforms receive the reference as `value` and the same metadata through `context`.
 
-Use `default_module_mapping` to resolve component types that do not have an explicit entry in `module_mappings`. The default supports `source`, `auto_inject`, `tags`, `providers`, and `properties`.
+Set `auto_expose_outputs: true` to introspect the underlying module and make its other declared outputs available under the same names, such as `{{ components.app.instance_id }}`. Explicit output mappings remain authoritative: they can rename or transform outputs, and an underlying output claimed by an explicit mapping is not also exposed under its implementation name. Automatic exposure only affects component references inside the current stack; it never creates root stack outputs or expands the inter-stack state contract.
+
+Output transforms execute during Stacksmith generation, before OpenTofu knows the actual output value. They can wrap a reference in a string or produce a structured list or object for a direct component reference. A structured transformed output cannot be embedded inside a larger string.
+
+Use `default_module_mapping` to resolve component types that do not have an explicit entry in `module_mappings`. The default supports `source`, `auto_inject_inputs`, `auto_expose_outputs`, `tags`, `providers`, `properties`, and `outputs`.
 
 ```yaml
 default_module_mapping:
@@ -150,7 +168,8 @@ default_module_mapping:
     data:
       repo: https://github.com/my-org/{{ component.type | replace("-", "_") }}
       ref: latest
-  auto_inject: true
+  auto_inject_inputs: true
+  auto_expose_outputs: true
 
 module_mappings:
   exceptional_component:
@@ -171,7 +190,9 @@ Each provider instance `config` must use exactly one top-level source key to def
 - `inline`: Inline Python defining `config(**context)` that returns a dictionary of provider arguments.
 - `script`: Path or URL to a Python script defining `config(**context)` that returns a dictionary of provider arguments.
 
-Stacksmith can also introspect remote module sources to discover which OpenTofu `variable` inputs the module actually exposes. When `auto_inject: true` is enabled for a module mapping, stacksmith uses that discovery data to inject same-name resolved inputs automatically, without requiring empty `{}` property declarations for every module input. This means that only module variables that actually exist are auto-injected, unmapped stack inputs that might be organizational like `environment` are not leaked into a module that does not declare them, and explicit `mapped_to` mappings and property overrides still work as before.
+Stacksmith can also introspect remote module sources to discover which OpenTofu `variable` inputs the module actually exposes. When `auto_inject_inputs: true` is enabled for a module mapping, stacksmith uses that discovery data to inject same-name resolved inputs automatically, without requiring empty `{}` property declarations for every module input. This means that only module variables that actually exist are auto-injected, unmapped stack inputs that might be organizational like `environment` are not leaked into a module that does not declare them, and explicit `mapped_to` mappings and property overrides still work as before.
+
+Output introspection follows the same source-resolution rules. With `auto_expose_outputs: true`, only identifier-style names declared by the module can be referenced automatically. Outputs with names that require special OpenTofu traversal syntax need an explicit managed alias. Stacksmith does not execute the module during discovery, and explicit output mappings and transforms continue to define the managed aliases and adapters.
 
 A few things to note about the config are as follows.
 
@@ -315,32 +336,43 @@ In a monorepo, stacksmith recursively discovers all `stack.yaml`/`stack.yml`/`st
 
 #### Inter-stack dependencies
 
-When a stack declares `depends_on`, all OpenTofu outputs from the dependency are automatically passed as inputs. Stack authors never write output or input declarations; the wiring is inferred. If you need to reference a created item's attribute in another program, it is recommended you do so by using the API or CLI of the target system (e.g. AWS CLI) rather than OpenTofu outputs, as this creates a more explicit and decoupled contract between stacks.
+When a stack declares `depends_on`, Stacksmith generates a Terragrunt dependency block so the producing stack is applied first. The producing stack declares an explicit `outputs` contract; Stacksmith compiles those declarations into root OpenTofu `output` blocks that Terragrunt can read from dependency state. Outputs are not inferred from every underlying component because that would expose implementation details and make the inter-stack contract unstable.
 
-For plan and apply stages, Terragrunt `mock_outputs` are used so that dependent stacks can be planned before dependencies have been applied. Define expected output shapes in the stack that *produces* them:
+Each output requires a `value`, which may reference a managed public component output. Optional `description` and `sensitive` fields map to the corresponding OpenTofu output fields. A Jinja-only `transform` can adapt the bound value with `output.value` and `output.name`. These deferred values may only be interpolated directly, not used in filters, control flow, calls, or calculations. Stack-authored transforms intentionally do not support Python hooks.
+
+An optional `mock` value lets dependent stacks plan or validate before the producer has been applied. The mock models the value before the stack-level transform, and Stacksmith applies the same transform to both the real and mock values.
 
 ```yaml
 # networking/vpc/stack.yaml
-stack:
-  name: vpc
-
-mock_outputs:
-  vpc_id: mock-vpc-id
-  subnet_ids:
-    - mock-subnet-1
-    - mock-subnet-2
+name: vpc
 
 components:
-  main-vpc:
+  network:
     type: aws_vpc
     properties:
       cidr_block: "10.0.0.0/16"
+
+outputs:
+  vpc_uri:
+    description: Stable URI for the shared VPC.
+    value: "{{ components.network.id }}"
+    transform:
+      description: Adapt the VPC identifier into a URI.
+      jinja: "vpc://{{ output.value }}"
+    mock: mock-vpc-id
+  subnet_ids:
+    description: Private subnet identifiers.
+    value: "{{ components.network.private_subnet_ids }}"
+    mock:
+      - mock-subnet-1
+      - mock-subnet-2
 ```
+
+The consuming stack declares the dependency edge.
 
 ```yaml
 # compute/web/stack.yaml
-stack:
-  name: web
+name: web
 
 depends_on:
   - vpc
@@ -432,12 +464,14 @@ Stacksmith supports Jinja in specific surfaces rather than as a global feature.
 
 | Surface | Render timing | Context | Notes |
 | - | - | - | - |
-| Stack source (`stack.yaml`, `stack.yml`, `stack.json`) | Before YAML or JSON parse and schema validation | `inputs`, `stack`, `git_repository` when available | Full-file render for structural generation such as loops and conditional blocks. |
+| Stack source (`stack.yaml`, `stack.yml`, `stack.json`) | Before YAML or JSON parse and schema validation | `inputs`, `stack`, `components`, reserved stack-transform `output`, `git_repository` when available | Full-file render for structural generation. Component references and stack output transform values are preserved and bound during OpenTofu generation. |
 | Resolved input values | After vars, env vars, runfile vars, and CLI vars are merged | `inputs`, `stack`, `git_repository` when available | Value-level render across merged inputs. |
 | Runfile stage 1 (`stacksmith.yaml`) | During runfile load before schema validation | `runfile.path`, `runfile.dir`, `runfile.name`, `runfile.stem`, `git_repository` when available | Primarily for structured references and inline vars source data. |
 | Runfile stage 2 (runfile inline vars after merge) | During input resolution | `inputs`, `stack`, `git_repository` when available | Lets runfile-provided values compose with final merged inputs and stack metadata. |
 | `default_module_mapping.source` | During module mapping resolution when no explicit mapping exists | `component.type`, `component.name`, `env.git_repository` when available | Strict sandboxed render with post-render source validation. |
-| `transform.jinja` | During property transform execution | `property.value` plus transform context (`property.name`, `property.kind`, `property.output_name`, `component.name`, `component.type`, `inputs`, `stack`, `env.git_repository` when available) | Use when a property transform is declarative and local to one mapped field. |
+| `properties.*.transform.jinja` | During input transform execution | `property.value` plus transform context (`property.name`, `property.kind`, `property.output_name`, `component.name`, `component.type`, `inputs`, `stack`, `env.git_repository` when available) | Adapts a resolved stack property into a module input. |
+| `module_mappings.*.outputs.*.transform.jinja` | During component output binding | `output.value`, `output.name`, `output.module_output`, `component.name`, `component.type`, `stack`, `env.git_repository` when available | Adapts the unresolved module output reference into the public component output. |
+| Stack `outputs.*.transform.jinja` | During root output generation | `output.value`, `output.name`, `stack`, `env.git_repository` when available | Safely adapts the exported value and its mock after component output binding. |
 
 Ordinary managed-config fields are intentionally non-templated.
 
@@ -583,14 +617,14 @@ When no matching `remote_auth` entry exists, stacksmith checks the following env
 
 ### Validation and transforms
 
-Stacksmith supports Python-based validation and transform hooks.
+Stacksmith supports Python validation hooks and Python or Jinja transform hooks.
 
 - Validations use either `inline` Python or `script`.
 - Transforms use `inline`, `script`, or `jinja` depending on context.
 - Relative script paths resolve from the declaring file.
-- Validation and transform specifications accept an optional `description`, including entries in `var_validations` and validations or transforms nested under module properties.
+- Validation and transform specifications accept an optional `description`, including entries in `var_validations`, managed module properties and outputs, and stack output transforms.
 
-Machine-facing mapping keys remain stable identifiers, while `description` carries prose for people and inspection output. Optional descriptions are also supported on managed configurations, provider families and instances, module mappings and properties, operation definitions and inputs, merge rules, runfiles, stacks and their components or operation invocations, and test manifests.
+Machine-facing mapping keys remain stable identifiers, while `description` carries prose for people and inspection output. Optional descriptions are also supported on managed configurations, provider families and instances, module mappings and properties, operation definitions and inputs, merge rules, runfiles, stacks and their components, outputs, or operation invocations, and test manifests.
 
 ### Plan validations
 
@@ -606,10 +640,21 @@ Plan validation rules can return `pass`, `warn`, or `fail` outcomes.
 
 Operations are config-owned imperative actions. Stacksmith compiles them into private first-party Terraform modules, so their execution identity and locking use the same configured OpenTofu backend as the stack.
 
-The managed config fixes the runner details, including the local command argument vector or Jenkins job and credentials. A stack can only select an approved operation and supply declared inputs. Operation inputs support the same Jinja templates and native Terraform references as component properties, so an operation can consume an output such as `${module.app.release_name}`. Operations use the `manual` trigger by default; set `trigger: after_apply` in managed config to run them after a successful apply.
+The managed config fixes the runner details, including the local command argument vector or Jenkins job and credentials. A stack can only select an approved operation and supply declared inputs. Operation inputs support the same Jinja templates and deferred public component outputs as component properties, so an operation can consume an output such as `{{ components.app.release_name }}`. Operations use the `manual` trigger by default; set `trigger: after_apply` in managed config to run them after a successful apply.
 
 ```yaml
 # stacksmith-config.yaml
+module_mappings:
+  application:
+    source:
+      source: registry
+      data:
+        address: example/application
+        version: "1.0.0"
+    outputs:
+      release_name:
+        description: Deployed application release name.
+
 operations:
   deploy:
     description: Deploy an approved application release.
@@ -639,7 +684,7 @@ operations:
     use: deploy
     with:
       environment: "{{ inputs.environment }}"
-      release_name: "${module.app.release_name}"
+      release_name: "{{ components.app.release_name }}"
 ```
 
 Run a manual operation by its stack-local name.
@@ -769,15 +814,9 @@ Use `stacksmith ci redact-plan <plan.json> --output <redacted-plan.json>` to san
 
 If you vendor either entrypoint into a consumer repository, put it under a platform-owned path or submodule and protect it with a CODEOWNERS file so ordinary contributors cannot change the enforcement entrypoint. For example:
 
-```text
-.github/workflows/stacksmith-gitops-reusable.yml @platform-team
-.github/workflows/stacksmith-gitops-opinionated-reusable.yml @platform-team
-Jenkinsfile @platform-team
-```
-
 #### GitHub Actions
 
-In your own repository, you can either:
+In your own repository, you can do either of the following.
 
 - call `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@<version>` from your workflow, or
 - use the example wrappers as reference for trigger configuration.
@@ -888,13 +927,13 @@ The reusable workflow also supports the `folders` and `flat-files` discovery mod
 
 Configure a Jenkins Multibranch Pipeline with [`Jenkinsfile`](./Jenkinsfile) as its pipeline script path. The pipeline checks out the branch, prepares its CI manifest once, runs each selected environment in parallel, requests manual approval for `apply` and `operation`, and archives redacted plan JSON and validation reports when artifact uploads are enabled. It maps Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically.
 
-Choose one execution mode through Jenkins folder properties or the job environment:
+Choose one execution mode through Jenkins folder properties or the job environment.
 
 - Set `STACKSMITH_USE_K8S` to a truthy value to run in a Kubernetes-plugin pod.
 - Set `STACKSMITH_NODE_LABEL` to run directly on that labeled agent.
 - Otherwise, the pipeline runs in a Docker container on any available agent, or on `STACKSMITH_DOCKER_NODE` when set.
 
-The following Jenkins parameters are exposed on every build:
+The following Jenkins parameters are exposed on every build.
 
 - `COMMAND`: `plan`, `apply`, or `operation`. Defaults to `plan`.
 - `OPERATION_NAME`: Required when `COMMAND` is `operation`.
@@ -1011,7 +1050,7 @@ The opinionated workflow resolves `STACKSMITH_ENV_FILE` from repository variable
 > - **External State Changes:** If resources are modified out-of-band in the cloud provider, the apply step will reflect those updates.
 > - **Dynamic Configurations:** If you reference dynamic data sources or remote modules with moving targets (e.g., untagged Git references or floating version constraints), the resolved files might differ between plan and apply execution.
 >
-> To mitigate this risk:
+> To mitigate this risk, do the following.
 >
 > 1. Enforce linear history or require branches to be up-to-date before merging in your repository settings (via GitHub Branch Protection)
 > 2. Ensure all remote resources, configurations, and provider mappings use **immutable version pins** (exact commits or tags) rather than moving refs (like `main` or `latest`).
@@ -1891,4 +1930,4 @@ Add CSV output for validation reports while retaining JSON as the stable machine
 
 #### Typer-based CLI
 
-Consider migrating the CLI from `argparse` to `typer` after the command and option model has stabilized. The migration should preserve current environment-variable behavior, generated CLI documentation, reusable Python API boundaries, exit codes, and stdout-versus-stderr guarantees. Its main goals would be clearer command composition, shell completion, and more maintainable help text rather than changing runtime semantics.
+Consider migrating the CLI from `argparse` to `typer` after the command and option model has stabilized.

@@ -424,7 +424,7 @@ class ValidationSpec(BaseModel):
 
 
 class TransformSpec(BaseModel):
-    """Reusable property transform rule defined as Python or Jinja."""
+    """Reusable value transform rule defined as Python or Jinja."""
 
     description: str | None = None
     inline: str | None = None
@@ -451,7 +451,29 @@ class ModulePropertySpec(BaseModel):
     default: Any | None = None
     transform: TransformSpec | None = None
     validation: ValidationSpec | None = None
-    auto_inject: bool | None = None
+    auto_inject_inputs: bool | None = None
+
+
+_COMPONENT_OUTPUT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+class ModuleOutputSpec(BaseModel):
+    """Public component output mapped from an underlying module output."""
+
+    description: str | None = None
+    mapped_from: str | None = None
+    transform: TransformSpec | None = None
+
+    @model_validator(mode="after")
+    def _validate_mapped_from(self) -> "ModuleOutputSpec":
+        if self.mapped_from is not None and not _COMPONENT_OUTPUT_NAME_RE.fullmatch(
+            self.mapped_from
+        ):
+            raise ValueError(
+                "Module output 'mapped_from' must be an identifier containing "
+                "only letters, numbers, and underscores"
+            )
+        return self
 
 
 class BackendConfig(BaseModel):
@@ -598,10 +620,26 @@ class _ModuleMappingBase(BaseModel):
 
     description: str | None = None
     source: ModuleSourceReference
-    auto_inject: bool = False
+    auto_inject_inputs: bool = False
+    auto_expose_outputs: bool = False
     tags: set[str] = Field(default_factory=set)
     properties: dict[str, "ModulePropertySpec"] = Field(default_factory=dict)
+    outputs: dict[str, "ModuleOutputSpec"] = Field(default_factory=dict)
     providers: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_output_names(self) -> "_ModuleMappingBase":
+        invalid_names = sorted(
+            name
+            for name in self.outputs
+            if not _COMPONENT_OUTPUT_NAME_RE.fullmatch(name)
+        )
+        if invalid_names:
+            raise ValueError(
+                "Public component output names must contain only letters, "
+                f"numbers, and underscores: {', '.join(invalid_names)}"
+            )
+        return self
 
 
 class ModuleMapping(_ModuleMappingBase):

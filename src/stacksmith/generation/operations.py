@@ -3,11 +3,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..component_references import bind_component_references
 from ..exceptions import StacksmithConfigError
 from ..models import (
     LocalOperationDefinition,
     OperationDefinition,
     OperationInvocation,
+    RemoteAuthConfig,
     StackDefinition,
     ToolConfig,
 )
@@ -66,8 +68,23 @@ def build_operation_module_spec(
     stack: StackDefinition,
     config: ToolConfig,
     operation_instance_name: str,
+    cache_dir: Path | None = None,
+    auth_config: RemoteAuthConfig | None = None,
+    vendor_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Build a structured, approved runner specification for one operation module."""
+    """Build an approved runner specification for one operation module.
+
+    Args:
+        stack: Stack containing the operation invocation.
+        config: Managed configuration containing the approved operation.
+        operation_instance_name: Name of the operation invocation in the stack.
+        cache_dir: Optional cache directory for remote output transform scripts.
+        auth_config: Optional remote authentication configuration.
+        vendor_dir: Optional vendored module root used for output introspection.
+
+    Returns:
+        Structured operation-runner module specification.
+    """
     invocation = stack.operations.get(operation_instance_name)
     if invocation is None:
         raise StacksmithConfigError(
@@ -79,7 +96,14 @@ def build_operation_module_spec(
             f"Operation '{invocation.use}' is not defined in the tool configuration"
         )
     _validate_invocation(definition, invocation)
-    values = invocation.with_
+    values = bind_component_references(
+        invocation.with_,
+        stack,
+        config,
+        cache_dir=cache_dir,
+        auth_config=auth_config,
+        vendor_dir=vendor_dir,
+    )
     spec: dict[str, Any] = {
         "identity": _execution_identity(
             stack, invocation.use, definition, values, invocation.rerun_token

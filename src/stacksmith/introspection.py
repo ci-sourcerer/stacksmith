@@ -175,6 +175,36 @@ def discover_module_variables(
     )
 
 
+def discover_module_outputs(
+    source: str,
+    version: str,
+    cache_dir: Path | None = None,
+    auth_config: "RemoteAuthConfig | None" = None,
+    vendor_dir: Path | None = None,
+) -> set[str]:
+    """Discover output names declared by an OpenTofu module.
+
+    Args:
+        source: Module source URL.
+        version: Module version string.
+        cache_dir: Cache directory for cloning remote modules.
+        auth_config: Optional host-keyed auth configuration.
+        vendor_dir: Vendored module root directory.
+
+    Returns:
+        Set of output names the module declares.
+    """
+    return parse_module_outputs(
+        resolve_module_dir(
+            source,
+            version,
+            cache_dir=cache_dir,
+            auth_config=auth_config,
+            vendor_dir=vendor_dir,
+        )
+    )
+
+
 def parse_module_variables(module_dir: Path) -> set[str]:
     """Parse `.tf` and `.tf.json` files in a directory and return declared variable names.
 
@@ -203,8 +233,38 @@ def parse_module_variables(module_dir: Path) -> set[str]:
     return variables
 
 
+def parse_module_outputs(module_dir: Path) -> set[str]:
+    """Parse a module directory and return declared output names.
+
+    Args:
+        module_dir: Directory containing OpenTofu files.
+
+    Returns:
+        Set of names found in top-level `output` blocks.
+    """
+    outputs = _parse_hcl_block_names(module_dir, "output")
+    outputs |= _parse_json_block_names(module_dir, "output")
+    if not outputs:
+        LOGGER.debug(
+            "No outputs found in {path} for introspection",
+            path=module_dir,
+        )
+    else:
+        LOGGER.debug(
+            "Discovered {count} outputs in {path}: {outputs}",
+            count=len(outputs),
+            path=module_dir,
+            outputs=sorted(outputs),
+        )
+    return outputs
+
+
 def _parse_hcl_variables(module_dir: Path) -> set[str]:
-    variables = set()
+    return _parse_hcl_block_names(module_dir, "variable")
+
+
+def _parse_hcl_block_names(module_dir: Path, block_type: str) -> set[str]:
+    names = set()
     for tf_file in sorted(module_dir.glob("*.tf")):
         try:
             with open(tf_file, encoding="utf-8") as f:
@@ -217,15 +277,19 @@ def _parse_hcl_variables(module_dir: Path) -> set[str]:
             )
             continue
 
-        for var_block in parsed.get("variable", []):
-            if isinstance(var_block, dict):
-                for key in var_block:
-                    variables.add(key.strip('"'))
-    return variables
+        for block in parsed.get(block_type, []):
+            if isinstance(block, dict):
+                for key in block:
+                    names.add(key.strip('"'))
+    return names
 
 
 def _parse_json_variables(module_dir: Path) -> set[str]:
-    variables = set()
+    return _parse_json_block_names(module_dir, "variable")
+
+
+def _parse_json_block_names(module_dir: Path, block_type: str) -> set[str]:
+    names = set()
     for tf_json_file in sorted(module_dir.glob("*.tf.json")):
         try:
             data = json.loads(tf_json_file.read_text(encoding="utf-8"))
@@ -237,12 +301,11 @@ def _parse_json_variables(module_dir: Path) -> set[str]:
             )
             continue
 
-        var_section = data.get("variable", {})
-        match var_section:
-            case dict():
-                variables |= set(var_section.keys())
-            case list():
-                for var_block in var_section:
-                    if isinstance(var_block, dict):
-                        variables |= set(var_block.keys())
-    return variables
+        section = data.get(block_type, {})
+        if isinstance(section, dict):
+            names |= set(section)
+        elif isinstance(section, list):
+            for block in section:
+                if isinstance(block, dict):
+                    names |= set(block)
+    return names

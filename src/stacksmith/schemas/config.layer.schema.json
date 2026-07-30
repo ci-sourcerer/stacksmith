@@ -322,7 +322,7 @@
             "jinja": {
               "type": "string",
               "minLength": 1,
-              "description": "Jinja template rendered with `value` in scope. Rendered output is JSON-decoded when valid JSON, otherwise treated as a string."
+              "description": "Jinja template rendered with the surface-specific `property.value` or `output.value` in scope. Rendered output is JSON-decoded when valid JSON, otherwise treated as a string."
             }
           }
         },
@@ -367,9 +367,29 @@
           "$ref": "#/$defs/validationSpec",
           "description": "Optional validation rule applied to the resolved property value."
         },
-        "auto_inject": {
+        "auto_inject_inputs": {
           "type": "boolean",
-          "description": "Optional per-property override for module auto-injection. Set to false to skip injecting this input even when module auto_inject is enabled."
+          "description": "Optional per-property override for module auto-injection. Set to false to skip injecting this input even when module auto_inject_inputs is enabled."
+        }
+      }
+    },
+    "moduleOutputSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional human-readable description of the public component output."
+        },
+        "mapped_from": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "Underlying module output name. Defaults to the public component output name."
+        },
+        "transform": {
+          "$ref": "#/$defs/transformSpec",
+          "description": "Optional transformation applied to the unresolved module output reference before it is exposed to component consumers."
         }
       }
     },
@@ -386,10 +406,15 @@
           "$ref": "#/$defs/moduleSourceTemplateReference",
           "description": "Template-capable fallback module source. String fields may reference `component.type` and `component.name`."
         },
-        "auto_inject": {
+        "auto_inject_inputs": {
           "type": "boolean",
           "default": false,
           "description": "When true, resolved input values are auto-injected into modules using the default mapping."
+        },
+        "auto_expose_outputs": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, same-name outputs discovered from modules using the default mapping are exposed as component outputs. Explicit output mappings remain authoritative."
         },
         "tags": {
           "type": "array",
@@ -413,6 +438,16 @@
             "$ref": "#/$defs/modulePropertySpec"
           },
           "description": "Optional property configuration applied to components using the default mapping."
+        },
+        "outputs": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/moduleOutputSpec"
+          },
+          "description": "Public outputs exposed by components using the default mapping."
         }
       }
     },
@@ -777,10 +812,15 @@
             "$ref": "#/$defs/moduleSourceReference",
             "description": "Structured module source reference. Use `source: git` with `data.repo`/`data.ref` and optional `data.path`, or `source: registry` with `data.address`/`data.version`."
           },
-          "auto_inject": {
+          "auto_inject_inputs": {
             "type": "boolean",
             "default": false,
             "description": "When true, resolved input values are auto-injected into this module mapping by exact input key match and declared mapping keys. Defaults to false."
+          },
+          "auto_expose_outputs": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, same-name outputs discovered from the underlying module are exposed as component outputs. Explicit output mappings remain authoritative. Defaults to false."
           },
           "tags": {
             "type": "array",
@@ -804,6 +844,16 @@
               "$ref": "#/$defs/modulePropertySpec"
             },
             "description": "Optional per-property configuration for module inputs. Keys are original property names from stack resources."
+          },
+          "outputs": {
+            "type": "object",
+            "propertyNames": {
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/moduleOutputSpec"
+            },
+            "description": "Public component outputs keyed by the names stack authors reference through Jinja."
           }
         }
       },

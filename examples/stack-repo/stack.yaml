@@ -35,7 +35,7 @@ components:
           status: Enabled
           abort_incomplete_multipart_upload_days: 7
       attach_policy: true
-      writer_principal_arn: "${module.app_ec2_instance.iam_role_arn}"
+      writer_principal_arn: "{{ components.app_ec2_instance.role_arn }}"
       block_public_acls: false
       block_public_policy: true
       ignore_public_acls: true
@@ -86,7 +86,16 @@ components:
             - s3:GetObject
             - s3:ListBucket
           resources:
-            - "arn:aws:s3:::${module.assets_bucket.s3_bucket_id}"
-            - "arn:aws:s3:::${module.assets_bucket.s3_bucket_id}/*"
+            - "{{ components.assets_bucket.arn }}"
+            - "{{ components.assets_bucket.arn }}/*"
       tags:
         component: iam
+
+outputs:
+  assets_bucket_uri:
+    description: URI of the application artifact bucket.
+    value: "{{ components.assets_bucket.id }}"
+    transform:
+      description: Adapt the bucket identifier into an S3 URI.
+      jinja: "s3://{{ output.value }}"
+    mock: example-assets

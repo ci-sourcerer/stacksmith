@@ -53,4 +53,4 @@ operations:
       environment: "{{ inputs.environment }}"
       release_tag: "{{ inputs.deployment_name }}"
       deployment_tags: "{{ inputs.deployment_tags }}"
-      logs_bucket_id: "${module.logs_bucket.s3_bucket_id}"
+      logs_bucket_id: "{{ components.logs_bucket.id }}"

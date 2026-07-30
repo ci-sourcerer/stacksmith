@@ -23,6 +23,7 @@ from .configuration import (
     ModuleGitSourceTemplateData,
     ModuleGitSourceTemplateReference,
     ModuleMapping,
+    ModuleOutputSpec,
     ModulePropertySpec,
     ModuleSourceReference,
     ModuleSourceTemplateReference,
@@ -66,6 +67,8 @@ from .stacks import (
     RunFile,
     StackDefinition,
     StackMeta,
+    StackOutputDefinition,
+    StackOutputTransformSpec,
 )
 from .testing import (
     ComponentPropertyExpectation,
@@ -111,6 +114,7 @@ __all__ = [
     "ModuleGitSourceTemplateData",
     "ModuleGitSourceTemplateReference",
     "ModuleMapping",
+    "ModuleOutputSpec",
     "ModulePropertySpec",
     "ModuleSourceReference",
     "ModuleSourceTemplateReference",
@@ -135,6 +139,8 @@ __all__ = [
     "StackExecutionPreview",
     "StackLockFile",
     "StackMeta",
+    "StackOutputDefinition",
+    "StackOutputTransformSpec",
     "StacksmithTestFixtures",
     "StacksmithTestManifest",
     "ToolBinaryConfig",

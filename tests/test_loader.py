@@ -311,16 +311,30 @@ class TestLoadStack:
         json_stack = load_stack(sample_stack_json)
         assert yaml_stack.name == json_stack.name
         assert yaml_stack.components.keys() == json_stack.components.keys()
-        assert yaml_stack.mock_outputs == json_stack.mock_outputs
+        assert yaml_stack.outputs == json_stack.outputs
 
     def test_source_path_is_set(self, sample_stack_yaml: Path):
         stack = load_stack(sample_stack_yaml)
         assert stack.source_path == sample_stack_yaml.resolve()
 
-    def test_mock_outputs_loaded(self, sample_stack_yaml: Path):
-        stack = load_stack(sample_stack_yaml)
-        assert stack.mock_outputs["vpc_id"] == "mock-vpc-123"
-        assert len(stack.mock_outputs["subnet_ids"]) == 2
+    def test_stack_outputs_and_mocks_loaded(self, tmp_path: Path):
+        stack_file = tmp_path / "stack.yaml"
+        stack_file.write_text(
+            "name: outputs\n"
+            "outputs:\n"
+            "  bucket_id:\n"
+            "    value: bucket\n"
+            "    mock: mock-bucket-123\n"
+            "  role_arn:\n"
+            "    value: role\n"
+            "    sensitive: true\n",
+            encoding="utf-8",
+        )
+
+        stack = load_stack(stack_file)
+
+        assert stack.outputs["bucket_id"].mock == "mock-bucket-123"
+        assert stack.outputs["role_arn"].sensitive is True
 
     def test_file_not_found(self, tmp_path: Path):
         with pytest.raises(FileNotFoundError):
@@ -995,6 +1009,16 @@ class TestLoadConfig:
                     }
                 }
             },
+            "outputs": {
+                "id": {
+                    "transform": {
+                        "script": {
+                            "source": "local",
+                            "data": {"path": "../scripts/transform_output.py"},
+                        }
+                    }
+                }
+            },
         }
         config_file.write_text(
             yaml.safe_dump(config_data, sort_keys=False),
@@ -1011,6 +1035,11 @@ class TestLoadConfig:
             "name"
         ].transform.script.data.path == str(
             (config_dir / "../scripts/transform.py").resolve()
+        )
+        assert config.default_module_mapping.outputs[
+            "id"
+        ].transform.script.data.path == str(
+            (config_dir / "../scripts/transform_output.py").resolve()
         )
 
     def test_load_config_accepts_provider_config_spec(self, tmp_path: Path):

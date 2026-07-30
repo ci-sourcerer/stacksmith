@@ -48,15 +48,22 @@ def _resolve_module_mapping_references(module: Any, config_dir: Path) -> None:
 
     _absolutize_local_reference(module.get("source"), config_dir)
     properties = module.get("properties")
-    if not isinstance(properties, dict):
-        return
-    for property_spec in properties.values():
-        if not isinstance(property_spec, dict):
-            continue
-        if isinstance(transform := property_spec.get("transform"), dict):
-            _absolutize_local_reference(transform.get("script"), config_dir)
-        if isinstance(validation := property_spec.get("validation"), dict):
-            _absolutize_local_reference(validation.get("script"), config_dir)
+    if isinstance(properties, dict):
+        for property_spec in properties.values():
+            if not isinstance(property_spec, dict):
+                continue
+            if isinstance(transform := property_spec.get("transform"), dict):
+                _absolutize_local_reference(transform.get("script"), config_dir)
+            if isinstance(validation := property_spec.get("validation"), dict):
+                _absolutize_local_reference(validation.get("script"), config_dir)
+
+    outputs = module.get("outputs")
+    if isinstance(outputs, dict):
+        for output_spec in outputs.values():
+            if not isinstance(output_spec, dict):
+                continue
+            if isinstance(transform := output_spec.get("transform"), dict):
+                _absolutize_local_reference(transform.get("script"), config_dir)
 
 
 def resolve_config_local_references(

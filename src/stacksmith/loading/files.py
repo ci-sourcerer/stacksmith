@@ -6,10 +6,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
-from jinja2 import ChainableUndefined, StrictUndefined, TemplateError, UndefinedError
-from jinja2.sandbox import SandboxedEnvironment
+from jinja2 import TemplateError, UndefinedError
 
+from ..component_references import validate_component_reference_template
 from ..exceptions import StacksmithConfigError, StacksmithNotFoundError
+from ..templating import create_sandboxed_jinja_environment
 
 _UNDEFINED_ATTRIBUTE_PATTERN = re.compile(r"has no attribute '([^']+)'")
 _UNDEFINED_VALUE_PATTERN = re.compile(r"'([^']+)' is undefined")
@@ -97,13 +98,9 @@ def _render_template(
     text: str, path: Path, context: Mapping[str, Any], strict: bool
 ) -> str:
     try:
-        return (
-            SandboxedEnvironment(
-                undefined=StrictUndefined if strict else ChainableUndefined
-            )
-            .from_string(text)
-            .render(context)
-        )
+        environment = create_sandboxed_jinja_environment(strict)
+        validate_component_reference_template(environment, text)
+        return environment.from_string(text).render(context)
     except UndefinedError as exc:
         raise StacksmithConfigError(
             _format_undefined_template_error(text, path, exc)

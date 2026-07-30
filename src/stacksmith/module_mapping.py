@@ -1,17 +1,51 @@
+import re
 from pathlib import Path
 from typing import Any
 
-from jinja2 import StrictUndefined, TemplateError
-from jinja2.sandbox import SandboxedEnvironment
+from jinja2 import TemplateError
 from pydantic import TypeAdapter, ValidationError
 
 from .exceptions import StacksmithConfigError
 from .models import ModuleMapping, ModuleSourceReference, ToolConfig
-from .templating import render_jinja_template_values
+from .templating import (
+    create_sandboxed_jinja_environment,
+    render_jinja_template_values,
+)
 from .utils import get_current_git_repository
 
-_JINJA_ENV = SandboxedEnvironment(undefined=StrictUndefined)
+_JINJA_ENV = create_sandboxed_jinja_environment()
 _MODULE_SOURCE_ADAPTER = TypeAdapter(ModuleSourceReference)
+_AUTO_EXPOSED_OUTPUT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def auto_exposed_output_names(
+    mapping: ModuleMapping,
+    discovered_outputs: set[str],
+) -> set[str]:
+    """Return discovered module outputs exposed by a mapping.
+
+    Explicit public output mappings take precedence and claim their underlying
+    module output names, preventing those implementation names from also being
+    exposed automatically.
+
+    Args:
+        mapping: Resolved module mapping.
+        discovered_outputs: Output names discovered from the underlying module.
+
+    Returns:
+        Same-name module outputs available through automatic exposure.
+    """
+    if not mapping.auto_expose_outputs:
+        return set()
+    exposed_outputs = {
+        name
+        for name in discovered_outputs
+        if _AUTO_EXPOSED_OUTPUT_NAME_RE.fullmatch(name)
+    }
+    for public_name, specification in mapping.outputs.items():
+        exposed_outputs.discard(public_name)
+        exposed_outputs.discard(specification.mapped_from or public_name)
+    return exposed_outputs
 
 
 def _mapping_context(
