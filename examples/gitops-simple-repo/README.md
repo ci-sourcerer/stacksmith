@@ -9,7 +9,7 @@ The common runfile loads the credential-free config from the shared config repo,
 Run discovery from the repository root.
 
 ```bash
-stacksmith info environments \
+stacksmith ci environments \
   --gitops-root examples/gitops-simple-repo \
   --discovery-mode auto
 ```

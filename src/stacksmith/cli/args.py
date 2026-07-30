@@ -531,11 +531,11 @@ def add_lock_policy_args(parser: argparse.ArgumentParser) -> None:
     add_lockfile_arg(parser)
 
 
-def configure_inspect_parser(parser: argparse.ArgumentParser) -> None:
-    """Configure arguments for the module inspection command.
+def configure_modules_and_policies_parser(parser: argparse.ArgumentParser) -> None:
+    """Configure arguments for the module and policy inspection command.
 
     Args:
-        parser: Parser for the module inspection command.
+        parser: Parser for the module and policy inspection command.
 
     Returns:
         None.
@@ -643,11 +643,11 @@ def _add_gitops_discovery_args(
         )
 
 
-def configure_info_environments_parser(parser: argparse.ArgumentParser) -> None:
-    """Configure arguments for environment discovery previews.
+def configure_ci_environments_parser(parser: argparse.ArgumentParser) -> None:
+    """Configure arguments for CI environment discovery previews.
 
     Args:
-        parser: Parser for the environment information command.
+        parser: Parser for the CI environment command.
 
     Returns:
         None.

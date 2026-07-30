@@ -544,7 +544,7 @@ def _cmd_test(args: argparse.Namespace) -> int:
         ).returncode
 
 
-def _cmd_inspect(args: argparse.Namespace) -> int:
+def _cmd_info_modules_and_policies(args: argparse.Namespace) -> int:
     _apply_runfile(args)
     component_types = args.component_type if args.component_type else None
     results, plan_policies = inspect_modules(
@@ -852,7 +852,7 @@ def _format_info_ci_json(payload: Any) -> str:
     return compact_json(payload, sort_keys=True)
 
 
-def _cmd_info_environments(args: argparse.Namespace) -> int:
+def _cmd_ci_environments(args: argparse.Namespace) -> int:
     payload = inspect_environments(
         gitops_root=args.gitops_root,
         discovery_mode=args.discovery_mode,
@@ -1229,12 +1229,10 @@ def main() -> None:
                 exit_code = _cmd_test(args)
             case "info":
                 match args.info_command:
-                    case "inspect":
-                        exit_code = _cmd_inspect(args)
+                    case "modules-and-policies":
+                        exit_code = _cmd_info_modules_and_policies(args)
                     case "diagnose":
                         exit_code = _cmd_diagnose(args)
-                    case "environments":
-                        exit_code = _cmd_info_environments(args)
                     case "graph":
                         exit_code = _cmd_info_graph(args)
                     case _:
@@ -1242,6 +1240,8 @@ def main() -> None:
                         exit_code = 1
             case "ci":
                 match args.ci_command:
+                    case "environments":
+                        exit_code = _cmd_ci_environments(args)
                     case "validate":
                         exit_code = _cmd_ci_validate(args)
                     case "prepare":

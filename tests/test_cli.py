@@ -351,11 +351,13 @@ def test_test_command_requires_manifest_when_none_discovered(
         cli_main._cmd_test(args)
 
 
-def test_info_inspect_has_basic_flag(parser):
-    args = parser.parse_args(["info", "inspect", "aws_s3_bucket", "--basic"])
+def test_info_modules_and_policies_has_basic_flag(parser):
+    args = parser.parse_args(
+        ["info", "modules-and-policies", "aws_s3_bucket", "--basic"]
+    )
 
     assert args.command == "info"
-    assert args.info_command == "inspect"
+    assert args.info_command == "modules-and-policies"
     assert args.component_type == ["aws_s3_bucket"]
     assert args.basic is True
 
@@ -369,10 +371,10 @@ def test_info_diagnose_has_stack_file(parser):
     assert args.format == "table"
 
 
-def test_info_environments_has_gitops_flags(parser):
+def test_ci_environments_has_gitops_flags(parser):
     args = parser.parse_args(
         [
-            "info",
+            "ci",
             "environments",
             "--gitops-root",
             "./examples/gitops-repo",
@@ -387,8 +389,8 @@ def test_info_environments_has_gitops_flags(parser):
         ]
     )
 
-    assert args.command == "info"
-    assert args.info_command == "environments"
+    assert args.command == "ci"
+    assert args.ci_command == "environments"
     assert args.gitops_root == "./examples/gitops-repo"
     assert args.discovery_mode == "env-files"
     assert args.event_name == "push"
@@ -396,10 +398,22 @@ def test_info_environments_has_gitops_flags(parser):
     assert args.format == "json"
 
 
-def test_info_environments_defaults_to_auto_discovery_mode(parser):
-    args = parser.parse_args(["info", "environments"])
+def test_ci_environments_defaults_to_auto_discovery_mode(parser):
+    args = parser.parse_args(["ci", "environments"])
 
     assert args.discovery_mode == "auto"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["info", "inspect"],
+        ["info", "environments"],
+    ],
+)
+def test_removed_info_commands_are_rejected(parser, command):
+    with pytest.raises(SystemExit):
+        parser.parse_args(command)
 
 
 def test_ci_validate_has_workflow_flags(parser):
@@ -1718,7 +1732,7 @@ def test_cmd_diagnose_table_emits_stderr(monkeypatch, parser, capsys):
     assert "Stacksmith Diagnostics" in captured.err
 
 
-def test_cmd_info_environments_emits_json(monkeypatch, parser, capsys):
+def test_cmd_ci_environments_emits_json(monkeypatch, parser, capsys):
     monkeypatch.setattr(
         cli_main,
         "inspect_environments",
@@ -1738,9 +1752,9 @@ def test_cmd_info_environments_emits_json(monkeypatch, parser, capsys):
             ],
         },
     )
-    args = parser.parse_args(["info", "environments", "--format", "json"])
+    args = parser.parse_args(["ci", "environments", "--format", "json"])
 
-    exit_code = cli_main._cmd_info_environments(args)
+    exit_code = cli_main._cmd_ci_environments(args)
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
@@ -2122,7 +2136,7 @@ def test_cmd_ci_execute_from_env_uses_manifest_env(monkeypatch, parser, tmp_path
     )
 
 
-def test_cmd_inspect_json_emits_stdout(monkeypatch, parser, capsys):
+def test_cmd_info_modules_and_policies_json_emits_stdout(monkeypatch, parser, capsys):
     result = ComponentTypeInfo(
         component_type="aws_s3_bucket",
         display_name="AWS S3 bucket",
@@ -2133,8 +2147,8 @@ def test_cmd_inspect_json_emits_stdout(monkeypatch, parser, capsys):
     )
     monkeypatch.setattr(cli_main, "inspect_modules", lambda **kwargs: ([result], []))
 
-    args = parser.parse_args(["info", "inspect", "--format", "json"])
-    exit_code = cli_main._cmd_inspect(args)
+    args = parser.parse_args(["info", "modules-and-policies", "--format", "json"])
+    exit_code = cli_main._cmd_info_modules_and_policies(args)
 
     captured = capsys.readouterr()
     parsed = json.loads(captured.out)
@@ -2145,7 +2159,7 @@ def test_cmd_inspect_json_emits_stdout(monkeypatch, parser, capsys):
     assert captured.err == ""
 
 
-def test_cmd_inspect_table_emits_stderr(monkeypatch, parser, capsys):
+def test_cmd_info_modules_and_policies_table_emits_stderr(monkeypatch, parser, capsys):
     result = ComponentTypeInfo(
         component_type="aws_s3_bucket",
         display_name="AWS S3 bucket",
@@ -2156,8 +2170,8 @@ def test_cmd_inspect_table_emits_stderr(monkeypatch, parser, capsys):
     )
     monkeypatch.setattr(cli_main, "inspect_modules", lambda **kwargs: ([result], []))
 
-    args = parser.parse_args(["info", "inspect", "--format", "table"])
-    exit_code = cli_main._cmd_inspect(args)
+    args = parser.parse_args(["info", "modules-and-policies", "--format", "table"])
+    exit_code = cli_main._cmd_info_modules_and_policies(args)
 
     captured = capsys.readouterr()
     assert exit_code == 0

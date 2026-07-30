@@ -161,7 +161,7 @@ module_mappings:
         ref: v1.2.3
 ```
 
-Explicit mappings always take precedence. When no explicit mapping exists, Stacksmith renders string fields within the default mapping's `source` using strict, sandboxed Jinja and then validates the result as an ordinary local, Git, or registry module source. Templates can reference `component.type`, which is the component's declared type, and `component.name`, which is the component instance key in the stack. For `stacksmith info inspect <component-type>`, no component instance exists, so `component.name` is set to the requested component type. An unfiltered `info inspect` lists only explicit mappings because a default mapping represents an open-ended set of possible types.
+Explicit mappings always take precedence. When no explicit mapping exists, Stacksmith renders string fields within the default mapping's `source` using strict, sandboxed Jinja and then validates the result as an ordinary local, Git, or registry module source. Templates can reference `component.type`, which is the component's declared type, and `component.name`, which is the component instance key in the stack. For `stacksmith info modules-and-policies <component-type>`, no component instance exists, so `component.name` is set to the requested component type. An unfiltered `info modules-and-policies` lists only explicit mappings because a default mapping represents an open-ended set of possible types.
 
 `module_mappings` may be empty or omitted when `default_module_mapping` is configured. A managed config must provide at least one explicit mapping or a default mapping.
 
@@ -1119,7 +1119,7 @@ YAML/JSON-driven Terragrunt wrapper
 | `destroy` | Generate + terragrunt destroy |
 | `operation` | Run native operations approved by managed configuration |
 | `info` | Show stacksmith inspection and diagnostics commands |
-| `ci` | CI-focused validation and diagnostics commands |
+| `ci` | Prepare, inspect, and execute CI workflows |
 
 ### `stacksmith validate`
 
@@ -1489,15 +1489,15 @@ stacksmith operation run [-h] [--force-rerun] [--stack STACK] [--runfile RUNFILE
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 
-### `stacksmith info inspect`
+### `stacksmith info modules-and-policies`
 
 ```text
-stacksmith info inspect [-h] [--format {table,json}] [--basic] [--runfile RUNFILE] [-c CONFIG]
-                               [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
-                               [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG] [--no-cache]
-                               [--no-cas] [--strict-validation-warnings] [--use-local-modules |
-                               --no-local-modules] [--debug | -q]
-                               [component_type ...]
+stacksmith info modules-and-policies [-h] [--format {table,json}] [--basic] [--runfile RUNFILE]
+                                            [-c CONFIG] [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+                                            [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
+                                            [--no-cache] [--no-cas] [--strict-validation-warnings]
+                                            [--use-local-modules | --no-local-modules] [--debug | -q]
+                                            [component_type ...]
 ```
 
 | Argument | Description |
@@ -1553,28 +1553,6 @@ stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}] [--runfile
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 
-### `stacksmith info environments`
-
-```text
-stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
-                                    [--discovery-mode {folders,flat-files,env-files,env,auto}]
-                                    [--environments ENVIRONMENTS] [--event-name EVENT_NAME]
-                                    [--changed-path CHANGED_PATH] [--base-ref BASE_REF] [--before BEFORE]
-                                    [--after AFTER] [--format {table,json}]
-```
-
-| Argument | Description |
-| - | - |
-| `--gitops-root` | Relative path to the GitOps root folder. |
-| `--discovery-mode` | Environment discovery mode. Use folders, flat-files, or env-files (env is an alias for env-files). Choices: `folders`, `flat-files`, `env-files`, `env`, `auto`. |
-| `--environments` | Optional comma-separated environment names to target manually. |
-| `--event-name` | Optional caller event name used for event-aware selection. |
-| `--changed-path` | Changed repository path used for selection simulation. Repeatable. |
-| `--base-ref` | Base branch name used for pull-request diff selection. |
-| `--before` | Previous commit SHA used for push diff selection. |
-| `--after` | Current commit SHA used for push diff selection. |
-| `--format` | Output format for environment preview data. Choices: `table`, `json`. |
-
 ### `stacksmith info graph`
 
 ```text
@@ -1609,6 +1587,28 @@ stacksmith info graph [-h] [--action {plan,apply,destroy}] [--root ROOT] [--stac
 | `--exclude-tag` | Exclude stacks that have this tag. Repeatable. |
 | `--destroy` | Preview a destroy plan when the selected action is plan. |
 | `--format` | Output format for dependency and execution preview data. Choices: `table`, `json`, `dot`, `mermaid`. |
+
+### `stacksmith ci environments`
+
+```text
+stacksmith ci environments [-h] [--gitops-root GITOPS_ROOT]
+                                  [--discovery-mode {folders,flat-files,env-files,env,auto}]
+                                  [--environments ENVIRONMENTS] [--event-name EVENT_NAME]
+                                  [--changed-path CHANGED_PATH] [--base-ref BASE_REF] [--before BEFORE]
+                                  [--after AFTER] [--format {table,json}]
+```
+
+| Argument | Description |
+| - | - |
+| `--gitops-root` | Relative path to the GitOps root folder. |
+| `--discovery-mode` | Environment discovery mode. Use folders, flat-files, or env-files (env is an alias for env-files). Choices: `folders`, `flat-files`, `env-files`, `env`, `auto`. |
+| `--environments` | Optional comma-separated environment names to target manually. |
+| `--event-name` | Optional caller event name used for event-aware selection. |
+| `--changed-path` | Changed repository path used for selection simulation. Repeatable. |
+| `--base-ref` | Base branch name used for pull-request diff selection. |
+| `--before` | Previous commit SHA used for push diff selection. |
+| `--after` | Current commit SHA used for push diff selection. |
+| `--format` | Output format for environment preview data. Choices: `table`, `json`. |
 
 ### `stacksmith ci validate`
 
@@ -1804,14 +1804,14 @@ stacksmith plan stack.yaml --config ./stacksmith-config.yaml --validation-report
 
 ### Info commands
 
-Use `info inspect` to review configured modules, mappings, and metadata.
+Use `info modules-and-policies` to review configured modules, mappings, metadata, and plan policies.
 
-`info inspect --format json` and `info inspect --format yaml` write machine-readable output to stdout.
+`info modules-and-policies --format json` writes machine-readable output to stdout.
 
-`info inspect --format table` writes human-readable output to stderr.
+`info modules-and-policies --format table` writes human-readable output to stderr.
 
 ```shell
-stacksmith info inspect --config ./stacksmith-config.yaml
+stacksmith info modules-and-policies --config examples/shared-config-repo/stacksmith-base-config.yaml --config examples/shared-config-repo/stacksmith-config.yaml
 ```
 
 Use `info diagnose` to inspect cache and module-resolution diagnostics for a stack.
@@ -1819,17 +1819,19 @@ Use `info diagnose` to inspect cache and module-resolution diagnostics for a sta
 `info diagnose` writes diagnostics to stderr.
 
 ```shell
-stacksmith info diagnose stack.yaml --config ./stacksmith-config.yaml
+stacksmith info diagnose examples/stack-simple-repo/stack.yaml --config examples/shared-config-repo/stacksmith-base-config.yaml --config examples/shared-config-repo/stacksmith-config.yaml
 ```
 
-Use `info environments` to preview GitOps environment discovery and selection logic used by the opinionated reusable workflow.
+### CI commands
 
-`info environments --format json` and `info environments --format yaml` write machine-readable output to stdout.
+Use `ci environments` to preview GitOps environment discovery and selection logic used by the opinionated reusable workflow.
 
-`info environments --format table` writes human-readable output to stderr.
+`ci environments --format json` writes machine-readable output to stdout.
+
+`ci environments --format table` writes human-readable output to stderr.
 
 ```shell
-stacksmith info environments \
+stacksmith ci environments \
   --gitops-root examples/gitops-repo \
   --discovery-mode env-files \
   --event-name push \

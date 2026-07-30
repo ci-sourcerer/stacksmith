@@ -314,7 +314,7 @@ stacksmith destroy "$STACK_FILE" \
 Inspect configured module mappings.
 
 ```bash
-stacksmith info inspect \
+stacksmith info modules-and-policies \
     --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE"
 ```

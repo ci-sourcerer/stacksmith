@@ -14,6 +14,7 @@ from .args import (
     add_stack_arg,
     add_target_selection_args,
     add_validation_report_format_arg,
+    configure_ci_environments_parser,
     configure_ci_execute_from_env_parser,
     configure_ci_execute_parser,
     configure_ci_prepare_from_env_parser,
@@ -21,8 +22,7 @@ from .args import (
     configure_ci_redact_plan_parser,
     configure_ci_validate_parser,
     configure_diagnose_parser,
-    configure_info_environments_parser,
-    configure_inspect_parser,
+    configure_modules_and_policies_parser,
     path_type,
 )
 
@@ -228,22 +228,16 @@ def build_parser() -> argparse.ArgumentParser:
         "info",
         help="Show stacksmith inspection and diagnostics commands",
     ).add_subparsers(dest="info_command", required=True)
-    configure_inspect_parser(
+    configure_modules_and_policies_parser(
         info_subparsers.add_parser(
-            "inspect",
-            help="Inspect configured modules: variables, mappings, and metadata",
+            "modules-and-policies",
+            help="Inspect configured modules and plan policies",
         )
     )
     configure_diagnose_parser(
         info_subparsers.add_parser(
             "diagnose",
             help="Show cache and module diagnostics",
-        )
-    )
-    configure_info_environments_parser(
-        info_subparsers.add_parser(
-            "environments",
-            help="Preview GitOps environment discovery and selection",
         )
     )
     graph_parser = info_subparsers.add_parser(
@@ -306,8 +300,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     ci_subparsers = subparsers.add_parser(
         "ci",
-        help="CI-focused validation and diagnostics commands",
+        help="Prepare, inspect, and execute CI workflows",
     ).add_subparsers(dest="ci_command", required=True)
+    configure_ci_environments_parser(
+        ci_subparsers.add_parser(
+            "environments",
+            help="Preview GitOps environment discovery and selection",
+        )
+    )
     configure_ci_validate_parser(
         ci_subparsers.add_parser(
             "validate",
