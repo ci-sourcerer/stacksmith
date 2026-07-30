@@ -6,7 +6,7 @@ from loguru import logger as LOGGER
 
 from .utils import cache_key
 
-DEFAULT_VENDOR_DIR = Path("/workspace/.stacksmith/modules")
+DEFAULT_VENDOR_DIR = Path(".stacksmith/modules")
 VENDOR_DIR_ENV = "STACKSMITH_VENDOR_DIR"
 MANIFEST_FILENAME = "vendor-manifest.json"
 
@@ -16,7 +16,9 @@ def get_vendor_dir() -> Path:
 
     The environment variable `STACKSMITH_VENDOR_DIR` overrides the default.
     """
-    return Path(os.getenv(VENDOR_DIR_ENV, str(DEFAULT_VENDOR_DIR))).expanduser()
+    return (
+        Path(os.getenv(VENDOR_DIR_ENV, str(DEFAULT_VENDOR_DIR))).expanduser().resolve()
+    )
 
 
 def vendor_key(source: str, version: str) -> str:

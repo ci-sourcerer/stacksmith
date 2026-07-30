@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from stacksmith.vendor import (
     DEFAULT_VENDOR_DIR,
     MANIFEST_FILENAME,
@@ -42,9 +43,12 @@ class TestVendorPath:
         path = vendor_path("https://github.com/org/mod.git", "1.0.0", tmp_path)
         assert path.parent == tmp_path
 
-    def test_uses_default_vendor_dir(self):
+    def test_uses_default_vendor_dir(self, monkeypatch, tmp_path: Path):
+        monkeypatch.delenv("STACKSMITH_VENDOR_DIR", raising=False)
+        monkeypatch.chdir(tmp_path)
+
         path = vendor_path("https://github.com/org/mod.git", "1.0.0")
-        assert path.parent == DEFAULT_VENDOR_DIR
+        assert path.parent == tmp_path / DEFAULT_VENDOR_DIR
 
     def test_get_vendor_dir_uses_environment_override(
         self, monkeypatch, tmp_path: Path

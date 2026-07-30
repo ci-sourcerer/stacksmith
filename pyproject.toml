@@ -47,7 +47,7 @@ cmd = "python scripts/update_layer_schemas.py --check"
 help = "Check that generated partial-layer schemas are current"
 
 [tool.poe.env]
-CONTAINER_ENV = "TF_PLUGIN_CACHE_DIR=/workspace/.stacksmith/providers STACKSMITH_TOOL_CACHE_DIR=/workspace/.stacksmith/.cache/tools"
+CONTAINER_ENV = "TF_PLUGIN_CACHE_DIR=/workspace/.stacksmith/providers STACKSMITH_TOOL_CACHE_DIR=/workspace/.stacksmith/.cache/tools STACKSMITH_VENDOR_DIR=/workspace/.stacksmith/modules"
 CONTAINER_BUILD_ARGS = """
 APT_PACKAGES="git jq"
 """
