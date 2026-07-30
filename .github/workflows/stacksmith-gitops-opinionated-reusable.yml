@@ -27,11 +27,6 @@ on:
         required: false
         type: string
         default: .
-      config_ref:
-        description: Platform-managed Stacksmith config reference applied to every selected environment.
-        required: false
-        type: string
-        default: ""
       workdir:
         description: Working directory to run Stacksmith from.
         required: false
@@ -42,6 +37,11 @@ on:
         required: false
         type: string
         default: ""
+      debug:
+        description: Enable debug logging and print configured modules and policies before execution.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -74,7 +74,11 @@ jobs:
           INPUT_WORKDIR: ${{ inputs.workdir }}
           INPUT_ENV_FILE: ${{ fromJson(toJson(vars)).STACKSMITH_ENV_FILE || '/dev/null' }}
           INPUT_STACKSMITH_ARGS_JSON: ${{ inputs.stacksmith_args_json || fromJson(toJson(vars)).STACKSMITH_ARGS_JSON || '[]' }}
+          INPUT_DEBUG: ${{ inputs.debug || fromJson(toJson(vars)).STACKSMITH_DEBUG || 'false' }}
           INPUT_NO_CAS: ${{ fromJson(toJson(vars)).STACKSMITH_NO_CAS || 'false' }}
+          INPUT_LOCKED: ${{ fromJson(toJson(vars)).STACKSMITH_REQUIRE_LOCKFILE || 'false' }}
+          INPUT_OFFLINE: ${{ fromJson(toJson(vars)).STACKSMITH_OFFLINE || 'false' }}
+          INPUT_LOCKFILE: ${{ fromJson(toJson(vars)).STACKSMITH_LOCKFILE || '' }}
           INPUT_FORCE_RERUN: ${{ fromJson(toJson(vars)).STACKSMITH_FORCE_RERUN || 'false' }}
           INPUT_VALIDATION_REPORT_FORMAT: ${{ fromJson(toJson(vars)).STACKSMITH_VALIDATION_REPORT_FORMAT || 'json' }}
           INPUT_FAIL_ON_CHANGES: ${{ fromJson(toJson(vars)).STACKSMITH_FAIL_ON_CHANGES || 'false' }}

@@ -36,7 +36,11 @@ class CiExecutionManifest(BaseModel):
         workdir: Working directory relative to the checked-out repository.
         env_file: Optional environment file, with `/dev/null` disabling implicit loading.
         stacksmith_args: Additional validated Stacksmith command arguments.
+        debug: Whether to enable debug logging and CI configuration inspection.
         no_cas: Whether to disable content-addressable caching.
+        locked: Whether runtime inputs must match the Stacksmith lockfile.
+        offline: Whether locked remote inputs must resolve without network access.
+        lockfile: Optional explicit Stacksmith lockfile path.
         force_rerun: Whether operations must force execution.
         validation_report_format: Plan validation report format.
         fail_on_changes: Whether plans fail when changes are detected.
@@ -51,7 +55,11 @@ class CiExecutionManifest(BaseModel):
     workdir: str = "."
     env_file: str = "/dev/null"
     stacksmith_args: list[str] = Field(default_factory=list)
+    debug: bool = False
     no_cas: bool = False
+    locked: bool = False
+    offline: bool = False
+    lockfile: str = ""
     force_rerun: bool = False
     validation_report_format: str = ValidationReportFormat.JSON.value
     fail_on_changes: bool = False
@@ -68,6 +76,8 @@ class CiExecutionManifest(BaseModel):
             raise ValueError(
                 "operation_name is only supported when command is 'operation'"
             )
+        if self.command != "operation" and self.offline and not self.locked:
+            raise ValueError("offline CI execution requires locked execution")
         ValidationReportFormat(self.validation_report_format)
         return self
 
@@ -82,7 +92,7 @@ def parse_ci_stacksmith_args(value: str) -> list[str]:
         Validated command-line arguments.
 
     Raises:
-        StacksmithConfigError: If the JSON value is invalid or overrides managed config.
+        StacksmithConfigError: If the JSON value is invalid or overrides managed policy.
     """
     try:
         arguments = json.loads(value or "[]")
@@ -108,6 +118,14 @@ def parse_ci_stacksmith_args(value: str) -> list[str]:
     ):
         raise StacksmithConfigError(
             "stacksmith_args_json cannot override the platform-managed config"
+        )
+    if any(
+        argument in {"--locked", "--offline", "--lockfile"}
+        or argument.startswith("--lockfile=")
+        for argument in arguments
+    ):
+        raise StacksmithConfigError(
+            "stacksmith_args_json cannot override the platform-managed lock policy"
         )
     return arguments
 
@@ -217,8 +235,17 @@ def build_ci_execution_argv(
         "--build-dir",
         f".stacksmith-ci/{row.environment}",
     ]
+    if manifest.debug:
+        common_args.append("--debug")
     if manifest.no_cas:
         common_args.append("--no-cas")
+    if manifest.command != "operation":
+        if manifest.locked:
+            common_args.append("--locked")
+        if manifest.offline:
+            common_args.append("--offline")
+        if manifest.lockfile:
+            common_args.extend(["--lockfile", manifest.lockfile])
     if manifest.command == "plan":
         return [
             "plan",

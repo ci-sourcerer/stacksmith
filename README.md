@@ -805,8 +805,12 @@ The CI selector is named `command` in GitHub Actions and `COMMAND` in Jenkins. C
 Both implementations reserve the command selector, operation name, runfiles, build directory, plan output, validation format, and apply approval flags because those values are part of the GitOps contract. Every other Stacksmith CLI option can be supplied, in order and without shell-quoting loss, through `STACKSMITH_ARGS_JSON`. For example:
 
 ```json
-["--vars", "vars/common.yaml", "--var", "replicas=3", "--tag", "service", "--debug"]
+["--vars", "vars/common.yaml", "--var", "replicas=3", "--tag", "service"]
 ```
+
+Set the reusable workflow's `debug` input, the Jenkins `DEBUG` parameter, or `STACKSMITH_DEBUG=1` to enable debug logging. Debug CI executions also run `stacksmith info modules-and-policies` with the selected environment's managed config and layered runfiles before the requested command.
+
+Plan and apply executions read Stacksmith's source-locking controls exclusively from repository-, organization-, job-, or folder-managed environment settings. Set `STACKSMITH_REQUIRE_LOCKFILE` to require resolved inputs to match a lockfile, optionally set `STACKSMITH_LOCKFILE` to choose a non-default path, and combine `STACKSMITH_OFFLINE` with locked mode to prohibit network resolution. Native operations do not currently accept Stacksmith lock-policy flags.
 
 Plan artifacts produced by the managed GitHub Actions and Jenkins entrypoints are redacted in memory before Stacksmith writes them. The archive profile replaces schema-marked sensitive values with `<sensitive>` and omits input variables, configuration expressions, check problem messages, import details, generated configuration, replacement paths, and unrecognized fields because those locations do not consistently carry sensitivity metadata. The resulting JSON is intended for review and diagnostics, not as a complete substitute for raw `tofu show -json` output.
 
@@ -832,8 +836,12 @@ The wrappers pass reusable workflow inputs from repository variables when availa
 - `STACKSMITH_UPLOAD_ARTIFACTS` (default `true`, plan template)
 - `STACKSMITH_FAIL_ON_CHANGES` (default `false`, plan template)
 - `STACKSMITH_STRICT_VALIDATION_WARNINGS` (default `false`, plan template)
+- `STACKSMITH_DEBUG` (default `false`; enables debug logging and the modules-and-policies diagnostic)
 - `STACKSMITH_NO_CAS` (default `false`)
-- `STACKSMITH_ARGS_JSON` (default `[]`; ordered JSON array of additional CLI arguments; the workflow rejects managed `--config` and `-c` overrides)
+- `STACKSMITH_REQUIRE_LOCKFILE` (default `false`; passes `--locked` to plan and apply)
+- `STACKSMITH_OFFLINE` (default `false`; passes `--offline` to plan and apply and requires locked mode)
+- `STACKSMITH_LOCKFILE` (default empty; optional explicit lockfile path)
+- `STACKSMITH_ARGS_JSON` (default `[]`; ordered JSON array of additional CLI arguments; the workflow rejects managed config and lock-policy overrides)
 - `STACKSMITH_CONFIG_REF` (required for the workflow entrypoints; points to the platform-managed Stacksmith config)
 - `NO_VALIDATE_BRANCH_AND_OPERATION` (default `false`; bypasses the default-branch/PR operation guard)
 - `TG_AUTH_PROVIDER_CMD` (default empty)
@@ -841,9 +849,9 @@ The wrappers pass reusable workflow inputs from repository variables when availa
 
 Credential values are inherited into the reusable workflows with standard GitHub Actions `secrets: inherit`. The supported secret names are `STACKSMITH_GIT_TOKEN`, `STACKSMITH_GIT_SSH_KEY`, `STACKSMITH_HTTP_TOKEN`, `STACKSMITH_HTTP_USERNAME`, and `STACKSMITH_HTTP_PASSWORD`.
 
-The GitHub workflows expose this as their `stacksmith_args_json` input. JSON arrays are used so repeated options, argument order, and values containing whitespace are preserved exactly. The workflow also requires a platform-managed config reference via `config_ref` or `STACKSMITH_CONFIG_REF`, injects it as `--config <ref>` for every Stacksmith invocation, and rejects attempts to override the config through `stacksmith_args_json`.
+The GitHub workflows expose this as their `stacksmith_args_json` input. JSON arrays are used so repeated options, argument order, and values containing whitespace are preserved exactly. The workflow requires the platform-managed config reference in `STACKSMITH_CONFIG_REF`, injects it as `--config <ref>` for every Stacksmith invocation, and rejects attempts to override the managed config or lock policy through `stacksmith_args_json`.
 
-The opinionated reusable workflow intentionally does not expose free-form extra CLI args for `plan` or `apply`. Execution behavior is defined by repository-controlled workflow configuration and variables.
+The opinionated reusable workflow exposes `debug` as an optional input. `STACKSMITH_CONFIG_REF`, `STACKSMITH_REQUIRE_LOCKFILE`, `STACKSMITH_OFFLINE`, and `STACKSMITH_LOCKFILE` are intentionally unavailable as workflow inputs so callers cannot override organization or repository policy per run.
 
 ##### Consumer quickstart
 
@@ -938,8 +946,8 @@ The following Jenkins parameters are exposed on every build.
 - `COMMAND`: `plan`, `apply`, or `operation`. Defaults to `plan`.
 - `OPERATION_NAME`: Required when `COMMAND` is `operation`.
 - `ENVIRONMENTS`: Optional comma-separated list of environment names.
-- `STACKSMITH_CONFIG_REF`: Platform-managed Stacksmith config reference. A folder or job `STACKSMITH_CONFIG_REF` environment value takes precedence.
 - `WORKDIR`: Working directory for Stacksmith commands. Defaults to `.`.
+- `DEBUG`: Enable debug logging and print configured modules and policies before execution. Defaults to `false`.
 - `FAIL_ON_CHANGES`: Fail a plan containing resource changes. Defaults to `false`.
 - `STRICT_VALIDATION_WARNINGS`: Treat plan validation warnings as failures. Defaults to `false`.
 
@@ -950,7 +958,10 @@ Configure these values as Jenkins folder properties or job environment variables
 - `STACKSMITH_GITOPS_ROOT`: GitOps root for discovery. Defaults to `WORKDIR` in Jenkins.
 - `STACKSMITH_DISCOVERY_MODE`: `auto`, `folders`, `flat-files`, or `env-files`. Defaults to `auto`.
 - `STACKSMITH_ENV_FILE`: Env file passed to Stacksmith. Defaults to `/dev/null` to prevent implicit `.env` loading.
-- `STACKSMITH_NO_CAS`, `STACKSMITH_FORCE_RERUN`, `STACKSMITH_VALIDATION_REPORT_FORMAT`, `STACKSMITH_UPLOAD_ARTIFACTS`, and `STACKSMITH_ARGS_JSON`: Shared execution settings with the same behavior described above. `STACKSMITH_ARGS_JSON` must be an ordered JSON array and cannot override the managed config.
+- `STACKSMITH_CONFIG_REF`: Required platform-managed Stacksmith config reference.
+- `STACKSMITH_DEBUG`: Environment equivalent for the `DEBUG` parameter. A truthy value enables debug mode even when the build parameter is false.
+- `STACKSMITH_REQUIRE_LOCKFILE`, `STACKSMITH_OFFLINE`, and `STACKSMITH_LOCKFILE`: Job- or folder-managed source-locking policy. These settings are intentionally not exposed as build parameters.
+- `STACKSMITH_NO_CAS`, `STACKSMITH_FORCE_RERUN`, `STACKSMITH_VALIDATION_REPORT_FORMAT`, `STACKSMITH_UPLOAD_ARTIFACTS`, and `STACKSMITH_ARGS_JSON`: Shared execution settings with the same behavior described above. `STACKSMITH_ARGS_JSON` must be an ordered JSON array and cannot override the managed config or lock policy.
 - `NO_VALIDATE_BRANCH_AND_OPERATION`: Set to `true` to bypass the shared default-branch and pull-request operation guard.
 - `STACKSMITH_DEFAULT_BRANCH` or `BRANCH_IS_PRIMARY`: Branch-policy context when Jenkins does not provide it.
 - `TG_AUTH_PROVIDER_CMD` and `TG_IAM_ASSUME_ROLE`: Optional Terragrunt authentication settings.
@@ -1679,8 +1690,9 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
                              [--changed-path CHANGED_PATH] [--base-ref BASE_REF] [--before BEFORE]
                              [--after AFTER] --command {plan,apply,operation}
                              [--operation-name OPERATION_NAME] --config-ref CONFIG_REF [--workdir WORKDIR]
-                             [--env-file ENV_FILE] [--stacksmith-args-json STACKSMITH_ARGS_JSON] [--no-cas]
-                             [--force-rerun] [--validation-report-format {json}] [--fail-on-changes]
+                             [--env-file ENV_FILE] [--stacksmith-args-json STACKSMITH_ARGS_JSON] [--debug]
+                             [--no-cas] [--locked] [--offline] [--lockfile LOCKFILE] [--force-rerun]
+                             [--validation-report-format {json}] [--fail-on-changes]
                              [--strict-validation-warnings] [--ref-name REF_NAME]
                              [--default-branch DEFAULT_BRANCH] [--is-primary-branch {true,false}]
                              [--skip-branch-validation] [--format {table,json}]
@@ -1702,7 +1714,11 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
 | `--workdir` | Working directory relative to the checked-out repository. |
 | `--env-file` | Environment file path, or /dev/null to disable implicit loading. |
 | `--stacksmith-args-json` | JSON array of additional Stacksmith command-line arguments. |
+| `--debug` | Enable debug logging and print configured modules and policies before each execution. |
 | `--no-cas` | Disable content-addressable caching for generated runtime commands. |
+| `--locked` | Require runtime inputs to match the Stacksmith lockfile. |
+| `--offline` | Resolve locked remote inputs without network access. |
+| `--lockfile` | Optional explicit Stacksmith lockfile path. |
 | `--force-rerun` | Force native operation execution even when its identity is unchanged. |
 | `--validation-report-format` | Validation report format for plan executions. Choices: `json`. |
 | `--fail-on-changes` | Fail plan executions when resource changes are detected. |
@@ -1843,7 +1859,7 @@ stacksmith plan stack.yaml --config ./stacksmith-config.yaml --validation-report
 
 ### Info commands
 
-Use `info modules-and-policies` to review configured modules, mappings, metadata, and plan policies.
+Use `info modules-and-policies` to review configured modules, mappings, metadata, and plan validations.
 
 `info modules-and-policies --format json` writes machine-readable output to stdout.
 

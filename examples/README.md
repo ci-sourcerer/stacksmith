@@ -104,6 +104,9 @@ Useful CLI environment variables for this example.
 - `STACKSMITH_CONFIG`
 - `STACKSMITH_ROOT`
 - `STACKSMITH_DEBUG`
+- `STACKSMITH_REQUIRE_LOCKFILE`
+- `STACKSMITH_OFFLINE`
+- `STACKSMITH_LOCKFILE`
 - `STACKSMITH_ONLY_USE_LOCAL_MODULES`
 
 Implementation details are in [`shared-config-repo/scripts/transforms/transform_s3_write_policy.py`](shared-config-repo/scripts/transforms/transform_s3_write_policy.py).

@@ -19,6 +19,10 @@ on:
         description: "Discovery mode. Supported values: folders (default), flat-files, or env-files."
         required: false
         type: string
+      debug:
+        description: Enable debug logging and print configured modules and policies.
+        required: false
+        type: boolean
 
 permissions:
   contents: read
@@ -30,8 +34,8 @@ jobs:
       command: operation
       operation_name: ${{ github.event.inputs.operation_name }}
       environments: ${{ github.event.inputs.environments || '' }}
-      config_ref: ${{ vars.STACKSMITH_CONFIG_REF || '' }}
       gitops_root: ${{ github.event.inputs.gitops_root || vars.STACKSMITH_GITOPS_ROOT || '.' }}
       discovery_mode: ${{ github.event.inputs.discovery_mode || vars.STACKSMITH_DISCOVERY_MODE || 'auto' }}
       workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
+      debug: ${{ inputs.debug || false }}
     secrets: inherit

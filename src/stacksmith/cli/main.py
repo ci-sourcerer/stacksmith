@@ -172,6 +172,48 @@ def _configure_logging(
     )
 
 
+def _parse_log_flags(raw: list[str] | None) -> dict[str, int]:
+    mapping = {}
+    if not raw:
+        return mapping
+    for entry in raw:
+        if "=" not in entry:
+            LOGGER.warning(
+                "Ignoring malformed --log entry %r; expected 'category=LEVEL'",
+                entry,
+            )
+            continue
+        name, level = entry.split("=", 1)
+        name = name.strip()
+        level_name = level.strip().upper()
+        if not name:
+            LOGGER.warning(
+                "Ignoring malformed --log entry with empty category: %r", entry
+            )
+            continue
+        if level_name.isdigit():
+            try:
+                level_number = int(level_name)
+            except ValueError:
+                LOGGER.warning(
+                    "Invalid numeric log level %r for category %r; ignoring",
+                    level_name,
+                    name,
+                )
+                continue
+        else:
+            level_number = logging._nameToLevel.get(level_name)
+            if level_number is None:
+                LOGGER.warning(
+                    "Unknown log level %r for category %r; ignoring",
+                    level_name,
+                    name,
+                )
+                continue
+        mapping[name] = level_number
+    return mapping
+
+
 def _ordered_input_layers(args: argparse.Namespace) -> list[tuple[str, object]] | None:
     return parse_input_layers(getattr(args, "input_layers", None))
 
@@ -920,7 +962,11 @@ def _cmd_ci_prepare(args: argparse.Namespace) -> int:
         workdir=args.workdir,
         env_file=args.env_file,
         stacksmith_args_json=args.stacksmith_args_json,
+        debug=args.debug,
         no_cas=args.no_cas,
+        locked=args.locked,
+        offline=args.offline,
+        lockfile=args.lockfile,
         force_rerun=args.force_rerun,
         validation_report_format=args.validation_report_format,
         fail_on_changes=args.fail_on_changes,
@@ -1001,6 +1047,24 @@ def _execute_ci_manifest(manifest: CiExecutionManifest, environment: str) -> int
         execution_args = build_parser().parse_args(
             build_ci_execution_argv(manifest, environment)
         )
+        debug_enabled = is_debug_enabled(execution_args)
+        _configure_logging(
+            debug=debug_enabled,
+            quiet=is_quiet_enabled(execution_args),
+            category_levels=_parse_log_flags(getattr(execution_args, "log", None)),
+        )
+        if debug_enabled:
+            LOGGER.info(
+                "Configured modules and policies for CI environment '{environment}'.",
+                environment=environment,
+            )
+            info_args = argparse.Namespace(**vars(execution_args))
+            info_args.command = "info"
+            info_args.info_command = "modules-and-policies"
+            info_args.component_type = []
+            info_args.format = InspectOutputFormat.TABLE.value
+            info_args.basic = False
+            _cmd_info_modules_and_policies(info_args)
         if manifest.command == "operation":
             return _cmd_operation_run(execution_args)
         return _cmd_terragrunt_action(execution_args, manifest.command)
@@ -1165,46 +1229,6 @@ def main() -> None:
             load_env_files(env_files)
     debug_enabled = is_debug_enabled(args)
     quiet_enabled = is_quiet_enabled(args)
-
-    # Parse per-category --log flags, which look like: --log transforms=DEBUG
-    def _parse_log_flags(raw: list[str] | None) -> dict[str, int]:
-        mapping = {}
-        if not raw:
-            return mapping
-        for entry in raw:
-            if "=" not in entry:
-                LOGGER.warning(
-                    "Ignoring malformed --log entry %r; expected 'category=LEVEL'",
-                    entry,
-                )
-                continue
-            name, lvl = entry.split("=", 1)
-            name = name.strip()
-            lvl_str = lvl.strip().upper()
-            if not name:
-                LOGGER.warning(
-                    "Ignoring malformed --log entry with empty category: %r", entry
-                )
-                continue
-            if lvl_str.isdigit():
-                try:
-                    levelno = int(lvl_str)
-                except ValueError:
-                    LOGGER.warning(
-                        "Invalid numeric log level %r for category %r; ignoring",
-                        lvl_str,
-                        name,
-                    )
-                    continue
-            else:
-                levelno = logging._nameToLevel.get(lvl_str)
-                if levelno is None:
-                    LOGGER.warning(
-                        "Unknown log level %r for category %r; ignoring", lvl_str, name
-                    )
-                    continue
-            mapping[name] = levelno
-        return mapping
 
     category_levels = _parse_log_flags(getattr(args, "log", None))
     _configure_logging(

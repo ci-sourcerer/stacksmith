@@ -121,7 +121,11 @@ def prepare_ci_execution(
     workdir: str = ".",
     env_file: str = "/dev/null",
     stacksmith_args_json: str = "[]",
+    debug: bool = False,
     no_cas: bool = False,
+    locked: bool = False,
+    offline: bool = False,
+    lockfile: str = "",
     force_rerun: bool = False,
     validation_report_format: str = ValidationReportFormat.JSON.value,
     fail_on_changes: bool = False,
@@ -148,7 +152,11 @@ def prepare_ci_execution(
         workdir: Working directory relative to the checked-out repository.
         env_file: Environment file path, or `/dev/null` to disable implicit loading.
         stacksmith_args_json: JSON array of additional safe Stacksmith arguments.
+        debug: Whether to enable debug logging and CI configuration inspection.
         no_cas: Whether to disable content-addressable caching.
+        locked: Whether runtime inputs must match the Stacksmith lockfile.
+        offline: Whether locked remote inputs must resolve without network access.
+        lockfile: Optional explicit Stacksmith lockfile path.
         force_rerun: Whether operations must force execution.
         validation_report_format: Plan validation report format.
         fail_on_changes: Whether plans fail when changes are detected.
@@ -199,7 +207,11 @@ def prepare_ci_execution(
         workdir=workdir,
         env_file=env_file,
         stacksmith_args=parse_ci_stacksmith_args(stacksmith_args_json),
+        debug=debug,
         no_cas=no_cas,
+        locked=locked,
+        offline=offline,
+        lockfile=lockfile,
         force_rerun=force_rerun,
         validation_report_format=validation_report_format,
         fail_on_changes=fail_on_changes,

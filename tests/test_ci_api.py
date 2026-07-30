@@ -6,7 +6,10 @@ from stacksmith.api import (
     prepare_ci_execution,
     validate_ci_inputs,
 )
-from stacksmith.ci.adapters import manifest_output_json
+from stacksmith.ci.adapters import (
+    manifest_output_json,
+    prepare_ci_manifest_from_env,
+)
 from stacksmith.ci.contracts import (
     CiExecutionManifest,
     CiExecutionRow,
@@ -146,13 +149,21 @@ def test_prepare_ci_execution_returns_provider_neutral_manifest(tmp_path: Path):
         ref_name="main",
         default_branch="main",
         stacksmith_args_json='["--tag", "web"]',
+        debug=True,
         no_cas=True,
+        locked=True,
+        offline=True,
+        lockfile="stacksmith.lock.yaml",
         fail_on_changes=True,
     )
 
     assert manifest.version == 1
     assert manifest.stacksmith_args == ["--tag", "web"]
+    assert manifest.debug is True
     assert manifest.no_cas is True
+    assert manifest.locked is True
+    assert manifest.offline is True
+    assert manifest.lockfile == "stacksmith.lock.yaml"
     assert [row.model_dump() for row in manifest.matrix] == [
         {
             "environment": "dev",
@@ -192,6 +203,66 @@ def test_prepare_ci_execution_rejects_managed_config_override(tmp_path: Path):
             discovery_mode="env-files",
             stacksmith_args_json='["--config", "other.yaml"]',
         )
+
+
+@pytest.mark.parametrize(
+    "stacksmith_args_json",
+    [
+        '["--locked"]',
+        '["--offline"]',
+        '["--lockfile", "other.lock.yaml"]',
+        '["--lockfile=other.lock.yaml"]',
+    ],
+)
+def test_prepare_ci_execution_rejects_managed_lock_policy_override(
+    stacksmith_args_json: str, tmp_path: Path
+):
+    _create_env_files_layout(tmp_path)
+
+    with pytest.raises(StacksmithConfigError, match="managed lock policy"):
+        prepare_ci_execution(
+            command="plan",
+            config_ref="platform/stacksmith-config.yaml",
+            gitops_root=str(tmp_path),
+            discovery_mode="env-files",
+            stacksmith_args_json=stacksmith_args_json,
+        )
+
+
+def test_prepare_ci_execution_rejects_offline_without_locked(tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+
+    with pytest.raises(ValueError, match="requires locked"):
+        prepare_ci_execution(
+            command="plan",
+            config_ref="platform/stacksmith-config.yaml",
+            gitops_root=str(tmp_path),
+            discovery_mode="env-files",
+            locked=False,
+            offline=True,
+        )
+
+
+def test_prepare_ci_manifest_from_env_reads_debug_and_lock_settings(
+    monkeypatch, tmp_path: Path
+):
+    _create_env_files_layout(tmp_path)
+    monkeypatch.setenv("INPUT_COMMAND", "plan")
+    monkeypatch.setenv("INPUT_CONFIG_REF", "platform/stacksmith-config.yaml")
+    monkeypatch.setenv("INPUT_GITOPS_ROOT", str(tmp_path))
+    monkeypatch.setenv("INPUT_DISCOVERY_MODE", "env-files")
+    monkeypatch.setenv("INPUT_DEBUG", "true")
+    monkeypatch.setenv("INPUT_LOCKED", "true")
+    monkeypatch.setenv("INPUT_OFFLINE", "true")
+    monkeypatch.setenv("INPUT_LOCKFILE", "locks/stacksmith.lock.yaml")
+    monkeypatch.setenv("SKIP_BRANCH_VALIDATION", "true")
+
+    manifest = prepare_ci_manifest_from_env()
+
+    assert manifest.debug is True
+    assert manifest.locked is True
+    assert manifest.offline is True
+    assert manifest.lockfile == "locks/stacksmith.lock.yaml"
 
 
 def test_prepare_ci_execution_applies_shared_pull_request_policy(tmp_path: Path):
@@ -247,6 +318,21 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert "stacksmith ci execute-from-env" in actions_executor
     assert "stacksmith ci prepare-from-env" in jenkins_pipeline
     assert "stacksmith ci execute-from-env" in jenkins_pipeline
+    assert "INPUT_DEBUG" in actions_workflow
+    assert "INPUT_DEBUG" in jenkins_pipeline
+    assert "      config_ref:" not in actions_workflow
+    assert "      locked:" not in actions_workflow
+    assert "      offline:" not in actions_workflow
+    assert "      lockfile:" not in actions_workflow
+    assert "INPUT_CONFIG_REF: ${{ fromJson(toJson(vars)).STACKSMITH_CONFIG_REF" in (
+        actions_workflow
+    )
+    assert "STACKSMITH_REQUIRE_LOCKFILE" in actions_workflow
+    assert "STACKSMITH_REQUIRE_LOCKFILE" in jenkins_pipeline
+    assert "string(name: 'CONFIG_REF'" not in jenkins_pipeline
+    assert "booleanParam(name: 'REQUIRE_LOCKFILE'" not in jenkins_pipeline
+    assert "booleanParam(name: 'OFFLINE'" not in jenkins_pipeline
+    assert "string(name: 'LOCKFILE'" not in jenkins_pipeline
 
 
 def test_ci_plan_execution_only_writes_redacted_plan_json():
@@ -269,3 +355,28 @@ def test_ci_plan_execution_only_writes_redacted_plan_json():
     assert argv[argv.index("--save-redacted-plan-json") + 1] == (
         ".stacksmith-ci/dev/plan.json"
     )
+
+
+def test_ci_plan_execution_includes_debug_and_lock_options():
+    argv = build_ci_execution_argv(
+        CiExecutionManifest(
+            command="plan",
+            config_ref="platform/stacksmith-config.yaml",
+            debug=True,
+            locked=True,
+            offline=True,
+            lockfile="locks/stacksmith.lock.yaml",
+            matrix=[
+                CiExecutionRow(
+                    environment="dev",
+                    runfile="common/stacksmith.yaml",
+                )
+            ],
+        ),
+        "dev",
+    )
+
+    assert "--debug" in argv
+    assert "--locked" in argv
+    assert "--offline" in argv
+    assert argv[argv.index("--lockfile") + 1] == "locks/stacksmith.lock.yaml"

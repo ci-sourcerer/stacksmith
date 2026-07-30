@@ -2092,6 +2092,46 @@ def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path)
     assert calls["args"].fail_on_changes is True
 
 
+def test_cmd_ci_execute_prints_modules_and_policies_in_debug_mode(
+    monkeypatch, parser, tmp_path: Path
+):
+    from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
+
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        CiExecutionManifest(
+            command="plan",
+            config_ref="platform/stacksmith-config.yaml",
+            debug=True,
+            matrix=[
+                CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")
+            ],
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+    calls: dict[str, object] = {}
+
+    def _fake_info_handler(args):
+        calls["info_args"] = args
+        return 0
+
+    monkeypatch.setattr(cli_main, "_cmd_info_modules_and_policies", _fake_info_handler)
+    monkeypatch.setattr(
+        cli_main,
+        "_cmd_terragrunt_action",
+        lambda args, command: 0,
+    )
+    args = parser.parse_args(
+        ["ci", "execute", "--manifest", str(manifest_path), "--environment", "dev"]
+    )
+
+    assert cli_main._cmd_ci_execute(args) == 0
+    assert calls["info_args"].command == "info"
+    assert calls["info_args"].info_command == "modules-and-policies"
+    assert calls["info_args"].config == ["platform/stacksmith-config.yaml"]
+    assert calls["info_args"].runfile == ["common/stacksmith.yaml"]
+
+
 def test_cmd_ci_execute_from_env_uses_manifest_env(monkeypatch, parser, tmp_path: Path):
     from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
 

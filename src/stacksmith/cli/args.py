@@ -754,10 +754,36 @@ def configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
         help="JSON array of additional Stacksmith command-line arguments.",
     )
     parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help=(
+            "Enable debug logging and print configured modules and policies "
+            "before each execution."
+        ),
+    )
+    parser.add_argument(
         "--no-cas",
         action="store_true",
         default=False,
         help="Disable content-addressable caching for generated runtime commands.",
+    )
+    parser.add_argument(
+        "--locked",
+        action="store_true",
+        default=False,
+        help="Require runtime inputs to match the Stacksmith lockfile.",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        default=False,
+        help="Resolve locked remote inputs without network access.",
+    )
+    parser.add_argument(
+        "--lockfile",
+        default="",
+        help="Optional explicit Stacksmith lockfile path.",
     )
     parser.add_argument(
         "--force-rerun",
