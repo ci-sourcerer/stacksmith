@@ -262,18 +262,12 @@ def run_terragrunt(
         cache_dir=cache_dir,
         auth_config=auth_config,
     )
-    cmd = [_RESOLVED_TOOLCHAIN.terragrunt]
-    if no_cas:
-        cmd.append("--no-cas")
-    cmd.extend(args)
-    first_action = _parse_terragrunt_action(args[0] if args else None)
-
-    if (
-        args
-        and auto_approve
-        and first_action in {TerragruntAction.APPLY, TerragruntAction.DESTROY}
-    ):
-        cmd.append("--auto-approve")
+    cmd = build_terragrunt_command(
+        _RESOLVED_TOOLCHAIN.terragrunt,
+        args,
+        auto_approve=auto_approve,
+        no_cas=no_cas,
+    )
 
     LOGGER.info("Running: {command}", command=" ".join(cmd))
     LOGGER.debug("Working dir: {working_dir}", working_dir=working_dir)
@@ -316,6 +310,38 @@ def run_terragrunt(
         working_dir,
         auth_config=auth_config,
     )
+
+
+def build_terragrunt_command(
+    executable: str,
+    args: list[str],
+    *,
+    auto_approve: bool = False,
+    no_cas: bool = False,
+) -> list[str]:
+    """Build the Terragrunt command used for execution or previews.
+
+    Args:
+        executable: Terragrunt executable path or display name.
+        args: Terragrunt action and arguments.
+        auto_approve: Whether apply or destroy should skip approval.
+        no_cas: Whether Terragrunt CAS should be disabled.
+
+    Returns:
+        Complete Terragrunt command arguments.
+    """
+    command = [executable]
+    if no_cas:
+        command.append("--no-cas")
+    command.extend(args)
+    if (
+        args
+        and auto_approve
+        and _parse_terragrunt_action(args[0])
+        in {TerragruntAction.APPLY, TerragruntAction.DESTROY}
+    ):
+        command.append("--auto-approve")
+    return command
 
 
 def _run_plan_validations(

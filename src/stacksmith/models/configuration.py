@@ -729,7 +729,7 @@ class ToolConfig(BaseModel):
     """Complete tool configuration loaded from .config.yaml."""
 
     description: str | None = None
-    backend: BackendConfig | None = None
+    backend: BackendConfig
     tools: ToolsConfig | None = None
     provider_mappings: dict[str, ProviderFamily] = Field(default_factory=dict)
     module_mappings: dict[str, ModuleMapping] = Field(default_factory=dict)

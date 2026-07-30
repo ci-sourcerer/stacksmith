@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from jsonschema import ValidationError
+from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.loading import (
     load_config,
     load_runfile,
@@ -209,6 +209,34 @@ class TestLoadStack:
             "instance_type": "t3.small",
         }
 
+    def test_stack_template_missing_input_has_actionable_error(self, tmp_path: Path):
+        stack_file = tmp_path / "stack.yaml"
+        stack_file.write_text(
+            "name: missing-input\n"
+            "components:\n"
+            "  bucket:\n"
+            "    type: aws_s3_bucket\n"
+            "    properties:\n"
+            "      environment: '{{ inputs.environment }}'\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(StacksmithConfigError) as exc_info:
+            load_stack(
+                stack_file,
+                template_context={
+                    "inputs": {},
+                    "stack": {"name": "missing-input", "tags": []},
+                },
+            )
+
+        assert str(exc_info.value) == (
+            "Missing required stack template input 'environment' "
+            "(`inputs.environment`) while rendering "
+            f"'{stack_file.resolve()}'. Pass it with "
+            "`--var environment=<value>` or `--vars <path>`."
+        )
+
     def test_stack_template_preserves_stack_metadata_context(self, tmp_path: Path):
         stack_file = tmp_path / "stack.yaml"
         stack_file.write_text(
@@ -307,8 +335,40 @@ class TestLoadStack:
     def test_invalid_schema_missing_components(self, tmp_path: Path):
         bad_file = tmp_path / "stack.yaml"
         bad_file.write_text("stack:\n  name: test\n  group: test\n")
-        with pytest.raises(ValidationError):
+        with pytest.raises(StacksmithConfigError):
             load_stack(bad_file)
+
+    def test_required_name_can_be_supplied_by_later_stack_layer(self, tmp_path: Path):
+        base_file = tmp_path / "base-stack.yaml"
+        base_file.write_text(
+            "components:\n" "  bucket:\n" "    type: aws_s3_bucket\n",
+            encoding="utf-8",
+        )
+        overlay_file = tmp_path / "overlay-stack.yaml"
+        overlay_file.write_text("name: merged-stack\n", encoding="utf-8")
+
+        stack = load_stacks([base_file, overlay_file])
+
+        assert stack.name == "merged-stack"
+        assert set(stack.components) == {"bucket"}
+
+    def test_missing_name_after_stack_merge_has_actionable_error(self, tmp_path: Path):
+        stack_file = tmp_path / "stack.yaml"
+        stack_file.write_text(
+            "components:\n" "  bucket:\n" "    type: aws_s3_bucket\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(StacksmithConfigError) as exc_info:
+            load_stack(stack_file)
+
+        message = str(exc_info.value)
+        assert (
+            "Effective stack definition is incomplete after merging 1 layer" in message
+        )
+        assert "Missing required key `name` at document root." in message
+        assert str(stack_file) in message
+        assert "include every required base layer" in message
 
     def test_load_stacks_merges_components_and_properties(self, tmp_path: Path):
         base_file = tmp_path / "base-stack.yaml"
@@ -566,7 +626,7 @@ class TestLoadRunFile:
         runfile = tmp_path / "stacksmith.yaml"
         runfile.write_text("var:\n  replicas: 2\n", encoding="utf-8")
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(StacksmithConfigError):
             load_runfile(runfile)
 
     def test_load_runfile_rejects_string_refs(self, tmp_path: Path):
@@ -579,8 +639,25 @@ vars:
             encoding="utf-8",
         )
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(StacksmithConfigError):
             load_runfile(runfile)
+
+    def test_missing_reference_data_after_runfile_merge_is_actionable(
+        self, tmp_path: Path
+    ):
+        runfile = tmp_path / "stacksmith.yaml"
+        runfile.write_text(
+            "stacks:\n" "  - source: local\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(StacksmithConfigError) as exc_info:
+            load_runfile(runfile)
+
+        message = str(exc_info.value)
+        assert "Effective runfile is incomplete after merging 1 layer" in message
+        assert "Missing required key `data` at `stacks[0]`." in message
+        assert str(runfile) in message
 
     def test_load_runfile_renders_runfile_path_in_structured_refs(self, tmp_path: Path):
         runfile = tmp_path / "stacksmith.yaml"
@@ -663,7 +740,7 @@ vars:
             encoding="utf-8",
         )
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(StacksmithConfigError):
             load_runfile(runfile)
 
     def test_load_runfile_rejects_string_references(self, tmp_path: Path):
@@ -678,11 +755,96 @@ vars:
             encoding="utf-8",
         )
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(StacksmithConfigError):
             load_runfile(runfile)
 
 
 class TestLoadConfig:
+    def test_required_config_values_can_be_supplied_by_later_layers(
+        self, tmp_path: Path
+    ):
+        base_file = tmp_path / "base-config.yaml"
+        base_file.write_text(
+            "backend:\n"
+            "  path: .state\n"
+            "tools:\n"
+            "  tofu:\n"
+            "    version: '1.8.0'\n"
+            "module_mappings:\n"
+            "  terraform_data:\n"
+            "    source:\n"
+            "      source: registry\n",
+            encoding="utf-8",
+        )
+        overlay_file = tmp_path / "overlay-config.yaml"
+        overlay_file.write_text(
+            "backend:\n"
+            "  type: local\n"
+            "tools:\n"
+            "  terragrunt:\n"
+            "    version: '1.0.6'\n"
+            "module_mappings:\n"
+            "  terraform_data:\n"
+            "    source:\n"
+            "      data:\n"
+            "        address: hashicorp/terraform\n"
+            "        version: '1.0.0'\n",
+            encoding="utf-8",
+        )
+
+        config = load_config([base_file, overlay_file])
+
+        assert config.backend.type == "local"
+        assert config.backend.config == {"path": ".state"}
+        assert config.tools.tofu.version == "1.8.0"
+        assert config.tools.terragrunt.version == "1.0.6"
+
+    def test_missing_backend_after_config_merge_has_actionable_error(
+        self, tmp_path: Path
+    ):
+        config_file = tmp_path / "stacksmith-config.yaml"
+        config_file.write_text(
+            "module_mappings:\n"
+            "  terraform_data:\n"
+            "    source:\n"
+            "      source: registry\n"
+            "      data:\n"
+            "        address: hashicorp/terraform\n"
+            "        version: '1.0.0'\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(StacksmithConfigError) as exc_info:
+            load_config(config_file)
+
+        message = str(exc_info.value)
+        assert (
+            "Effective Stacksmith config is incomplete after merging 1 layer" in message
+        )
+        assert "Missing required key `backend` at document root." in message
+        assert str(config_file) in message
+        assert "include every required base layer" in message
+
+    def test_semantic_config_error_uses_effective_document_context(
+        self, tmp_path: Path
+    ):
+        config_file = tmp_path / "stacksmith-config.yaml"
+        config_file.write_text(
+            "backend:\n" "  type: local\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(StacksmithConfigError) as exc_info:
+            load_config(config_file)
+
+        message = str(exc_info.value)
+        assert "Effective Stacksmith config is invalid after merging 1 layer" in message
+        assert (
+            "At least one module mapping or a default module mapping is required"
+            in message
+        )
+        assert str(config_file) in message
+
     def test_load_config(self, sample_config_yaml: Path):
         config = load_config(sample_config_yaml)
         assert config.backend.type == "s3"
@@ -977,7 +1139,7 @@ class TestLoadConfig:
             encoding="utf-8",
         )
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(StacksmithConfigError):
             load_stack(bad_file)
 
     def test_invalid_transform_spec_is_rejected(self, tmp_path: Path):
@@ -999,7 +1161,7 @@ class TestLoadConfig:
             encoding="utf-8",
         )
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(StacksmithConfigError):
             load_config(bad_file)
 
     def test_old_provider_shape_is_rejected(self, tmp_path: Path):
@@ -1012,7 +1174,7 @@ class TestLoadConfig:
             encoding="utf-8",
         )
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(StacksmithConfigError):
             load_config(bad_file)
 
     def test_load_config_deep_merges_multiple_files(self, tmp_path: Path):

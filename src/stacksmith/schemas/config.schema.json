@@ -4,6 +4,9 @@
   "title": "Stacksmith Tool Configuration",
   "description": "Defines backend, provider mappings, module mappings, OpenTofu version, and validation rules for stacksmith.",
   "type": "object",
+  "required": [
+    "backend"
+  ],
   "$defs": {
     "localReference": {
       "type": "object",

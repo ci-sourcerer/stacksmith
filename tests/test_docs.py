@@ -17,8 +17,10 @@ def test_cli_reference_contains_nested_commands():
     reference = _UPDATE_CLI_REFERENCE.generate_cli_reference()
 
     assert "### `stacksmith plan`" in reference
+    assert "### `stacksmith info graph`" in reference
     assert "### `stacksmith info inspect`" in reference
     assert "### `stacksmith ci validate`" in reference
+    assert "| `--dry-run` |" in reference
     assert "| `--validation-report-format` |" in reference
 
 

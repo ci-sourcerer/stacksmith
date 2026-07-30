@@ -5,6 +5,9 @@
   "description": "Defines a single infrastructure stack for stacksmith.",
   "type": "object",
   "minProperties": 1,
+  "required": [
+    "name"
+  ],
   "additionalProperties": false,
   "properties": {
     "name": {

@@ -8,11 +8,14 @@ from stacksmith.validations import apply_transform
 
 
 def test_shared_config_demonstrates_convention_based_module_mapping() -> None:
+    config_root = (
+        Path(__file__).resolve().parents[1] / "examples" / "shared-config-repo"
+    )
     config = load_config(
-        Path(__file__).resolve().parents[1]
-        / "examples"
-        / "shared-config-repo"
-        / "stacksmith-config.yaml"
+        [
+            config_root / "stacksmith-base-config.yaml",
+            config_root / "stacksmith-config.yaml",
+        ]
     )
 
     mapping = resolve_module_mapping(config, "custom-component", "example")

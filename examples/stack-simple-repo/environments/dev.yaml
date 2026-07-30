@@ -1,6 +1,0 @@
-description: Dev environment values
-
-vars:
-  - source: local
-    data:
-      path: ../vars.dev.yaml

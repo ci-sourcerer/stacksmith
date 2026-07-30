@@ -1,14 +1,18 @@
 import json
+import re
 from functools import cache
 from importlib.resources import files
 from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
-from jinja2 import ChainableUndefined, StrictUndefined, TemplateError
+from jinja2 import ChainableUndefined, StrictUndefined, TemplateError, UndefinedError
 from jinja2.sandbox import SandboxedEnvironment
 
 from ..exceptions import StacksmithConfigError, StacksmithNotFoundError
+
+_UNDEFINED_ATTRIBUTE_PATTERN = re.compile(r"has no attribute '([^']+)'")
+_UNDEFINED_VALUE_PATTERN = re.compile(r"'([^']+)' is undefined")
 
 
 @cache
@@ -56,6 +60,39 @@ def _parse_object_file(path: Path, suffix: str, text: str) -> dict[str, Any]:
             )
 
 
+def _undefined_value_name(exc: UndefinedError) -> str | None:
+    for pattern in (_UNDEFINED_ATTRIBUTE_PATTERN, _UNDEFINED_VALUE_PATTERN):
+        if match := pattern.search(str(exc)):
+            return match.group(1)
+    return None
+
+
+def _references_input(text: str, name: str) -> bool:
+    escaped_name = re.escape(name)
+    return bool(
+        re.search(rf"\binputs\s*\.\s*{escaped_name}\b", text)
+        or re.search(
+            rf"""\binputs\s*\[\s*["']{escaped_name}["']\s*\]""",
+            text,
+        )
+    )
+
+
+def _format_undefined_template_error(text: str, path: Path, exc: UndefinedError) -> str:
+    if (name := _undefined_value_name(exc)) and _references_input(text, name):
+        return (
+            f"Missing required stack template input '{name}' "
+            f"(`inputs.{name}`) while rendering '{path}'. Pass it with "
+            f"`--var {name}=<value>` or `--vars <path>`."
+        )
+    if name:
+        return (
+            f"Missing required template value '{name}' while rendering stack "
+            f"template '{path}': {exc}"
+        )
+    return f"Could not render stack template '{path}': {exc}"
+
+
 def _render_template(
     text: str, path: Path, context: Mapping[str, Any], strict: bool
 ) -> str:
@@ -67,6 +104,10 @@ def _render_template(
             .from_string(text)
             .render(context)
         )
+    except UndefinedError as exc:
+        raise StacksmithConfigError(
+            _format_undefined_template_error(text, path, exc)
+        ) from exc
     except TemplateError as exc:
         raise StacksmithConfigError(
             f"Could not render stack template '{path}': {exc}"

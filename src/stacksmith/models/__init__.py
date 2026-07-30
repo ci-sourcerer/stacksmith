@@ -53,6 +53,12 @@ from .configuration import (
     render_module_source_identity,
     render_provider_source_fields,
 )
+from .execution import (
+    DependencyPreview,
+    ExcludedStackPreview,
+    ExecutionPreview,
+    StackExecutionPreview,
+)
 from .locking import LockArtifact, LockContext, LockPolicy, StackLockFile
 from .stacks import (
     ComponentDefinition,
@@ -78,6 +84,9 @@ __all__ = [
     "ComponentPropertyExpectation",
     "ComponentPropertyTestCase",
     "DefaultModuleMapping",
+    "DependencyPreview",
+    "ExcludedStackPreview",
+    "ExecutionPreview",
     "FileReference",
     "FixtureSpec",
     "GitReference",
@@ -123,6 +132,7 @@ __all__ = [
     "RemoteAuthEntry",
     "RunFile",
     "StackDefinition",
+    "StackExecutionPreview",
     "StackLockFile",
     "StackMeta",
     "StacksmithTestFixtures",

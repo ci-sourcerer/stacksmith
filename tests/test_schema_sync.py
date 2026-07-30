@@ -49,6 +49,7 @@ def test_stack_definition_fields_match_stack_schema():
     schema = _load_schema("stack.schema.json")
     schema_props = set(schema["properties"])
 
+    assert set(schema["required"]) == {"name"}
     assert _field_names(StackDefinition) - {"source_path"} == {
         "name",
         "description",
@@ -107,6 +108,7 @@ def test_tool_config_fields_match_config_schema():
     schema = _load_schema("config.schema.json")
     schema_props = set(schema["properties"])
 
+    assert set(schema["required"]) == {"backend"}
     assert _field_names(ToolConfig) - {"source_path"} == {
         "description",
         "backend",
@@ -323,6 +325,13 @@ def test_test_manifest_fields_match_schema():
         "inputs",
         "expect",
     }
+
+
+def test_vars_schema_accepts_free_form_mappings():
+    schema = _load_schema("vars.schema.json")
+
+    assert schema["type"] == "object"
+    assert schema["additionalProperties"] is True
 
 
 @pytest.mark.parametrize(

@@ -11,6 +11,7 @@ from jinja2.sandbox import SandboxedEnvironment
 from .enums import MergeMode
 from .exceptions import StacksmithConfigError, StacksmithValidationError
 from .input_parsing import coerce_input_value, parse_var_assignment
+from .loading.validation import validate_fragment
 from .merging import AddressAwareMerger
 from .models import (
     FileReference,
@@ -61,11 +62,18 @@ def _load_vars_file(
     text = path.read_text(encoding="utf-8")
     match suffix:
         case ".yaml" | ".yml":
-            return yaml.safe_load(text) or {}
+            loaded = yaml.safe_load(text) or {}
         case ".json":
-            return json.loads(text)
+            loaded = json.loads(text)
         case _:
             raise StacksmithConfigError(f"Unsupported vars file extension: {suffix}")
+    validate_fragment(
+        loaded,
+        "vars.schema.json",
+        "variables",
+        path.resolve(),
+    )
+    return loaded
 
 
 def _iter_vars_files(

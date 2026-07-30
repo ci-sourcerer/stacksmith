@@ -74,6 +74,18 @@ def _disable_auto_inject(config) -> None:
         mapping.auto_inject = False
 
 
+def _load_shared_example_config():
+    config_root = (
+        Path(__file__).resolve().parents[1] / "examples" / "shared-config-repo"
+    )
+    return load_config(
+        [
+            config_root / "stacksmith-base-config.yaml",
+            config_root / "stacksmith-config.yaml",
+        ]
+    )
+
+
 class TestGenerateTfJson:
     def test_generate_tf_json_passes_formatter_options(
         self, sample_stack_yaml: Path, sample_config_yaml: Path
@@ -604,10 +616,7 @@ class TestGenerateTfJson:
     ):
         _install_fake_boto3(monkeypatch, arn="arn:aws:iam::123456789012:root")
 
-        project_root = Path(__file__).resolve().parents[1]
-        config = load_config(
-            project_root / "examples" / "shared-config-repo" / "stacksmith-config.yaml"
-        )
+        config = _load_shared_example_config()
         _disable_auto_inject(config)
         stack = load_stack(sample_stack_yaml)
 
@@ -635,10 +644,7 @@ class TestGenerateTfJson:
     ):
         _install_fake_boto3(monkeypatch, arn="arn:aws:iam::123456789012:user/example")
 
-        project_root = Path(__file__).resolve().parents[1]
-        config = load_config(
-            project_root / "examples" / "shared-config-repo" / "stacksmith-config.yaml"
-        )
+        config = _load_shared_example_config()
         _disable_auto_inject(config)
         stack = load_stack(sample_stack_yaml)
 
@@ -667,10 +673,7 @@ class TestGenerateTfJson:
     ):
         _install_fake_boto3(monkeypatch, raise_error=True)
 
-        project_root = Path(__file__).resolve().parents[1]
-        config = load_config(
-            project_root / "examples" / "shared-config-repo" / "stacksmith-config.yaml"
-        )
+        config = _load_shared_example_config()
         _disable_auto_inject(config)
         stack = load_stack(sample_stack_yaml)
 

@@ -7,7 +7,9 @@ This directory is a platform-owned Stacksmith managed configuration. It defines 
 This example uses a declarative `tests.yaml` manifest. `stacksmith test` compiles it into an ephemeral pytest module and executes it with Stacksmith's pytest plugin.
 
 ```shell
-stacksmith test --config examples/shared-config-repo/stacksmith-config.yaml
+stacksmith test \
+  --config examples/shared-config-repo/stacksmith-base-config.yaml \
+  --config examples/shared-config-repo/stacksmith-config.yaml
 ```
 
 `stacksmith test` supports repeated `--config` options and uses the same ordered configuration merge behavior as other Stacksmith commands. Pass additional pytest arguments after `--`.
@@ -23,6 +25,7 @@ Pass one or more explicit manifest paths (or directories that contain a manifest
 
 ```shell
 stacksmith test \
+  --config examples/shared-config-repo/stacksmith-base-config.yaml \
   --config examples/shared-config-repo/stacksmith-config.yaml \
   examples/shared-config-repo/tests.yaml
 ```
@@ -31,6 +34,7 @@ Use `--dump-tests` to keep the generated pytest module for debugging.
 
 ```shell
 stacksmith test \
+  --config examples/shared-config-repo/stacksmith-base-config.yaml \
   --config examples/shared-config-repo/stacksmith-config.yaml \
   --dump-tests /tmp/stacksmith-generated-tests.py
 ```

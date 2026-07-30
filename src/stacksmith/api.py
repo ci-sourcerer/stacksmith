@@ -2,6 +2,7 @@ import hashlib
 import shutil
 import subprocess
 from collections.abc import Sequence
+from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as metadata_version
 from pathlib import Path
@@ -25,13 +26,19 @@ from .constants import (
 from .discovery import (
     build_dependency_graph,
     discover_stacks,
-    filter_stacks_by_tags,
     topological_sort,
 )
 from .enums import MergeMode, TerragruntAction, ValidationReportFormat
 from .exceptions import StacksmithConfigError, StacksmithError
+from .execution import build_execution_preview
 from .formatters import compact_json
-from .generation import operation_module_name, write_terragrunt_json, write_tf_json
+from .generation import (
+    generate_terragrunt_json,
+    generate_tf_json,
+    operation_module_name,
+    write_terragrunt_json,
+    write_tf_json,
+)
 from .inspector import (
     ComponentTypeInfo,
     PlanPolicyInfo,
@@ -46,6 +53,8 @@ from .loading import (
     load_stacks,
 )
 from .models import (
+    ExcludedStackPreview,
+    ExecutionPreview,
     FileReference,
     InlineReference,
     LockArtifact,
@@ -79,6 +88,7 @@ __all__ = [
     "generate_stack",
     "inspect_cache_diagnostics",
     "inspect_environments",
+    "inspect_dependency_graph",
     "inspect_modules",
     "lock_stack",
     "prepare_ci_execution",
@@ -665,26 +675,43 @@ def _generate_single_stack(
     return output_dir
 
 
-def _generate_all_stacks(
-    root: Path,
+@dataclass(frozen=True)
+class _PreparedStacks:
+    root_build_dir: Path
+    stack_build_dirs: dict[str, Path]
+    stacks: dict[str, StackDefinition]
+    resolved_inputs: dict[str, dict[str, Any]]
+    excluded_stacks: list[ExcludedStackPreview]
+    state_root: Path | None
+    explicit_stack_refs: bool
+    custom_build_dir: bool
+
+
+def _stack_filter_reason(
+    stack: StackDefinition,
+    include_tags: list[str] | None,
+    exclude_tags: list[str] | None,
+) -> str | None:
+    include = set(include_tags or [])
+    exclude = set(exclude_tags or [])
+    if include and not include.intersection(stack.tags):
+        return (
+            "Did not match any requested include tag "
+            f"({', '.join(sorted(include))})."
+        )
+    if matches := sorted(exclude.intersection(stack.tags)):
+        return f"Matched excluded stack tags ({', '.join(matches)})."
+    return None
+
+
+def _load_all_stack_definitions(
+    discovered_stacks: dict[str, StackDefinition],
     config: ToolConfig,
     vars_path: str | Sequence[str] | None,
     input_layers: Sequence[InputLayer] | None,
-    build_dir: Path | None,
-    clean: bool = False,
-    cache_dir: Path | None = None,
-    include_tags: list[str] | None = None,
-    exclude_tags: list[str] | None = None,
-    use_local_modules: bool = False,
-    stack_refs: Sequence[Path | str] | None = None,
-    merge_mode: MergeConfig = MergeMode.DEEP,
-) -> tuple[Path, dict[str, Path], dict[str, StackDefinition]]:
-    discovered_stacks = _resolve_stacks_for_generation(
-        root,
-        stack_refs,
-        cache_dir=cache_dir,
-        merge_mode=merge_mode,
-    )
+    cache_dir: Path | None,
+    merge_mode: MergeConfig,
+) -> tuple[dict[str, StackDefinition], dict[str, dict[str, Any]]]:
     stacks = {}
     resolved_inputs_by_stack = {}
     for metadata in discovered_stacks.values():
@@ -704,104 +731,277 @@ def _generate_all_stacks(
             )
         stacks[stack.name] = stack
         resolved_inputs_by_stack[stack.name] = resolved_inputs
-    LOGGER.debug(
-        "Discovered stack names: {stack_names}", stack_names=sorted(stacks.keys())
-    )
-    stacks = filter_stacks_by_tags(
-        stacks,
-        include_tags=include_tags,
-        exclude_tags=exclude_tags,
-    )
-    LOGGER.debug(
-        "Filtered stack names: {stack_names}", stack_names=sorted(stacks.keys())
-    )
-    graph = build_dependency_graph(stacks)
-    order = topological_sort(graph)
-    LOGGER.debug("Stack generation order: {order}", order=order)
+    return stacks, resolved_inputs_by_stack
 
-    root_build_dir = build_dir or (root / STACKSMITH_DIR_NAME)
-    if clean:
-        if build_dir is not None and root_build_dir.exists():
-            LOGGER.debug(
-                "Cleaning existing build directory: {root_build_dir}",
-                root_build_dir=root_build_dir,
-            )
-            shutil.rmtree(root_build_dir)
-        elif stack_refs:
-            for stack in stacks.values():
-                if stack.source_path is None:
-                    continue
-                stack_build_dir = _resolve_build_dir(stack.source_path, None)
-                if stack_build_dir.exists():
-                    LOGGER.debug(
-                        "Cleaning existing build directory: {stack_build_dir}",
-                        stack_build_dir=stack_build_dir,
-                    )
-                    shutil.rmtree(stack_build_dir)
-        elif root_build_dir.exists():
-            LOGGER.debug(
-                "Cleaning existing build directory: {root_build_dir}",
-                root_build_dir=root_build_dir,
-            )
-            shutil.rmtree(root_build_dir)
 
-    stack_build_dirs: dict[str, Path] = {}
-
-    for name in order:
-        stack = stacks[name]
-        if stack_refs:
+def _filter_stacks_with_reasons(
+    stacks: dict[str, StackDefinition],
+    include_tags: list[str] | None,
+    exclude_tags: list[str] | None,
+) -> tuple[dict[str, StackDefinition], list[ExcludedStackPreview]]:
+    filtered_stacks = {}
+    excluded_stacks = []
+    for name, stack in stacks.items():
+        if reason := _stack_filter_reason(stack, include_tags, exclude_tags):
             if stack.source_path is None:
-                raise RuntimeError(f"Stack '{stack.name}' is missing a source path")
-            stack_out = (
+                raise RuntimeError(f"Stack '{name}' is missing a source path")
+            excluded_stacks.append(
+                ExcludedStackPreview(
+                    name=name,
+                    source_path=stack.source_path,
+                    reason=reason,
+                )
+            )
+            continue
+        filtered_stacks[name] = stack
+    return filtered_stacks, excluded_stacks
+
+
+def _resolve_stack_build_dirs(
+    root: Path,
+    root_build_dir: Path,
+    stacks: dict[str, StackDefinition],
+    build_dir: Path | None,
+    explicit_stack_refs: bool,
+) -> dict[str, Path]:
+    stack_build_dirs = {}
+    for name, stack in stacks.items():
+        if stack.source_path is None:
+            raise RuntimeError(f"Stack '{name}' is missing a source path")
+        if explicit_stack_refs:
+            stack_build_dirs[name] = (
                 build_dir / name
                 if build_dir is not None
                 else _resolve_build_dir(stack.source_path, None)
             )
-        else:
-            relative_path = stack.source_path.parent.relative_to(root.resolve())
-            stack_out = root_build_dir / relative_path
-        resolved = resolved_inputs_by_stack[name]
+            continue
+        stack_build_dirs[name] = root_build_dir / stack.source_path.parent.relative_to(
+            root.resolve()
+        )
+    return stack_build_dirs
 
-        dep_stacks = {dep: stacks[dep] for dep in stack.depends_on}
-        dep_dirs = {
-            dep: stack_build_dirs[dep]
-            for dep in stack.depends_on
-            if dep in stack_build_dirs
-        }
 
-        write_tf_json(
+def _prepare_all_stacks(
+    root: Path,
+    config: ToolConfig,
+    vars_path: str | Sequence[str] | None,
+    input_layers: Sequence[InputLayer] | None,
+    build_dir: Path | None,
+    *,
+    cache_dir: Path | None = None,
+    include_tags: list[str] | None = None,
+    exclude_tags: list[str] | None = None,
+    stack_refs: Sequence[Path | str] | None = None,
+    merge_mode: MergeConfig = MergeMode.DEEP,
+) -> _PreparedStacks:
+    stacks, resolved_inputs_by_stack = _load_all_stack_definitions(
+        _resolve_stacks_for_generation(
+            root,
+            stack_refs,
+            cache_dir=cache_dir,
+            merge_mode=merge_mode,
+        ),
+        config,
+        vars_path,
+        input_layers,
+        cache_dir,
+        merge_mode,
+    )
+    LOGGER.debug("Discovered stack names: {stack_names}", stack_names=sorted(stacks))
+
+    filtered_stacks, excluded_stacks = _filter_stacks_with_reasons(
+        stacks,
+        include_tags,
+        exclude_tags,
+    )
+    LOGGER.debug(
+        "Filtered stack names: {stack_names}", stack_names=sorted(filtered_stacks)
+    )
+
+    order = topological_sort(build_dependency_graph(filtered_stacks))
+    LOGGER.debug("Stack generation order: {order}", order=order)
+    ordered_stacks = {name: filtered_stacks[name] for name in order}
+    root_build_dir = build_dir or (root / STACKSMITH_DIR_NAME)
+    explicit_stack_refs = bool(stack_refs)
+
+    return _PreparedStacks(
+        root_build_dir=root_build_dir,
+        stack_build_dirs=_resolve_stack_build_dirs(
+            root,
+            root_build_dir,
+            ordered_stacks,
+            build_dir,
+            explicit_stack_refs,
+        ),
+        stacks=ordered_stacks,
+        resolved_inputs={
+            name: resolved_inputs_by_stack[name] for name in ordered_stacks
+        },
+        excluded_stacks=excluded_stacks,
+        state_root=None if explicit_stack_refs else root,
+        explicit_stack_refs=explicit_stack_refs,
+        custom_build_dir=build_dir is not None,
+    )
+
+
+def _dependency_generation_context(
+    name: str,
+    prepared: _PreparedStacks,
+) -> tuple[dict[str, StackDefinition], dict[str, Path]]:
+    stack = prepared.stacks[name]
+    return (
+        {dependency: prepared.stacks[dependency] for dependency in stack.depends_on},
+        {
+            dependency: prepared.stack_build_dirs[dependency]
+            for dependency in stack.depends_on
+        },
+    )
+
+
+def _validate_prepared_stacks(
+    prepared: _PreparedStacks,
+    config: ToolConfig,
+    *,
+    cache_dir: Path | None,
+    use_local_modules: bool,
+) -> None:
+    for name, stack in prepared.stacks.items():
+        dependency_stacks, dependency_build_dirs = _dependency_generation_context(
+            name,
+            prepared,
+        )
+        generate_tf_json(
             stack,
             config,
-            resolved,
-            stack_out,
+            prepared.resolved_inputs[name],
             cache_dir=cache_dir,
             auth_config=config.remote_auth or None,
             use_local_modules=use_local_modules,
-            root=None if stack_refs else root,
+            root=prepared.state_root,
+        )
+        generate_terragrunt_json(
+            stack,
+            config,
+            prepared.resolved_inputs[name],
+            dependency_stacks,
+            dependency_build_dirs,
+            root=prepared.state_root,
+        )
+
+
+def _clean_prepared_stacks(prepared: _PreparedStacks) -> None:
+    if prepared.custom_build_dir and prepared.root_build_dir.exists():
+        LOGGER.debug(
+            "Cleaning existing build directory: {root_build_dir}",
+            root_build_dir=prepared.root_build_dir,
+        )
+        shutil.rmtree(prepared.root_build_dir)
+        return
+    if prepared.explicit_stack_refs:
+        for stack_build_dir in prepared.stack_build_dirs.values():
+            if stack_build_dir.exists():
+                LOGGER.debug(
+                    "Cleaning existing build directory: {stack_build_dir}",
+                    stack_build_dir=stack_build_dir,
+                )
+                shutil.rmtree(stack_build_dir)
+        return
+    if prepared.root_build_dir.exists():
+        LOGGER.debug(
+            "Cleaning existing build directory: {root_build_dir}",
+            root_build_dir=prepared.root_build_dir,
+        )
+        shutil.rmtree(prepared.root_build_dir)
+
+
+def _write_prepared_stacks(
+    prepared: _PreparedStacks,
+    config: ToolConfig,
+    *,
+    cache_dir: Path | None,
+    use_local_modules: bool,
+) -> None:
+    for name, stack in prepared.stacks.items():
+        dependency_stacks, dependency_build_dirs = _dependency_generation_context(
+            name,
+            prepared,
+        )
+        write_tf_json(
+            stack,
+            config,
+            prepared.resolved_inputs[name],
+            prepared.stack_build_dirs[name],
+            cache_dir=cache_dir,
+            auth_config=config.remote_auth or None,
+            use_local_modules=use_local_modules,
+            root=prepared.state_root,
         )
         write_terragrunt_json(
             stack,
             config,
-            resolved,
-            stack_out,
-            dep_stacks,
-            dep_dirs,
-            root=None if stack_refs else root,
+            prepared.resolved_inputs[name],
+            prepared.stack_build_dirs[name],
+            dependency_stacks,
+            dependency_build_dirs,
+            root=prepared.state_root,
         )
-        stack_build_dirs[name] = stack_out
 
-    if stack_refs:
-        LOGGER.info("Generated {count} explicit stacks", count=len(stacks))
+
+def _generate_all_stacks(
+    root: Path,
+    config: ToolConfig,
+    vars_path: str | Sequence[str] | None,
+    input_layers: Sequence[InputLayer] | None,
+    build_dir: Path | None,
+    clean: bool = False,
+    cache_dir: Path | None = None,
+    include_tags: list[str] | None = None,
+    exclude_tags: list[str] | None = None,
+    use_local_modules: bool = False,
+    stack_refs: Sequence[Path | str] | None = None,
+    merge_mode: MergeConfig = MergeMode.DEEP,
+) -> tuple[Path, dict[str, Path], dict[str, StackDefinition]]:
+    prepared = _prepare_all_stacks(
+        root,
+        config,
+        vars_path,
+        input_layers,
+        build_dir,
+        cache_dir=cache_dir,
+        include_tags=include_tags,
+        exclude_tags=exclude_tags,
+        stack_refs=stack_refs,
+        merge_mode=merge_mode,
+    )
+    if clean:
+        _clean_prepared_stacks(prepared)
+    _write_prepared_stacks(
+        prepared,
+        config,
+        cache_dir=cache_dir,
+        use_local_modules=use_local_modules,
+    )
+
+    if prepared.explicit_stack_refs:
+        LOGGER.info(
+            "Generated {count} explicit stacks",
+            count=len(prepared.stacks),
+        )
     else:
         LOGGER.info(
             "Generated {count} stacks in {root_build_dir}",
-            count=len(stacks),
-            root_build_dir=root_build_dir,
+            count=len(prepared.stacks),
+            root_build_dir=prepared.root_build_dir,
         )
     LOGGER.debug(
-        "Stack build dirs: {stack_build_dirs}", stack_build_dirs=stack_build_dirs
+        "Stack build dirs: {stack_build_dirs}",
+        stack_build_dirs=prepared.stack_build_dirs,
     )
-    return root_build_dir, stack_build_dirs, stacks
+    return (
+        prepared.root_build_dir,
+        prepared.stack_build_dirs,
+        prepared.stacks,
+    )
 
 
 def validate_stack(
@@ -1432,6 +1632,124 @@ def run_stack_action(
     return terragrunt_exit_code
 
 
+def inspect_dependency_graph(
+    root: Path,
+    action: str | TerragruntAction = TerragruntAction.PLAN,
+    config: list[str] | None = None,
+    vars_file: str | Sequence[str] | None = None,
+    input_layers: Sequence[InputLayer] | None = None,
+    build_dir: Path | None = None,
+    no_cache: bool = False,
+    include_tags: list[str] | None = None,
+    exclude_tags: list[str] | None = None,
+    tags: list[str] | None = None,
+    tag_expr: str | None = None,
+    destroy: bool = False,
+    auto_approve: bool = False,
+    no_cas: bool = False,
+    stacks: Sequence[Path | str] | None = None,
+    merge_mode: MergeConfig = MergeMode.DEEP,
+) -> ExecutionPreview:
+    """Inspect dependency and execution details without writing generated files.
+
+    Args:
+        root: Root directory to search for stacks.
+        action: Terragrunt action to preview.
+        config: Optional config file paths or URLs.
+        vars_file: Optional vars file path, URL, or ordered sequence of paths.
+        input_layers: Optional ordered CLI input layers merged in call order.
+        build_dir: Optional output directory used for path calculation and caching.
+        no_cache: Whether to clear the Stacksmith remote cache before resolution.
+        include_tags: Optional tags used to include matching stacks.
+        exclude_tags: Optional tags used to exclude matching stacks.
+        tags: Optional component tags required for selection.
+        tag_expr: Optional component-selection expression.
+        destroy: Whether a plan should preview destruction.
+        auto_approve: Whether apply or destroy would skip approval.
+        no_cas: Whether the previewed Terragrunt command should disable CAS.
+        stacks: Optional explicit stack paths or URLs.
+        merge_mode: Merge strategy used for layered configs, vars, and stacks.
+
+    Returns:
+        Structured dependency and execution preview.
+    """
+    cache_dir, _, loaded_config = load_runtime_config(
+        config,
+        build_dir,
+        base_dir=root,
+        no_cache=no_cache,
+        merge_mode=merge_mode,
+    )
+    action_enum = validate_action_options(
+        action,
+        tags=tags,
+        tag_expr=tag_expr,
+        save_plan_json=None,
+        save_redacted_plan_json=None,
+        out=None,
+        plan=None,
+        tag_support_label="dependency graph plan, apply, and destroy",
+        save_plan_label="dependency graph plan",
+    )
+    prepared = _prepare_all_stacks(
+        root,
+        loaded_config,
+        vars_file,
+        input_layers,
+        build_dir,
+        cache_dir=cache_dir,
+        include_tags=include_tags,
+        exclude_tags=exclude_tags,
+        stack_refs=stacks,
+        merge_mode=merge_mode,
+    )
+    return build_execution_preview(
+        action_enum,
+        root,
+        prepared.stacks,
+        prepared.stack_build_dirs,
+        loaded_config,
+        state_root=prepared.state_root,
+        excluded_stacks=prepared.excluded_stacks,
+        tags=tags,
+        tag_expr=tag_expr,
+        destroy=destroy,
+        auto_approve=auto_approve,
+        no_cas=no_cas or no_cache,
+    )
+
+
+def _validate_dry_run_options(
+    dry_run: bool,
+    *,
+    save_plan_json: Path | None,
+    save_redacted_plan_json: Path | None,
+    out: Path | None,
+    plan: Path | None,
+    strict_validation_warnings: bool,
+    fail_on_changes: bool,
+) -> None:
+    if not dry_run:
+        return
+    unsupported_options = [
+        name
+        for name, enabled in (
+            ("--save-plan-json", save_plan_json is not None),
+            ("--save-redacted-plan-json", save_redacted_plan_json is not None),
+            ("--out", out is not None),
+            ("--plan", plan is not None),
+            ("--strict-validation-warnings", strict_validation_warnings),
+            ("--fail-on-changes", fail_on_changes),
+        )
+        if enabled
+    ]
+    if unsupported_options:
+        raise StacksmithConfigError(
+            "--dry-run cannot be combined with options that require a Terragrunt "
+            f"plan or execution ({', '.join(unsupported_options)})."
+        )
+
+
 def run_all_stacks(
     action: str | TerragruntAction,
     root: Path,
@@ -1460,7 +1778,8 @@ def run_all_stacks(
         str | ValidationReportFormat
     ) = ValidationReportFormat.JSON,
     save_redacted_plan_json: Path | None = None,
-) -> int:
+    dry_run: bool = False,
+) -> int | ExecutionPreview:
     """Generate all discovered stacks and run a Terragrunt action in order.
 
     Args:
@@ -1497,10 +1816,21 @@ def run_all_stacks(
             report output.
         save_redacted_plan_json: Optional directory used to persist archive-safe
             redacted plan JSON output for each stack during plan actions.
+        dry_run: When `True`, return an execution preview without writing generated
+            files, cleaning build output, or invoking Terragrunt.
 
     Returns:
-        Process-style exit code from the Terragrunt action.
+        Structured preview for a dry run, otherwise the process-style exit code.
     """
+    _validate_dry_run_options(
+        dry_run,
+        save_plan_json=save_plan_json,
+        save_redacted_plan_json=save_redacted_plan_json,
+        out=out,
+        plan=plan,
+        strict_validation_warnings=strict_validation_warnings,
+        fail_on_changes=fail_on_changes,
+    )
     cache_dir, config_paths, loaded_config = load_runtime_config(
         config,
         build_dir,
@@ -1532,6 +1862,41 @@ def run_all_stacks(
         root=root,
         config_paths=config_paths,
     )
+    if dry_run:
+        prepared = _prepare_all_stacks(
+            root,
+            loaded_config,
+            vars_file,
+            input_layers,
+            build_dir,
+            cache_dir=cache_dir,
+            include_tags=include_tags,
+            exclude_tags=exclude_tags,
+            stack_refs=stacks,
+            merge_mode=merge_mode,
+        )
+        _validate_prepared_stacks(
+            prepared,
+            loaded_config,
+            cache_dir=cache_dir,
+            use_local_modules=use_local_modules,
+        )
+        return build_execution_preview(
+            action_enum,
+            root,
+            prepared.stacks,
+            prepared.stack_build_dirs,
+            loaded_config,
+            state_root=prepared.state_root,
+            excluded_stacks=prepared.excluded_stacks,
+            tags=tags,
+            tag_expr=tag_expr,
+            destroy=destroy,
+            auto_approve=auto_approve,
+            no_cas=effective_no_cas,
+            clean=clean,
+        )
+
     _, stack_build_dirs, stacks = _generate_all_stacks(
         root,
         loaded_config,
