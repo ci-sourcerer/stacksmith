@@ -1328,12 +1328,12 @@ class TestLoadTestManifest:
         manifest_file = tmp_path / "tests.yaml"
         manifest_file.write_text(
             "description: Production policy tests.\n"
-            "variable_policies:\n"
+            "var_validations:\n"
             "  aws_region:\n"
             "    - name: accepts_us_east_1\n"
             "      value: us-east-1\n"
             "      expect: PASS\n"
-            "plan_policies:\n"
+            "plan_validations:\n"
             "  ec2_requires_imdsv2:\n"
             "    - resources:\n"
             "        - type: aws_instance\n"
@@ -1359,10 +1359,10 @@ class TestLoadTestManifest:
 
         assert manifest.source_path == manifest_file.resolve()
         assert manifest.description == "Production policy tests."
-        assert manifest.variable_policies["aws_region"][0].expect == "pass"
-        assert manifest.plan_policies["ec2_requires_imdsv2"][0].expect == "warn"
+        assert manifest.var_validations["aws_region"][0].expect == "pass"
+        assert manifest.plan_validations["ec2_requires_imdsv2"][0].expect == "warn"
         assert (
-            manifest.plan_policies["ec2_requires_imdsv2"][0]
+            manifest.plan_validations["ec2_requires_imdsv2"][0]
             .resources[0]
             .to_plan_change()["address"]
             == "aws_instance.this"
@@ -1389,7 +1389,7 @@ class TestLoadTestManifest:
             "      source: local\n"
             "      data:\n"
             "        path: ./scripts/setup.py\n"
-            "variable_policies:\n"
+            "var_validations:\n"
             "  aws_region:\n"
             "    - value: us-east-1\n"
             "      expect: pass\n",
@@ -1412,7 +1412,7 @@ class TestLoadTestManifest:
             "  setup:\n"
             "    inline: |\n"
             "      fixture_state['ran'] = True\n"
-            "variable_policies:\n"
+            "var_validations:\n"
             "  aws_region:\n"
             "    - value: us-east-1\n"
             "      expect: pass\n",
@@ -1428,18 +1428,18 @@ class TestLoadTestManifest:
         base_file = tmp_path / "base-tests.yaml"
         override_file = tmp_path / "override-tests.yaml"
         base_file.write_text(
-            "variable_policies:\n"
+            "var_validations:\n"
             "  aws_region:\n"
             "    - value: us-east-1\n"
             "      expect: pass\n"
-            "plan_policies:\n"
+            "plan_validations:\n"
             "  ec2_requires_imdsv2:\n"
             "    - resources: []\n"
             "      expect: pass\n",
             encoding="utf-8",
         )
         override_file.write_text(
-            "variable_policies:\n"
+            "var_validations:\n"
             "  aws_region:\n"
             "    - value: eu-west-1\n"
             "      expect: fail\n"
@@ -1454,7 +1454,7 @@ class TestLoadTestManifest:
 
         manifest = load_test_manifests([base_file, override_file])
 
-        assert len(manifest.variable_policies["aws_region"]) == 2
-        assert manifest.variable_policies["aws_region"][1].expect == "fail"
-        assert "ec2_requires_imdsv2" in manifest.plan_policies
+        assert len(manifest.var_validations["aws_region"]) == 2
+        assert manifest.var_validations["aws_region"][1].expect == "fail"
+        assert "ec2_requires_imdsv2" in manifest.plan_validations
         assert "aws_s3_bucket" in manifest.component_properties

@@ -166,7 +166,7 @@ def test_test_command_forwards_merged_config_to_pytest(
     selected_manifest = tmp_path / "selected" / "tests.yaml"
     selected_manifest.parent.mkdir(parents=True)
     selected_manifest.write_text(
-        "variable_policies:\n"
+        "var_validations:\n"
         "  aws_region:\n"
         "    - value: us-east-1\n"
         "      expect: pass\n",
@@ -259,14 +259,14 @@ def test_test_command_discovers_test_directories_for_all_config_layers(
     base_manifest.parent.mkdir(parents=True)
     override_manifest.parent.mkdir(parents=True)
     base_manifest.write_text(
-        "variable_policies:\n"
+        "var_validations:\n"
         "  aws_region:\n"
         "    - value: us-east-1\n"
         "      expect: pass\n",
         encoding="utf-8",
     )
     override_manifest.write_text(
-        "variable_policies:\n"
+        "var_validations:\n"
         "  aws_region:\n"
         "    - value: eu-west-1\n"
         "      expect: fail\n",

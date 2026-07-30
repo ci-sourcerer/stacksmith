@@ -547,7 +547,7 @@ def _cmd_test(args: argparse.Namespace) -> int:
 def _cmd_info_modules_and_policies(args: argparse.Namespace) -> int:
     _apply_runfile(args)
     component_types = args.component_type if args.component_type else None
-    results, plan_policies = inspect_modules(
+    results, plan_validations = inspect_modules(
         config=args.config,
         component_types=component_types,
         build_dir=args.build_dir,
@@ -562,7 +562,7 @@ def _cmd_info_modules_and_policies(args: argparse.Namespace) -> int:
             results,
             details=True,
             basic=args.basic,
-            plan_policies=plan_policies,
+            plan_validations=plan_validations,
         ),
     )
 

@@ -696,7 +696,7 @@ def test_format_table_includes_tags(capsys):
     assert "storage, prod" in output
 
 
-def test_format_table_basic_mode_and_plan_policies(capsys):
+def test_format_table_basic_mode_and_plan_validations(capsys):
     results = [
         ComponentTypeInfo(
             component_type="aws_s3_bucket",
@@ -714,7 +714,7 @@ def test_format_table_basic_mode_and_plan_policies(capsys):
             ],
         )
     ]
-    plan_policies = [
+    plan_validations = [
         PlanPolicyInfo(
             name="ec2_requires_imdsv2",
             description="Ensure all EC2 instances require IMDSv2 tokens.",
@@ -722,7 +722,7 @@ def test_format_table_basic_mode_and_plan_policies(capsys):
         )
     ]
 
-    format_table(results, basic=True, plan_policies=plan_policies)
+    format_table(results, basic=True, plan_validations=plan_validations)
     output = capsys.readouterr().err
 
     assert "Input" in output
@@ -733,7 +733,7 @@ def test_format_table_basic_mode_and_plan_policies(capsys):
     assert "Plan Policies" not in output
 
 
-def test_format_table_shows_plan_policies(capsys):
+def test_format_table_shows_plan_validations(capsys):
     results = [
         ComponentTypeInfo(
             component_type="aws_s3_bucket",
@@ -744,7 +744,7 @@ def test_format_table_shows_plan_policies(capsys):
             inputs=[],
         )
     ]
-    plan_policies = [
+    plan_validations = [
         PlanPolicyInfo(
             name="ec2_requires_imdsv2",
             description="Ensure all EC2 instances require IMDSv2 tokens.",
@@ -752,7 +752,7 @@ def test_format_table_shows_plan_policies(capsys):
         )
     ]
 
-    format_table(results, plan_policies=plan_policies)
+    format_table(results, plan_validations=plan_validations)
     output = capsys.readouterr().err
 
     assert "Plan Policies" in output

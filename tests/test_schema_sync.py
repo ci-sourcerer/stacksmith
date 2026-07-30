@@ -291,15 +291,15 @@ def test_test_manifest_fields_match_schema():
     assert _field_names(StacksmithTestManifest) - {"source_path"} == {
         "description",
         "fixtures",
-        "variable_policies",
-        "plan_policies",
+        "var_validations",
+        "plan_validations",
         "component_properties",
     }
     assert set(schema["properties"]) == {
         "description",
         "fixtures",
-        "variable_policies",
-        "plan_policies",
+        "var_validations",
+        "plan_validations",
         "component_properties",
     }
 
@@ -468,8 +468,8 @@ def test_vscode_associates_mergeable_documents_with_layer_schemas():
             {
                 "description",
                 "fixtures",
-                "variable_policies",
-                "plan_policies",
+                "var_validations",
+                "plan_validations",
                 "component_properties",
             },
         ),

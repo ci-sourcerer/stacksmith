@@ -696,12 +696,12 @@ fixtures:
     inline: |
       fixture_state["ready"] = True
 
-variable_policies:
+var_validations:
   aws_region:
     - value: us-east-1
       expect: pass
 
-plan_policies:
+plan_validations:
   ec2_t3_micro_warning:
     - resources:
         - type: aws_instance

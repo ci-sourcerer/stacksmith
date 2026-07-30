@@ -43,7 +43,7 @@ from .inspector import (
     ComponentTypeInfo,
     PlanPolicyInfo,
     inspect_all,
-    inspect_plan_policies,
+    inspect_plan_validations,
 )
 from .loading import (
     load_config,
@@ -2022,5 +2022,5 @@ def inspect_modules(
         auth_config=loaded_config.remote_auth or None,
         config_locations=config_locations,
     )
-    plan_policy_results = inspect_plan_policies(loaded_config, config_locations)
+    plan_policy_results = inspect_plan_validations(loaded_config, config_locations)
     return component_results, plan_policy_results

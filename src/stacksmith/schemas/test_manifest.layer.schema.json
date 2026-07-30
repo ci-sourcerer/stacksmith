@@ -254,7 +254,7 @@
     "fixtures": {
       "$ref": "#/$defs/fixtures"
     },
-    "variable_policies": {
+    "var_validations": {
       "type": "object",
       "additionalProperties": {
         "type": "array",
@@ -263,7 +263,7 @@
         }
       }
     },
-    "plan_policies": {
+    "plan_validations": {
       "type": "object",
       "additionalProperties": {
         "type": "array",

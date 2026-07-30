@@ -41,8 +41,8 @@ stacksmith test \
 
 The manifest includes test cases for all supported behaviors.
 
-- `variable_policies` tests resolved-input validation rules.
-- `plan_policies` tests post-plan validation outcomes, including warnings.
+- `var_validations` tests resolved-input validation rules.
+- `plan_validations` tests post-plan validation outcomes, including warnings.
 - `component_properties` tests configured transforms and validations.
 - `fixtures` supports optional setup and teardown hooks through `inline` or `script` definitions, with execution mode set by `fixtures.mode` (`per-suite` or `per-test-case`).
 

@@ -9,7 +9,7 @@ fixtures:
     inline: |
       fixture_state.clear()
 
-variable_policies:
+var_validations:
   aws_region:
     - name: Accepts us-east-1
       value: us-east-1
@@ -18,7 +18,7 @@ variable_policies:
       value: eu-west-1
       expect: fail
 
-plan_policies:
+plan_validations:
   ec2_requires_imdsv2:
     - name: Passes when tokens are required
       resources:

@@ -392,7 +392,7 @@ def inspect_all(
     return results
 
 
-def inspect_plan_policies(
+def inspect_plan_validations(
     config: ToolConfig, config_locations: dict[tuple[str, ...], str] | None = None
 ) -> list[PlanPolicyInfo]:
     """Inspect plan-level validations and return policy metadata.
@@ -491,7 +491,7 @@ def format_table(
     results: list[ComponentTypeInfo],
     details: bool = True,
     basic: bool = False,
-    plan_policies: list[PlanPolicyInfo] | None = None,
+    plan_validations: list[PlanPolicyInfo] | None = None,
 ) -> None:
     """Print inspection results as a rich table to stderr.
 
@@ -574,7 +574,7 @@ def format_table(
 
         console.print(table)
 
-    if plan_policies and not basic:
+    if plan_validations and not basic:
         console.print()
         console.print("[bold]Plan Policies[/bold]")
         policy_table = Table(
@@ -587,7 +587,7 @@ def format_table(
         policy_table.add_column("Description")
         policy_table.add_column("Location")
 
-        for policy in plan_policies:
+        for policy in plan_validations:
             policy_table.add_row(
                 policy.name,
                 policy.description,

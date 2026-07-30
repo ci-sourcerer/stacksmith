@@ -5,13 +5,13 @@ from stacksmith.testing import StacksmithTestGenerator
 def test_generate_pytest_module_includes_all_test_types() -> None:
     manifest = StacksmithTestManifest.model_validate(
         {
-            "variable_policies": {
+            "var_validations": {
                 "aws_region": [
                     {"name": "accepts", "value": "us-east-1", "expect": "pass"},
                     {"value": "eu-west-1", "expect": "fail"},
                 ]
             },
-            "plan_policies": {
+            "plan_validations": {
                 "ec2_requires_imdsv2": [
                     {
                         "name": "warns_with_context",
@@ -69,7 +69,7 @@ def test_generate_pytest_module_includes_fixture_hooks() -> None:
                     }
                 },
             },
-            "variable_policies": {
+            "var_validations": {
                 "aws_region": [
                     {"value": "us-east-1", "expect": "pass"},
                 ]
@@ -90,7 +90,7 @@ def test_generate_pytest_module_includes_fixture_hooks() -> None:
 def test_generate_pytest_module_expands_resource_defaults() -> None:
     manifest = StacksmithTestManifest.model_validate(
         {
-            "plan_policies": {
+            "plan_validations": {
                 "ec2_requires_imdsv2": [
                     {
                         "resources": [
@@ -118,7 +118,7 @@ def test_generate_pytest_module_expands_resource_defaults() -> None:
 def test_generate_pytest_module_preserves_explicit_resource_change() -> None:
     manifest = StacksmithTestManifest.model_validate(
         {
-            "plan_policies": {
+            "plan_validations": {
                 "ec2_requires_imdsv2": [
                     {
                         "resources": [
@@ -156,7 +156,7 @@ def test_generate_pytest_module_uses_per_test_case_fixture_scope() -> None:
                     "inline": "fixture_state['setup'] = True",
                 },
             },
-            "variable_policies": {
+            "var_validations": {
                 "aws_region": [
                     {"value": "us-east-1", "expect": "pass"},
                 ]

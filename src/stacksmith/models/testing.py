@@ -143,10 +143,10 @@ class StacksmithTestManifest(BaseModel):
 
     description: str | None = None
     fixtures: StacksmithTestFixtures | None = None
-    variable_policies: dict[str, list[VariablePolicyTestCase]] = Field(
+    var_validations: dict[str, list[VariablePolicyTestCase]] = Field(
         default_factory=dict
     )
-    plan_policies: dict[str, list[PlanPolicyTestCase]] = Field(default_factory=dict)
+    plan_validations: dict[str, list[PlanPolicyTestCase]] = Field(default_factory=dict)
     component_properties: dict[str, dict[str, list[ComponentPropertyTestCase]]] = Field(
         default_factory=dict
     )
@@ -155,12 +155,12 @@ class StacksmithTestManifest(BaseModel):
     @model_validator(mode="after")
     def _at_least_one_test_case(self) -> "StacksmithTestManifest":
         if (
-            not self.variable_policies
-            and not self.plan_policies
+            not self.var_validations
+            and not self.plan_validations
             and not self.component_properties
         ):
             raise ValueError(
-                "A test manifest must define at least one test in variable_policies, "
-                "plan_policies, or component_properties"
+                "A test manifest must define at least one test in var_validations, "
+                "plan_validations, or component_properties"
             )
         return self

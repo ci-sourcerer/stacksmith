@@ -110,7 +110,7 @@ class StacksmithTestGenerator:
 
     def _render_variable_policy_tests(self, lines: list[str]) -> int:
         count = 0
-        for policy_name, cases in self._manifest.variable_policies.items():
+        for policy_name, cases in self._manifest.var_validations.items():
             for index, case in enumerate(cases):
                 function_name = self._function_name(
                     "variable",
@@ -134,7 +134,7 @@ class StacksmithTestGenerator:
 
     def _render_plan_policy_tests(self, lines: list[str]) -> int:
         count = 0
-        for policy_name, cases in self._manifest.plan_policies.items():
+        for policy_name, cases in self._manifest.plan_validations.items():
             for index, case in enumerate(cases):
                 function_name = self._function_name(
                     "plan", policy_name, case.name, index
