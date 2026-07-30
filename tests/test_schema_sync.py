@@ -1,8 +1,12 @@
 import json
 from importlib.resources import files
+from pathlib import Path
 
 import pytest
+import yaml
+from jsonschema import Draft202012Validator
 from pydantic import BaseModel
+from stacksmith.loading.validation import load_fragment_schema
 from stacksmith.models import (
     BackendConfig,
     ComponentDefinition,
@@ -332,6 +336,86 @@ def test_vars_schema_accepts_free_form_mappings():
 
     assert schema["type"] == "object"
     assert schema["additionalProperties"] is True
+
+
+@pytest.mark.parametrize(
+    "effective_schema_name",
+    [
+        "config.schema.json",
+        "runfile.schema.json",
+        "stack.schema.json",
+        "test_manifest.schema.json",
+        "vars.schema.json",
+    ],
+)
+def test_generated_layer_schema_matches_runtime_fragment_schema(
+    effective_schema_name: str,
+):
+    assert _load_schema(
+        effective_schema_name.replace(".schema.json", ".layer.schema.json")
+    ) == load_fragment_schema(effective_schema_name)
+
+
+@pytest.mark.parametrize(
+    "schema_name, document_paths",
+    [
+        (
+            "config.layer.schema.json",
+            [
+                Path("examples/shared-config-repo/stacksmith-base-config.yaml"),
+                Path("examples/shared-config-repo/stacksmith-config.yaml"),
+            ],
+        ),
+        (
+            "runfile.layer.schema.json",
+            [
+                Path("examples/gitops-repo/common/stacksmith.yaml"),
+                Path("examples/gitops-repo/environments/dev.yaml"),
+            ],
+        ),
+        (
+            "stack.layer.schema.json",
+            [
+                Path("examples/gitops-repo/manifests/common/platform.stack.yaml"),
+                Path("examples/gitops-repo/manifests/common/service.stack.yaml"),
+            ],
+        ),
+        (
+            "test_manifest.layer.schema.json",
+            [Path("examples/shared-config-repo/tests.yaml")],
+        ),
+        (
+            "vars.layer.schema.json",
+            [Path("examples/gitops-repo/vars/vars.dev.yaml")],
+        ),
+    ],
+)
+def test_example_layers_match_editor_schemas(
+    schema_name: str, document_paths: list[Path]
+):
+    validator = Draft202012Validator(_load_schema(schema_name))
+
+    for document_path in document_paths:
+        assert not (
+            errors := list(
+                validator.iter_errors(
+                    yaml.safe_load(document_path.read_text(encoding="utf-8"))
+                )
+            )
+        ), f"{document_path}: {[error.message for error in errors]}"
+
+
+def test_vscode_associates_mergeable_documents_with_layer_schemas():
+    settings = json.loads(Path(".vscode/settings.json").read_text(encoding="utf-8"))
+
+    assert all(
+        schema_name.endswith(".layer.schema.json")
+        for schema_name in settings["yaml.schemas"]
+    )
+    assert all(
+        schema["url"].endswith(".layer.schema.json")
+        for schema in settings["json.schemas"]
+    )
 
 
 @pytest.mark.parametrize(

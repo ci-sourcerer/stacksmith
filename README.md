@@ -257,6 +257,8 @@ Regarding "deep merge":
 
 Stacksmith validates layered documents in two phases. Each config, stack, runfile, test manifest, and vars layer is first checked as a fragment, so required values may be supplied by a later layer. The fragment profile is derived from the same bundled schema by deferring completeness constraints, which keeps it synchronized with the effective contract. After merging, the effective document is checked against its complete schema and then against semantic model rules. A managed config used on its own must therefore define `backend` and either an explicit module mapping or a default module mapping, while a config overlay may omit those values when another selected layer supplies them. Validation errors list every contributing source in precedence order and identify the missing or invalid document path.
 
+The repository's VS Code settings associate mergeable YAML and JSON documents with generated `*.layer.schema.json` schemas, so partial overlays retain key and type diagnostics without false missing-key errors. The strict `*.schema.json` schemas remain the effective runtime contracts. Run `poe schemas-layer` after changing a strict schema and use `poe schemas-layer-check` to detect generated-schema drift.
+
 Address-aware `merge_rules` can change the strategy for individual nodes while leaving `merge_mode` as the fallback.
 
 ```yaml

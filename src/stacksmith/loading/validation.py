@@ -50,8 +50,29 @@ def _relax_schema(schema: Any) -> Any:
 
 
 @cache
-def _load_fragment_schema(schema_name: str) -> dict[str, Any]:
-    return _relax_schema(load_json_schema(schema_name))
+def load_fragment_schema(schema_name: str) -> dict[str, Any]:
+    """Derive an editor-safe layer schema from an effective document schema.
+
+    The derived schema preserves supported keys, value types, and scalar
+    constraints while deferring completeness and collection constraints until
+    after all selected layers have been merged.
+
+    Args:
+        schema_name: Bundled effective schema resource name.
+
+    Returns:
+        Schema for validating one partial merge layer.
+    """
+    schema = _relax_schema(load_json_schema(schema_name))
+    if schema_id := schema.get("$id"):
+        schema["$id"] = schema_id.replace(".schema.json", ".layer.schema.json")
+    if title := schema.get("title"):
+        schema["title"] = f"{title} Layer"
+    schema["description"] = (
+        f"Partial merge layer for {schema.get('description', schema_name).rstrip('.')}."
+    )
+    schema["x-stacksmith-schema-profile"] = "layer"
+    return schema
 
 
 def _path_label(parts: Sequence[Any]) -> str:
@@ -157,7 +178,7 @@ def validate_fragment(
         StacksmithConfigError: If a provided value violates the fragment schema.
     """
     if errors := list(
-        Draft202012Validator(_load_fragment_schema(schema_name)).iter_errors(data)
+        Draft202012Validator(load_fragment_schema(schema_name)).iter_errors(data)
     ):
         raise StacksmithConfigError(
             _format_validation_failure(
