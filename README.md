@@ -255,6 +255,10 @@ Regarding "deep merge":
 - Later scalar values replace earlier ones.
 - Set-like model fields such as tags deduplicate when parsed into the final model.
 
+Stacksmith validates layered documents in two phases. Each config, stack, runfile, test manifest, and vars layer is first checked as a fragment, so required values may be supplied by a later layer. The fragment profile is derived from the same bundled schema by deferring completeness constraints, which keeps it synchronized with the effective contract. After merging, the effective document is checked against its complete schema and then against semantic model rules. A managed config used on its own must therefore define `backend` and either an explicit module mapping or a default module mapping, while a config overlay may omit those values when another selected layer supplies them. Validation errors list every contributing source in precedence order and identify the missing or invalid document path.
+
+The repository's VS Code settings associate mergeable YAML and JSON documents with generated `*.layer.schema.json` schemas, so partial overlays retain key and type diagnostics without false missing-key errors. The strict `*.schema.json` schemas remain the effective runtime contracts. Run `poe schemas-layer` after changing a strict schema and use `poe schemas-layer-check` to detect generated-schema drift.
+
 Address-aware `merge_rules` can change the strategy for individual nodes while leaving `merge_mode` as the fallback.
 
 ```yaml
@@ -363,6 +367,37 @@ When `action` is `plan`, you can also pass `--destroy` to run `terragrunt plan -
 When `action` is `plan`, pass `--save-redacted-plan-json <dir>` to keep archive-safe plan JSON for each discovered stack. Use `--save-plan-json <dir>` only when a trusted local consumer requires the raw rendered plan because OpenTofu includes sensitive values in its machine-readable output.
 
 Use `--clean` on `run-all` to remove the existing build directory before regeneration.
+
+#### Dependency and execution previews
+
+Use `info graph` to inspect the discovered dependency graph and the execution that Stacksmith would construct without writing generated files or invoking Terragrunt.
+
+```bash
+stacksmith info graph \
+  --root examples/gitops-simple-repo \
+  --runfile examples/gitops-simple-repo/common/stacksmith.yaml \
+  --runfile examples/gitops-simple-repo/environments/dev.yaml
+```
+
+The default table view includes stack paths, dependency edges, state keys, selected components, mock-output usage, build directories, logical Terragrunt commands, and the computed order. Use `--action destroy` to preview the reversed destruction order. Stack filters (`--include-tag` and `--exclude-tag`) and component selectors (`--tag` and `--tag-expr`) use the same semantics as `run-all`.
+
+Pass `--format json` for the versioned machine-readable preview contract. Graphviz DOT and Mermaid flowcharts are also available through `--format dot` and `--format mermaid`.
+
+Use `run-all --dry-run` to perform the same discovery, input resolution, static validation, filtering, targeting, and command construction as an execution without cleaning or writing build output.
+
+```bash
+stacksmith run-all plan \
+  --root examples/gitops-simple-repo \
+  --runfile examples/gitops-simple-repo/common/stacksmith.yaml \
+  --runfile examples/gitops-simple-repo/environments/dev.yaml \
+  --tag-expr "component_name == 'first'" \
+  --dry-run \
+  --format json
+```
+
+Dry runs can still resolve remote inputs, update Stacksmith's resource cache, and execute configured provider, transform, and static validation hooks. Those hooks can have their own external side effects. Dry runs do not resolve or download the Terragrunt/OpenTofu toolchain, execute Terragrunt, create plan files, or run post-plan validation rules.
+
+Options that require an actual plan or execution, including plan artifact output, exact plan input, change detection, and strict post-plan validation, cannot be combined with `--dry-run`.
 
 ### Tags and targeting
 
@@ -629,6 +664,7 @@ When `--config` points at one or more managed config layers, Stacksmith discover
 
 ```shell
 stacksmith test \
+  --config examples/shared-config-repo/stacksmith-base-config.yaml \
   --config examples/shared-config-repo/stacksmith-config.yaml
 ```
 
@@ -644,6 +680,7 @@ Use `--dump-tests` when you want to inspect the generated pytest code.
 
 ```shell
 stacksmith test \
+  --config examples/shared-config-repo/stacksmith-base-config.yaml \
   --config examples/shared-config-repo/stacksmith-config.yaml \
   --dump-tests /tmp/stacksmith-generated-tests.py
 ```
@@ -1224,7 +1261,8 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
                           [--save-plan-json SAVE_PLAN_JSON |
                           --save-redacted-plan-json SAVE_REDACTED_PLAN_JSON] [--out OUT] [--fail-on-changes]
                           [--plan PLAN] [--tag TAG] [--tag-expr TAG_EXPR] [--include-tag INCLUDE_TAG]
-                          [--exclude-tag EXCLUDE_TAG] [--clean] [--auto-approve]
+                          [--exclude-tag EXCLUDE_TAG] [--clean] [--auto-approve] [--dry-run]
+                          [--format {table,json}]
                           {init,plan,apply,destroy}
 ```
 
@@ -1261,6 +1299,8 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
 | `--exclude-tag` | Exclude stacks that have this tag. Repeatable. |
 | `--clean` | Remove existing build output directory before generation |
 | `--auto-approve` | Skip interactive approval for apply/destroy |
+| `--dry-run` | Preview discovery, validation, targeting, and commands without writing generated files or invoking Terragrunt. |
+| `--format` | Output format for dependency and execution preview data. Choices: `table`, `json`. |
 
 ### `stacksmith init`
 
@@ -1535,6 +1575,41 @@ stacksmith info environments [-h] [--gitops-root GITOPS_ROOT]
 | `--after` | Current commit SHA used for push diff selection. |
 | `--format` | Output format for environment preview data. Choices: `table`, `json`. |
 
+### `stacksmith info graph`
+
+```text
+stacksmith info graph [-h] [--action {plan,apply,destroy}] [--root ROOT] [--stack STACK]
+                             [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE] [--vars VARS_FILE]
+                             [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
+                             [--no-cache] [--no-cas] [--debug | -q] [--tag TAG] [--tag-expr TAG_EXPR]
+                             [--include-tag INCLUDE_TAG] [--exclude-tag EXCLUDE_TAG] [--destroy]
+                             [--format {table,json,dot,mermaid}]
+```
+
+| Argument | Description |
+| - | - |
+| `--action` | Terragrunt action used to compute commands and execution order. Choices: `plan`, `apply`, `destroy`. |
+| `--root` | Root directory used to discover stacks. |
+| `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+| `--tag` | Select components by tag. Repeat to require multiple tags. Supported for graph plan/apply/destroy previews. |
+| `--tag-expr` | JMESPath expression used to select resource targets. Supported for graph plan/apply/destroy previews. |
+| `--include-tag` | Include stacks that have this tag. Repeatable. |
+| `--exclude-tag` | Exclude stacks that have this tag. Repeatable. |
+| `--destroy` | Preview a destroy plan when the selected action is plan. |
+| `--format` | Output format for dependency and execution preview data. Choices: `table`, `json`, `dot`, `mermaid`. |
+
 ### `stacksmith ci validate`
 
 ```text
@@ -1795,12 +1870,6 @@ The command should support table and JSON output, direct queries such as `inputs
 Complete the existing `secret` operation input metadata and extend the concept to ordinary Stacksmith inputs. Secret declarations should support environment-backed and file-backed values initially, with a pluggable interface for external secret managers later. Diagnostics, provenance output, validation errors, and normal logs must redact these values.
 
 Where the OpenTofu and Terragrunt execution models permit it, secrets should be passed through the process environment or temporary permission-restricted files instead of being serialized into generated configuration. Stacksmith should warn when a workflow necessarily places a secret in a plan or state file, and secret changes should still be able to affect operation execution identity without exposing the original value.
-
-#### Dependency graph and execution previews
-
-Expose the existing monorepo dependency graph through an `info graph` command with table, JSON, DOT, and Mermaid output. The view should include stack paths, dependencies, state keys, selected components, mock-output usage, build directories, and the computed plan/apply or destroy order.
-
-Add a `--dry-run` option to `run-all` that performs discovery, filtering, validation, targeting, and command construction without invoking Terragrunt. This would let users verify broad tag expressions and dependency changes before starting a long or destructive operation.
 
 #### Dependency-aware parallel `run-all`
 

@@ -4,6 +4,7 @@ import importlib.util
 import json
 import logging
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger as LOGGER
+from rich.console import Console
+from rich.table import Table
 from stacksmith.cli.args import (
     get_default_run_file,
     get_default_stack_refs,
@@ -19,6 +22,7 @@ from stacksmith.cli.args import (
 from stacksmith.enums import MergeMode
 from stacksmith.loading import load_runfiles, load_test_manifests
 from stacksmith.models import (
+    ExecutionPreview,
     FileReference,
     MergeConfig,
     MergePolicy,
@@ -31,6 +35,7 @@ from stacksmith.utils import parse_bool
 from ..api import (
     generate_stack,
     inspect_cache_diagnostics,
+    inspect_dependency_graph,
     inspect_environments,
     inspect_modules,
     load_runtime_config,
@@ -55,9 +60,15 @@ from ..ci.adapters import (
 )
 from ..ci.contracts import CiExecutionManifest, build_ci_execution_argv
 from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME, TEST_FILE_CANDIDATES
-from ..enums import InspectOutputFormat, TerragruntAction, ValidationReportFormat
+from ..enums import (
+    ExecutionPreviewFormat,
+    InspectOutputFormat,
+    TerragruntAction,
+    ValidationReportFormat,
+)
 from ..exceptions import StacksmithConfigError, StacksmithError
 from ..formatters import compact_json
+from ..graph import render_execution_preview_dot, render_execution_preview_mermaid
 from ..inspector import format_json, format_table
 from ..utils import load_env_files
 from .args import (
@@ -612,9 +623,6 @@ def _cmd_operation_run(args: argparse.Namespace) -> int:
 
 
 def _render_environment_preview_table(payload: dict[str, object]) -> None:
-    from rich.console import Console
-    from rich.table import Table
-
     console = Console(stderr=True)
     console.print()
     console.print("[bold]GitOps Environment Preview[/bold]")
@@ -641,10 +649,93 @@ def _render_environment_preview_table(payload: dict[str, object]) -> None:
     console.print(matrix_table)
 
 
-def _render_ci_validation_table(payload: dict[str, object]) -> None:
-    from rich.console import Console
-    from rich.table import Table
+def _render_execution_preview_table(preview: ExecutionPreview) -> None:
+    console = Console(stderr=True)
+    console.print()
+    console.print("[bold]Dependency and Execution Preview[/bold]")
+    console.print(
+        f"  [cyan]Root:[/cyan] {preview.root}    "
+        f"[cyan]Action:[/cyan] {preview.action.value}"
+    )
 
+    summary = Table(show_header=True, header_style="bold cyan")
+    summary.add_column("Metric")
+    summary.add_column("Value")
+    summary.add_row("Execution order", " → ".join(preview.execution_order) or "none")
+    summary.add_row("Selected stacks", str(len(preview.execution_order)))
+    summary.add_row("Excluded stacks", str(len(preview.excluded_stacks)))
+    summary.add_row("Would clean", "yes" if preview.would_clean else "no")
+    console.print(summary)
+
+    stacks = Table(show_header=True, header_style="bold cyan")
+    stacks.add_column("Order")
+    stacks.add_column("Stack")
+    stacks.add_column("Path")
+    stacks.add_column("Dependencies")
+    stacks.add_column("State key")
+    stacks.add_column("Selected components")
+    stacks.add_column("Build directory")
+    stacks.add_column("Command")
+    for stack in preview.stacks:
+        dependencies = []
+        for dependency in stack.dependencies:
+            suffix = (
+                f" [mock: {', '.join(dependency.mock_output_keys)}]"
+                if dependency.uses_mock_outputs
+                else ""
+            )
+            dependencies.append(f"{dependency.name}{suffix}")
+        stacks.add_row(
+            (
+                str(stack.execution_position)
+                if stack.execution_position is not None
+                else "-"
+            ),
+            stack.name,
+            str(stack.source_path),
+            ", ".join(dependencies) or "-",
+            stack.state_key,
+            ", ".join(stack.selected_components) or "-",
+            str(stack.build_directory),
+            (
+                shlex.join(stack.command)
+                if stack.command
+                else stack.skip_reason or "skipped"
+            ),
+        )
+    console.print(stacks)
+
+    if preview.excluded_stacks:
+        excluded = Table(show_header=True, header_style="bold yellow")
+        excluded.add_column("Excluded stack")
+        excluded.add_column("Path")
+        excluded.add_column("Reason")
+        for stack in preview.excluded_stacks:
+            excluded.add_row(stack.name, str(stack.source_path), stack.reason)
+        console.print(excluded)
+
+
+def _emit_execution_preview(
+    preview: ExecutionPreview, output_format: ExecutionPreviewFormat
+) -> None:
+    if output_format == ExecutionPreviewFormat.TABLE:
+        _render_execution_preview_table(preview)
+        return
+    if output_format == ExecutionPreviewFormat.JSON:
+        print(
+            compact_json(
+                preview.model_dump(mode="json"),
+                sort_keys=True,
+            )
+        )
+        return
+    if output_format == ExecutionPreviewFormat.DOT:
+        print(render_execution_preview_dot(preview))
+        return
+    print(render_execution_preview_mermaid(preview))
+
+
+def _render_ci_validation_table(payload: dict[str, object]) -> None:
     console = Console(stderr=True)
     console.print()
     console.print("[bold]CI Validation[/bold]")
@@ -689,9 +780,6 @@ def _render_ci_validation_table(payload: dict[str, object]) -> None:
 
 
 def _render_cache_diagnostics_table(payload: dict[str, object]) -> None:
-    from rich.console import Console
-    from rich.table import Table
-
     console = Console(stderr=True)
     console.print()
     console.print("[bold]Stacksmith Diagnostics[/bold]")
@@ -779,6 +867,31 @@ def _cmd_info_environments(args: argparse.Namespace) -> int:
         InspectOutputFormat(args.format),
         json_text_factory=lambda: _format_info_ci_json(payload),
         table_renderer=lambda: _render_environment_preview_table(payload),
+    )
+    return 0
+
+
+def _cmd_info_graph(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    _emit_execution_preview(
+        inspect_dependency_graph(
+            args.root,
+            action=args.action,
+            config=args.config,
+            vars_file=_vars_arg(args),
+            input_layers=_ordered_input_layers(args),
+            build_dir=args.build_dir,
+            no_cache=args.no_cache,
+            include_tags=args.include_tag,
+            exclude_tags=args.exclude_tag,
+            tags=args.tag,
+            tag_expr=args.tag_expr,
+            destroy=args.destroy,
+            no_cas=args.no_cas,
+            stacks=_run_all_stack_args(args),
+            merge_mode=_merge_mode_arg(args),
+        ),
+        ExecutionPreviewFormat(args.format),
     )
     return 0
 
@@ -964,6 +1077,13 @@ def _cmd_diagnose(args: argparse.Namespace) -> int:
 
 def _cmd_run_all(args: argparse.Namespace) -> int:
     _apply_runfile(args)
+    if (
+        not getattr(args, "dry_run", False)
+        and getattr(args, "format", ExecutionPreviewFormat.TABLE.value)
+        != ExecutionPreviewFormat.TABLE.value
+    ):
+        LOGGER.error("--format is only supported for run-all with --dry-run")
+        return 1
     if args.action == TerragruntAction.INIT.value and (
         args.tag is not None or args.tag_expr is not None
     ):
@@ -992,7 +1112,7 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
         LOGGER.error("--validation-report-format is only supported for run-all plan")
         return 1
 
-    return run_all_stacks(
+    result = run_all_stacks(
         args.action,
         args.root,
         config=args.config,
@@ -1018,7 +1138,17 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
         stacks=_run_all_stack_args(args),
         merge_mode=_merge_mode_arg(args),
         validation_report_format=_validation_report_format(args),
+        dry_run=getattr(args, "dry_run", False),
     )
+    if isinstance(result, ExecutionPreview):
+        _emit_execution_preview(
+            result,
+            ExecutionPreviewFormat(
+                getattr(args, "format", ExecutionPreviewFormat.TABLE.value)
+            ),
+        )
+        return 0
+    return result
 
 
 def main() -> None:
@@ -1105,6 +1235,8 @@ def main() -> None:
                         exit_code = _cmd_diagnose(args)
                     case "environments":
                         exit_code = _cmd_info_environments(args)
+                    case "graph":
+                        exit_code = _cmd_info_graph(args)
                     case _:
                         parser.print_help(sys.stderr)
                         exit_code = 1

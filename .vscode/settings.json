@@ -2,28 +2,58 @@
     "python-envs.defaultEnvManager": "ms-python.python:venv",
     "python-envs.defaultPackageManager": "ms-python.python:pip",
     "yaml.schemas": {
-        "src/stacksmith/schemas/config.schema.json": "**/stacksmith-config.yaml",
-        "src/stacksmith/schemas/stack.schema.json": [
+        "src/stacksmith/schemas/config.layer.schema.json": [
+            "**/stacksmith-config.yaml",
+            "**/stacksmith-base-config.yaml"
+        ],
+        "src/stacksmith/schemas/stack.layer.schema.json": [
             "**/stack.yaml",
             "**/*.stack.yaml"
         ],
-        "src/stacksmith/schemas/runfile.schema.json": [
+        "src/stacksmith/schemas/runfile.layer.schema.json": [
             "**/stacksmith.yaml"
+        ],
+        "src/stacksmith/schemas/test_manifest.layer.schema.json": [
+            "**/tests.yaml",
+            "**/tests.yml"
+        ],
+        "src/stacksmith/schemas/vars.layer.schema.json": [
+            "**/vars*.yaml",
+            "**/vars*.yml"
         ]
     },
     "json.schemas": [
         {
             "fileMatch": [
-                "**/stacksmith.config.json"
+                "**/stacksmith.config.json",
+                "**/stacksmith-config.json"
             ],
-            "url": "./src/stacksmith/schemas/config.schema.json"
+            "url": "./src/stacksmith/schemas/config.layer.schema.json"
         },
         {
             "fileMatch": [
                 "**/stack.json",
                 "**/*.stack.json"
             ],
-            "url": "./src/stacksmith/schemas/stack.schema.json"
+            "url": "./src/stacksmith/schemas/stack.layer.schema.json"
+        },
+        {
+            "fileMatch": [
+                "**/stacksmith.json"
+            ],
+            "url": "./src/stacksmith/schemas/runfile.layer.schema.json"
+        },
+        {
+            "fileMatch": [
+                "**/tests.json"
+            ],
+            "url": "./src/stacksmith/schemas/test_manifest.layer.schema.json"
+        },
+        {
+            "fileMatch": [
+                "**/vars*.json"
+            ],
+            "url": "./src/stacksmith/schemas/vars.layer.schema.json"
         }
     ]
 }

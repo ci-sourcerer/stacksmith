@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from stacksmith import variables
+from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.models import InlineReference, ValidationSpec
 from stacksmith.variables import resolve_inputs
 
@@ -11,6 +12,17 @@ class TestResolveInputs:
         result = resolve_inputs(vars_file=sample_values_yaml)
         assert result["bucket_name"] == "my-bucket-from-file"
         assert result["instance_count"] == 3
+
+    def test_vars_file_must_be_a_mapping(self, tmp_path: Path):
+        vars_file = tmp_path / "vars.yaml"
+        vars_file.write_text("- first\n- second\n", encoding="utf-8")
+
+        with pytest.raises(StacksmithConfigError) as exc_info:
+            resolve_inputs(vars_file=vars_file)
+
+        message = str(exc_info.value)
+        assert f"Variables layer '{vars_file.resolve()}' is invalid" in message
+        assert "is not of type 'object'" in message
 
     def test_vars_files_layer_in_order(self, tmp_path: Path):
         base_values_file = tmp_path / "base.yaml"

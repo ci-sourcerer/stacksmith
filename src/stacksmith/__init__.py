@@ -1,5 +1,6 @@
 from .api import (
     generate_stack,
+    inspect_dependency_graph,
     lock_stack,
     prepare_ci_execution,
     redact_plan,
@@ -29,17 +30,19 @@ from .gitops.changes import (
     update_operation_rerun_token,
     validate_stack_document,
 )
-from .models import MergePolicy, MergeRule
+from .models import ExecutionPreview, MergePolicy, MergeRule
 from .testing import ComponentPropertyResult, StacksmithTestRunner
 
 __all__ = [
     "CommitPushResult",
     "ComponentPropertyResult",
     "DocumentChange",
+    "ExecutionPreview",
     "OperationRerunResult",
     "RepositoryStatus",
     "commit_and_push",
     "generate_stack",
+    "inspect_dependency_graph",
     "lock_stack",
     "MergePolicy",
     "MergeRule",

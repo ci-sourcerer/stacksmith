@@ -32,6 +32,15 @@ class InspectOutputFormat(StrEnum):
     JSON = auto()
 
 
+class ExecutionPreviewFormat(StrEnum):
+    """Supported output formats for dependency and execution previews."""
+
+    TABLE = auto()
+    JSON = auto()
+    DOT = auto()
+    MERMAID = auto()
+
+
 class MergeMode(StrEnum):
     """Supported merge strategies for layered stacksmith inputs."""
 

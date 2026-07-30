@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stacksmith.dev/schemas/test_manifest.layer.schema.json",
+  "title": "Stacksmith test manifest Layer",
+  "description": "Partial merge layer for Declarative YAML/JSON tests for managed Stacksmith policies and transforms.",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "localReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "local"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "gitReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "git"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repo": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(https?://|ssh://|git://|git@).+"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ref": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "httpReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "http"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^https?://"
+            }
+          }
+        }
+      }
+    },
+    "fileReference": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/localReference"
+        },
+        {
+          "$ref": "#/$defs/gitReference"
+        },
+        {
+          "$ref": "#/$defs/httpReference"
+        }
+      ]
+    },
+    "fixtureSpec": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "inline": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "script": {
+              "$ref": "#/$defs/fileReference"
+            }
+          }
+        }
+      ]
+    },
+    "fixtures": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "per-suite",
+            "per-test-case"
+          ],
+          "description": "Fixture execution mode. per-suite runs once for the generated module; per-test-case runs before and after every generated test."
+        },
+        "setup": {
+          "$ref": "#/$defs/fixtureSpec"
+        },
+        "teardown": {
+          "$ref": "#/$defs/fixtureSpec"
+        }
+      }
+    },
+    "variablePolicyTestCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {},
+        "expect": {
+          "enum": [
+            "pass",
+            "fail",
+            "PASS",
+            "FAIL"
+          ]
+        }
+      }
+    },
+    "planPolicyTestCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plan": {
+          "type": "object"
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/planTestResource"
+          }
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "expect": {
+          "enum": [
+            "pass",
+            "warn",
+            "fail",
+            "PASS",
+            "WARN",
+            "FAIL"
+          ]
+        }
+      },
+      "anyOf": [
+        {},
+        {}
+      ]
+    },
+    "planTestResource": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "address": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": [
+            "create"
+          ]
+        },
+        "change": {
+          "type": "object"
+        },
+        "before": {},
+        "after": {},
+        "after_unknown": {}
+      }
+    },
+    "componentPropertyExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "value": {},
+        "output_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "componentPropertyTestCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {},
+        "inputs": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "expect": {
+          "$ref": "#/$defs/componentPropertyExpectation"
+        }
+      }
+    }
+  },
+  "properties": {
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional human-readable description of this test suite."
+    },
+    "fixtures": {
+      "$ref": "#/$defs/fixtures"
+    },
+    "variable_policies": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/variablePolicyTestCase"
+        }
+      }
+    },
+    "plan_policies": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/planPolicyTestCase"
+        }
+      }
+    },
+    "component_properties": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/componentPropertyTestCase"
+          }
+        }
+      }
+    }
+  },
+  "x-stacksmith-schema-profile": "layer"
+}

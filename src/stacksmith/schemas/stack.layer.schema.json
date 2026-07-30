@@ -1,13 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://stacksmith.dev/schemas/stack.schema.json",
-  "title": "Stacksmith Stack Definition",
-  "description": "Defines a single infrastructure stack for stacksmith.",
+  "$id": "https://stacksmith.dev/schemas/stack.layer.schema.json",
+  "title": "Stacksmith Stack Definition Layer",
+  "description": "Partial merge layer for Defines a single infrastructure stack for stacksmith.",
   "type": "object",
-  "minProperties": 1,
-  "required": [
-    "name"
-  ],
   "additionalProperties": false,
   "properties": {
     "name": {
@@ -27,7 +23,6 @@
         "type": "string",
         "minLength": 1
       },
-      "uniqueItems": true,
       "description": "Arbitrary tags for filtering, CI targeting, and documentation. e.g. [platform, prod]"
     },
     "depends_on": {
@@ -36,7 +31,6 @@
         "type": "string",
         "minLength": 2
       },
-      "uniqueItems": true,
       "description": "List of stack names this stack depends on. All outputs from dependencies are passed as inputs."
     },
     "mock_outputs": {
@@ -46,10 +40,8 @@
     },
     "components": {
       "type": "object",
-      "minProperties": 1,
       "additionalProperties": {
         "type": "object",
-        "minProperties": 1,
         "additionalProperties": false,
         "properties": {
           "type": {
@@ -68,7 +60,6 @@
               "type": "string",
               "minLength": 1
             },
-            "uniqueItems": true,
             "description": "Optional tags used for tag-expression targeting."
           },
           "properties": {
@@ -76,10 +67,7 @@
             "additionalProperties": true,
             "description": "Properties passed as inputs to the module. Values may contain Jinja2 expressions and Terraform references to other component module outputs."
           }
-        },
-        "required": [
-          "type"
-        ]
+        }
       },
       "description": "Component definitions. Keys are component names, values specify type and properties."
     },
@@ -87,9 +75,6 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": [
-          "use"
-        ],
         "additionalProperties": false,
         "properties": {
           "use": {
@@ -117,12 +102,12 @@
               "type": "string",
               "minLength": 1
             },
-            "uniqueItems": true,
             "description": "Stack-local operations that must succeed before this operation runs."
           }
         }
       },
       "description": "Native operational actions requested by this stack."
     }
-  }
+  },
+  "x-stacksmith-schema-profile": "layer"
 }

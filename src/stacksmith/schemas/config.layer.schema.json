@@ -1,19 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://stacksmith.dev/schemas/config.schema.json",
-  "title": "Stacksmith Tool Configuration",
-  "description": "Defines backend, provider mappings, module mappings, OpenTofu version, and validation rules for stacksmith.",
+  "$id": "https://stacksmith.dev/schemas/config.layer.schema.json",
+  "title": "Stacksmith Tool Configuration Layer",
+  "description": "Partial merge layer for Defines backend, provider mappings, module mappings, OpenTofu version, and validation rules for stacksmith.",
   "type": "object",
-  "required": [
-    "backend"
-  ],
   "$defs": {
     "localReference": {
       "type": "object",
-      "required": [
-        "source",
-        "data"
-      ],
       "additionalProperties": false,
       "properties": {
         "source": {
@@ -22,9 +15,6 @@
         },
         "data": {
           "type": "object",
-          "required": [
-            "path"
-          ],
           "additionalProperties": false,
           "properties": {
             "path": {
@@ -38,10 +28,6 @@
     },
     "gitReference": {
       "type": "object",
-      "required": [
-        "source",
-        "data"
-      ],
       "additionalProperties": false,
       "properties": {
         "source": {
@@ -50,10 +36,6 @@
         },
         "data": {
           "type": "object",
-          "required": [
-            "repo",
-            "path"
-          ],
           "additionalProperties": false,
           "properties": {
             "repo": {
@@ -78,10 +60,6 @@
     },
     "httpReference": {
       "type": "object",
-      "required": [
-        "source",
-        "data"
-      ],
       "additionalProperties": false,
       "properties": {
         "source": {
@@ -90,9 +68,6 @@
         },
         "data": {
           "type": "object",
-          "required": [
-            "url"
-          ],
           "additionalProperties": false,
           "properties": {
             "url": {
@@ -107,10 +82,6 @@
     },
     "registryReference": {
       "type": "object",
-      "required": [
-        "source",
-        "data"
-      ],
       "additionalProperties": false,
       "properties": {
         "source": {
@@ -119,10 +90,6 @@
         },
         "data": {
           "type": "object",
-          "required": [
-            "address",
-            "version"
-          ],
           "additionalProperties": false,
           "properties": {
             "address": {
@@ -142,10 +109,6 @@
     },
     "moduleGitSourceReference": {
       "type": "object",
-      "required": [
-        "source",
-        "data"
-      ],
       "additionalProperties": false,
       "properties": {
         "source": {
@@ -154,10 +117,6 @@
         },
         "data": {
           "type": "object",
-          "required": [
-            "repo",
-            "ref"
-          ],
           "additionalProperties": false,
           "properties": {
             "repo": {
@@ -181,7 +140,7 @@
       }
     },
     "sourceReference": {
-      "oneOf": [
+      "anyOf": [
         {
           "$ref": "#/$defs/localReference"
         },
@@ -197,7 +156,7 @@
       ]
     },
     "fileReference": {
-      "oneOf": [
+      "anyOf": [
         {
           "$ref": "#/$defs/localReference"
         },
@@ -210,7 +169,7 @@
       ]
     },
     "moduleSourceReference": {
-      "oneOf": [
+      "anyOf": [
         {
           "$ref": "#/$defs/localReference"
         },
@@ -223,13 +182,9 @@
       ]
     },
     "moduleSourceTemplateReference": {
-      "oneOf": [
+      "anyOf": [
         {
           "type": "object",
-          "required": [
-            "source",
-            "data"
-          ],
           "additionalProperties": false,
           "properties": {
             "source": {
@@ -237,9 +192,6 @@
             },
             "data": {
               "type": "object",
-              "required": [
-                "path"
-              ],
               "additionalProperties": false,
               "properties": {
                 "path": {
@@ -252,10 +204,6 @@
         },
         {
           "type": "object",
-          "required": [
-            "source",
-            "data"
-          ],
           "additionalProperties": false,
           "properties": {
             "source": {
@@ -263,10 +211,6 @@
             },
             "data": {
               "type": "object",
-              "required": [
-                "address",
-                "version"
-              ],
               "additionalProperties": false,
               "properties": {
                 "address": {
@@ -283,10 +227,6 @@
         },
         {
           "type": "object",
-          "required": [
-            "source",
-            "data"
-          ],
           "additionalProperties": false,
           "properties": {
             "source": {
@@ -294,10 +234,6 @@
             },
             "data": {
               "type": "object",
-              "required": [
-                "repo",
-                "ref"
-              ],
               "additionalProperties": false,
               "properties": {
                 "repo": {
@@ -322,12 +258,9 @@
       "$ref": "#/$defs/registryReference"
     },
     "validationSpec": {
-      "oneOf": [
+      "anyOf": [
         {
           "type": "object",
-          "required": [
-            "inline"
-          ],
           "additionalProperties": false,
           "properties": {
             "description": {
@@ -344,9 +277,6 @@
         },
         {
           "type": "object",
-          "required": [
-            "script"
-          ],
           "additionalProperties": false,
           "properties": {
             "description": {
@@ -363,12 +293,9 @@
       ]
     },
     "transformSpec": {
-      "oneOf": [
+      "anyOf": [
         {
           "type": "object",
-          "required": [
-            "inline"
-          ],
           "additionalProperties": false,
           "properties": {
             "description": {
@@ -385,9 +312,6 @@
         },
         {
           "type": "object",
-          "required": [
-            "jinja"
-          ],
           "additionalProperties": false,
           "properties": {
             "description": {
@@ -404,9 +328,6 @@
         },
         {
           "type": "object",
-          "required": [
-            "script"
-          ],
           "additionalProperties": false,
           "properties": {
             "description": {
@@ -454,9 +375,6 @@
     },
     "defaultModuleMapping": {
       "type": "object",
-      "required": [
-        "source"
-      ],
       "additionalProperties": false,
       "properties": {
         "description": {
@@ -479,12 +397,10 @@
             "type": "string",
             "minLength": 1
           },
-          "uniqueItems": true,
           "description": "Optional module-level tags applied to components using the default mapping."
         },
         "providers": {
           "type": "object",
-          "minProperties": 1,
           "additionalProperties": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
@@ -522,13 +438,9 @@
       }
     },
     "operationDefinition": {
-      "oneOf": [
+      "anyOf": [
         {
           "type": "object",
-          "required": [
-            "runner",
-            "command"
-          ],
           "additionalProperties": false,
           "properties": {
             "runner": {
@@ -547,7 +459,6 @@
             },
             "command": {
               "type": "array",
-              "minItems": 1,
               "items": {
                 "type": "string",
                 "minLength": 1
@@ -574,13 +485,6 @@
         },
         {
           "type": "object",
-          "required": [
-            "runner",
-            "url",
-            "job_name",
-            "username_env",
-            "api_token_env"
-          ],
           "additionalProperties": false,
           "properties": {
             "runner": {
@@ -632,9 +536,6 @@
     },
     "planValidation": {
       "type": "object",
-      "required": [
-        "rule"
-      ],
       "additionalProperties": false,
       "properties": {
         "description": {
@@ -654,9 +555,6 @@
     },
     "providerInstance": {
       "type": "object",
-      "required": [
-        "config"
-      ],
       "additionalProperties": false,
       "properties": {
         "description": {
@@ -677,12 +575,9 @@
     },
     "providerConfigSpec": {
       "description": "Provider configuration specification as inline code, script reference, or static data.",
-      "oneOf": [
+      "anyOf": [
         {
           "type": "object",
-          "required": [
-            "inline"
-          ],
           "additionalProperties": false,
           "properties": {
             "inline": {
@@ -694,9 +589,6 @@
         },
         {
           "type": "object",
-          "required": [
-            "script"
-          ],
           "additionalProperties": false,
           "properties": {
             "script": {
@@ -707,14 +599,10 @@
         },
         {
           "type": "object",
-          "required": [
-            "data"
-          ],
           "additionalProperties": false,
           "properties": {
             "data": {
               "type": "object",
-              "minProperties": 1,
               "additionalProperties": true,
               "description": "Provider-specific YAML mapping such as region, assume_role, endpoints, and retry settings."
             }
@@ -724,10 +612,6 @@
     },
     "providerFamily": {
       "type": "object",
-      "required": [
-        "source",
-        "instances"
-      ],
       "additionalProperties": false,
       "properties": {
         "description": {
@@ -741,7 +625,6 @@
         },
         "instances": {
           "type": "object",
-          "minProperties": 1,
           "additionalProperties": {
             "$ref": "#/$defs/providerInstance"
           },
@@ -751,9 +634,6 @@
     },
     "toolDownloadSpec": {
       "type": "object",
-      "required": [
-        "url_template"
-      ],
       "additionalProperties": false,
       "properties": {
         "url_template": {
@@ -775,9 +655,6 @@
     },
     "toolBinaryConfig": {
       "type": "object",
-      "required": [
-        "version"
-      ],
       "additionalProperties": false,
       "properties": {
         "version": {
@@ -793,10 +670,6 @@
     },
     "toolsConfig": {
       "type": "object",
-      "required": [
-        "tofu",
-        "terragrunt"
-      ],
       "additionalProperties": false,
       "properties": {
         "tofu": {
@@ -821,9 +694,6 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": [
-          "type"
-        ],
         "additionalProperties": false,
         "properties": {
           "type": {
@@ -872,9 +742,6 @@
     "backend": {
       "description": "Backend configuration with explicit backend type and freeform backend-specific settings.",
       "type": "object",
-      "required": [
-        "type"
-      ],
       "properties": {
         "type": {
           "type": "string",
@@ -899,9 +766,6 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": [
-          "source"
-        ],
         "additionalProperties": false,
         "properties": {
           "description": {
@@ -924,12 +788,10 @@
               "type": "string",
               "minLength": 1
             },
-            "uniqueItems": true,
             "description": "Optional module-level tags used for tag-expression targeting."
           },
           "providers": {
             "type": "object",
-            "minProperties": 1,
             "additionalProperties": {
               "type": "string",
               "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
@@ -958,5 +820,6 @@
       },
       "description": "Approved native operations keyed by operation name. Stack definitions can only select an entry from this catalogue."
     }
-  }
+  },
+  "x-stacksmith-schema-profile": "layer"
 }

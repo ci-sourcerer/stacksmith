@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from jinja2.sandbox import SandboxedEnvironment
-from jsonschema import validate
 
 from ..enums import MergeMode
 from ..merging import AddressAwareMerger
@@ -16,11 +15,16 @@ from ..models import (
 )
 from ..templating import render_jinja_template_values
 from ..utils import get_current_git_repository, normalize_path_input
-from .files import load_json_schema, load_object_file, load_object_file_with_locations
+from .files import load_object_file, load_object_file_with_locations
 from .references import (
     resolve_config_local_references,
     resolve_runfile_local_references,
     resolve_test_manifest_local_references,
+)
+from .validation import (
+    build_validated_model,
+    validate_effective_document,
+    validate_fragment,
 )
 
 
@@ -69,6 +73,12 @@ def _merge_config_layers_with_locations(
     for config_path in config_paths:
         resolved_path = config_path.resolve()
         layer, locations = load_object_file_with_locations(resolved_path)
+        validate_fragment(
+            layer,
+            "config.schema.json",
+            "Stacksmith config",
+            resolved_path,
+        )
         normalized_layer = resolve_config_local_references(
             layer,
             resolved_path.parent,
@@ -104,8 +114,15 @@ def _merge_config_layers(
     merger = AddressAwareMerger(merge_mode, "config")
     for config_path in config_paths:
         resolved_path = config_path.resolve()
+        layer = load_object_file(resolved_path)
+        validate_fragment(
+            layer,
+            "config.schema.json",
+            "Stacksmith config",
+            resolved_path,
+        )
         normalized_layer = resolve_config_local_references(
-            load_object_file(resolved_path),
+            layer,
             resolved_path.parent,
         )
         merged = _merge_layer(merged, normalized_layer, merger)
@@ -139,8 +156,18 @@ def _dedupe_unique_ordered_list(items: list[Any]) -> list[Any]:
 
 
 def _build_stack(data: dict[str, Any], stack_paths: list[Path]) -> StackDefinition:
-    validate(instance=data, schema=load_json_schema("stack.schema.json"))
-    stack = StackDefinition.model_validate(data)
+    validate_effective_document(
+        data,
+        "stack.schema.json",
+        "stack definition",
+        stack_paths,
+    )
+    stack = build_validated_model(
+        StackDefinition,
+        data,
+        "stack definition",
+        stack_paths,
+    )
     stack.source_path = stack_paths[-1].resolve()
     return stack
 
@@ -173,13 +200,30 @@ def _merge_stack_layers(
             template_context=template_context,
             strict_template_context=strict_template_context,
         )
+        if strict_template_context:
+            validate_fragment(
+                layer,
+                "stack.schema.json",
+                "stack definition",
+                resolved_path,
+            )
         merged = _merge_layer(merged, layer, merger)
     return merged
 
 
 def _build_config(data: dict[str, Any], config_paths: list[Path]) -> ToolConfig:
-    validate(instance=data, schema=load_json_schema("config.schema.json"))
-    config = ToolConfig.model_validate(data)
+    validate_effective_document(
+        data,
+        "config.schema.json",
+        "Stacksmith config",
+        config_paths,
+    )
+    config = build_validated_model(
+        ToolConfig,
+        data,
+        "Stacksmith config",
+        config_paths,
+    )
     config.source_path = config_paths[-1].resolve()
     return config
 
@@ -285,7 +329,12 @@ def load_stack_metadata(
         if data.get(field_name) is None:
             data[field_name] = default
     data = _dedupe_unique_stack_fields(data)
-    stack = StackDefinition.model_validate(data)
+    stack = build_validated_model(
+        StackDefinition,
+        data,
+        "stack definition",
+        stack_paths,
+    )
     stack.source_path = stack_paths[-1].resolve()
     return stack
 
@@ -354,6 +403,12 @@ def _merge_runfile_layers(
             loaded_layer,
             resolved_path,
         )
+        validate_fragment(
+            rendered_layer,
+            "runfile.schema.json",
+            "runfile",
+            resolved_path,
+        )
         layer = resolve_runfile_local_references(
             rendered_layer,
             resolved_path.parent,
@@ -369,8 +424,15 @@ def _merge_test_manifest_layers(
     merger = AddressAwareMerger(merge_mode, "config")
     for manifest_path in manifest_paths:
         resolved_path = manifest_path.resolve()
+        loaded_layer = load_object_file(resolved_path)
+        validate_fragment(
+            loaded_layer,
+            "test_manifest.schema.json",
+            "test manifest",
+            resolved_path,
+        )
         layer = resolve_test_manifest_local_references(
-            load_object_file(resolved_path),
+            loaded_layer,
             resolved_path.parent,
         )
         merged = _merge_layer(merged, layer, merger)
@@ -380,8 +442,18 @@ def _merge_test_manifest_layers(
 def _build_test_manifest(
     data: dict[str, Any], manifest_paths: list[Path]
 ) -> StacksmithTestManifest:
-    validate(instance=data, schema=load_json_schema("test_manifest.schema.json"))
-    manifest = StacksmithTestManifest.model_validate(data)
+    validate_effective_document(
+        data,
+        "test_manifest.schema.json",
+        "test manifest",
+        manifest_paths,
+    )
+    manifest = build_validated_model(
+        StacksmithTestManifest,
+        data,
+        "test manifest",
+        manifest_paths,
+    )
     manifest.source_path = manifest_paths[-1].resolve()
     return manifest
 
@@ -467,5 +539,15 @@ def load_runfiles(
         empty_error="At least one runfile path must be provided",
     )
     data = _merge_runfile_layers(runfile_paths, merge_mode=merge_mode)
-    validate(instance=data, schema=load_json_schema("runfile.schema.json"))
-    return RunFile.model_validate(data)
+    validate_effective_document(
+        data,
+        "runfile.schema.json",
+        "runfile",
+        runfile_paths,
+    )
+    return build_validated_model(
+        RunFile,
+        data,
+        "runfile",
+        runfile_paths,
+    )

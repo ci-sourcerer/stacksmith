@@ -7,6 +7,7 @@ from ..utils import env_truthy, stacksmith_env
 from .args import (
     add_apply_args,
     add_common_args,
+    add_execution_preview_format_arg,
     add_lock_policy_args,
     add_lockfile_arg,
     add_plan_output_args,
@@ -146,6 +147,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip interactive approval for apply/destroy",
     )
+    run_all_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help=(
+            "Preview discovery, validation, targeting, and commands without "
+            "writing generated files or invoking Terragrunt."
+        ),
+    )
+    add_execution_preview_format_arg(
+        run_all_parser,
+        include_graph_formats=False,
+    )
 
     for action in TerragruntAction:
         action_parser = subparsers.add_parser(
@@ -231,6 +245,63 @@ def build_parser() -> argparse.ArgumentParser:
             "environments",
             help="Preview GitOps environment discovery and selection",
         )
+    )
+    graph_parser = info_subparsers.add_parser(
+        "graph",
+        help="Preview stack dependencies and execution order",
+    )
+    graph_parser.add_argument(
+        "--action",
+        choices=[
+            TerragruntAction.PLAN.value,
+            TerragruntAction.APPLY.value,
+            TerragruntAction.DESTROY.value,
+        ],
+        default=TerragruntAction.PLAN.value,
+        help="Terragrunt action used to compute commands and execution order.",
+    )
+    graph_parser.add_argument(
+        "--root",
+        type=path_type,
+        default=Path(stacksmith_env("ROOT", str(Path.cwd()))),
+        help="Root directory used to discover stacks.",
+    )
+    add_stack_arg(graph_parser, include_positional=False)
+    add_common_args(
+        graph_parser,
+        include_local_modules=False,
+        include_strict_validation=False,
+    )
+    add_target_selection_args(
+        graph_parser,
+        tag_help=(
+            "Select components by tag. Repeat to require multiple tags. "
+            "Supported for graph plan/apply/destroy previews."
+        ),
+        tag_expr_help=(
+            "JMESPath expression used to select resource targets. "
+            "Supported for graph plan/apply/destroy previews."
+        ),
+    )
+    graph_parser.add_argument(
+        "--include-tag",
+        action="append",
+        help="Include stacks that have this tag. Repeatable.",
+    )
+    graph_parser.add_argument(
+        "--exclude-tag",
+        action="append",
+        help="Exclude stacks that have this tag. Repeatable.",
+    )
+    graph_parser.add_argument(
+        "--destroy",
+        action="store_true",
+        default=False,
+        help="Preview a destroy plan when the selected action is plan.",
+    )
+    add_execution_preview_format_arg(
+        graph_parser,
+        include_graph_formats=True,
     )
 
     ci_subparsers = subparsers.add_parser(

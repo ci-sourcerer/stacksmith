@@ -5,6 +5,7 @@ from pathlib import Path
 from ..constants import DEFAULT_RUNFILE, DEFAULT_STACK_FILES
 from ..enums import (
     DiscoveryMode,
+    ExecutionPreviewFormat,
     InspectOutputFormat,
     MergeMode,
     ValidationReportFormat,
@@ -292,11 +293,18 @@ def add_target_selection_args(
         )
 
 
-def add_common_args(parser: argparse.ArgumentParser) -> None:
+def add_common_args(
+    parser: argparse.ArgumentParser,
+    *,
+    include_local_modules: bool = True,
+    include_strict_validation: bool = True,
+) -> None:
     """Add options shared by Stacksmith commands.
 
     Args:
         parser: Parser that receives the shared options.
+        include_local_modules: Whether to add local module source controls.
+        include_strict_validation: Whether to add strict plan validation controls.
 
     Returns:
         None.
@@ -389,33 +397,40 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
             "By default, CAS is enabled in Terragrunt >= 1.1.0."
         ),
     )
-    parser.add_argument(
-        "--strict-validation-warnings",
-        action="store_true",
-        default=False,
-        help=(
-            "Treat warning outcomes from plan validations as failures. "
-            "This only affects plan and run-all plan commands."
-        ),
-    )
-    _use_local_default = env_truthy("ONLY_USE_LOCAL_MODULES", prefix="STACKSMITH_")
-    local_modules_group = parser.add_mutually_exclusive_group()
-    local_modules_group.add_argument(
-        "--use-local-modules",
-        action="store_true",
-        default=_use_local_default,
-        dest="use_local_modules",
-        help=(
-            "Rewrite module sources to local vendored paths instead of remote URLs. "
-            "Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. "
-        ),
-    )
-    local_modules_group.add_argument(
-        "--no-local-modules",
-        action="store_false",
-        dest="use_local_modules",
-        help="Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set.",
-    )
+    if include_strict_validation:
+        parser.add_argument(
+            "--strict-validation-warnings",
+            action="store_true",
+            default=False,
+            help=(
+                "Treat warning outcomes from plan validations as failures. "
+                "This only affects plan and run-all plan commands."
+            ),
+        )
+    if include_local_modules:
+        local_modules_group = parser.add_mutually_exclusive_group()
+        local_modules_group.add_argument(
+            "--use-local-modules",
+            action="store_true",
+            default=env_truthy(
+                "ONLY_USE_LOCAL_MODULES",
+                prefix="STACKSMITH_",
+            ),
+            dest="use_local_modules",
+            help=(
+                "Rewrite module sources to local vendored paths instead of remote URLs. "
+                "Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. "
+            ),
+        )
+        local_modules_group.add_argument(
+            "--no-local-modules",
+            action="store_false",
+            dest="use_local_modules",
+            help=(
+                "Disable local module rewriting even if "
+                "STACKSMITH_ONLY_USE_LOCAL_MODULES is set."
+            ),
+        )
     _add_logging_verbosity_args(parser)
 
 
@@ -436,6 +451,39 @@ def add_validation_report_format_arg(parser: argparse.ArgumentParser) -> None:
             "Format for machine-readable validation reports emitted by "
             "validate, plan, and run-all plan."
         ),
+    )
+
+
+def add_execution_preview_format_arg(
+    parser: argparse.ArgumentParser,
+    *,
+    include_graph_formats: bool,
+) -> None:
+    """Add an execution-preview output format option.
+
+    Args:
+        parser: Parser that receives the output format option.
+        include_graph_formats: Whether DOT and Mermaid formats are supported.
+
+    Returns:
+        None.
+    """
+    choices = [
+        ExecutionPreviewFormat.TABLE.value,
+        ExecutionPreviewFormat.JSON.value,
+    ]
+    if include_graph_formats:
+        choices.extend(
+            (
+                ExecutionPreviewFormat.DOT.value,
+                ExecutionPreviewFormat.MERMAID.value,
+            )
+        )
+    parser.add_argument(
+        "--format",
+        choices=choices,
+        default=ExecutionPreviewFormat.TABLE.value,
+        help="Output format for dependency and execution preview data.",
     )
 
 

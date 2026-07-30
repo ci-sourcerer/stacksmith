@@ -79,7 +79,7 @@ The `app` component is tagged with `web`, so you can combine stack-level and com
 
 ## Shared config repo
 
-The managed config file is [`shared-config-repo/stacksmith-config.yaml`](shared-config-repo/stacksmith-config.yaml).
+The effective managed config combines [`shared-config-repo/stacksmith-base-config.yaml`](shared-config-repo/stacksmith-base-config.yaml) and [`shared-config-repo/stacksmith-config.yaml`](shared-config-repo/stacksmith-config.yaml), in that order.
 
 The config demonstrates `default_module_mapping` with the convention `https://github.com/my-org/{{ component.type | replace("-", "_") }}`. Its explicit mappings keep every bundled component runnable and take precedence over this placeholder fallback.
 
@@ -126,6 +126,7 @@ Run these commands from the repository root.
 ```bash
 STACK_FILE="examples/stack-repo/stack.yaml"
 VARS_FILE="examples/stack-repo/vars.dev.yaml"
+BASE_CONFIG_FILE="examples/shared-config-repo/stacksmith-base-config.yaml"
 CONFIG_FILE="examples/shared-config-repo/stacksmith-config.yaml"
 SHARED_VARS_FILE=<path-to-shared-vars-file>
 ```
@@ -134,6 +135,7 @@ Validate one stack.
 
 ```bash
 stacksmith validate "$STACK_FILE" \
+    --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE" \
     --vars "$VARS_FILE"
 ```
@@ -142,6 +144,7 @@ Generate OpenTofu and Terragrunt JSON.
 
 ```bash
 stacksmith generate "$STACK_FILE" \
+    --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE" \
     --vars "$VARS_FILE"
 ```
@@ -150,6 +153,7 @@ Run a plan with plan validations enabled and read its validation summary.
 
 ```shell
 stacksmith plan "$STACK_FILE" \
+    --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE" \
     --vars "$VARS_FILE" \
     | jq '.summary'
@@ -161,6 +165,7 @@ Treat warnings as failures in strict mode.
 
 ```bash
 stacksmith plan "$STACK_FILE" \
+    --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE" \
     --vars "$VARS_FILE" \
     --strict-validation-warnings
@@ -170,6 +175,7 @@ Write the machine-readable JSON report to a file.
 
 ```bash
 stacksmith plan "$STACK_FILE" \
+    --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE" \
     --vars "$VARS_FILE" \
     --validation-report-format json \
@@ -180,6 +186,7 @@ Layer shared defaults from another repo ahead of stack-local values.
 
 ```bash
 stacksmith plan "$STACK_FILE" \
+    --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE" \
     --vars "$SHARED_VARS_FILE" \
     --vars "$VARS_FILE"
@@ -190,6 +197,7 @@ Run `run-all` using the stack repo root.
 ```bash
 stacksmith run-all plan \
     --root examples/stack-repo \
+    --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE" \
     --vars "$VARS_FILE"
 ```
@@ -199,6 +207,7 @@ Run a targeted plan for web-tagged components only when the stack has the `prod`
 ```bash
 stacksmith run-all plan \
     --root examples/stack-repo \
+    --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE" \
     --vars "$VARS_FILE" \
     --tag-expr "contains(stack_tags, 'prod') && tag.web"
@@ -213,6 +222,7 @@ Generate or intentionally update a lockfile for the example stack.
 ```bash
 cd examples/stack-repo
 stacksmith lock stack.yaml \
+  --config ../shared-config-repo/stacksmith-base-config.yaml \
   --config ../shared-config-repo/stacksmith-config.yaml \
   --vars vars.dev.yaml
 ```
@@ -221,6 +231,7 @@ Verify the existing lockfile matches resolved inputs:
 
 ```bash
 stacksmith lock stack.yaml \
+  --config ../shared-config-repo/stacksmith-base-config.yaml \
   --config ../shared-config-repo/stacksmith-config.yaml \
   --vars vars.dev.yaml \
   --check
@@ -230,15 +241,18 @@ Use it for generation and plan/apply runs:
 
 ```bash
 stacksmith generate stack.yaml \
+  --config ../shared-config-repo/stacksmith-base-config.yaml \
   --config ../shared-config-repo/stacksmith-config.yaml \
   --vars vars.dev.yaml
 
 stacksmith plan stack.yaml \
+  --config ../shared-config-repo/stacksmith-base-config.yaml \
   --config ../shared-config-repo/stacksmith-config.yaml \
   --vars vars.dev.yaml \
   --locked
 
 stacksmith apply stack.yaml \
+  --config ../shared-config-repo/stacksmith-base-config.yaml \
   --config ../shared-config-repo/stacksmith-config.yaml \
   --vars vars.dev.yaml \
   --locked
@@ -248,6 +262,7 @@ If the artifact cache is already warmed, add `--offline` to require local-only r
 
 ```bash
 stacksmith generate stack.yaml \
+  --config ../shared-config-repo/stacksmith-base-config.yaml \
   --config ../shared-config-repo/stacksmith-config.yaml \
   --vars vars.dev.yaml \
   --locked --offline
@@ -257,14 +272,14 @@ Unlocked runtime calls warn by default. Suppress that warning when the calling e
 
 ```bash
 export STACKSMITH_WARN_ON_UNLOCKED=0
-stacksmith plan stack.yaml --config ../shared-config-repo/stacksmith-config.yaml --vars vars.dev.yaml
+stacksmith plan stack.yaml --config ../shared-config-repo/stacksmith-base-config.yaml --config ../shared-config-repo/stacksmith-config.yaml --vars vars.dev.yaml
 ```
 
 Enable strict lockfile requirement for CI or gated environments:
 
 ```bash
 export STACKSMITH_REQUIRE_LOCKFILE=1
-stacksmith plan stack.yaml --config ../shared-config-repo/stacksmith-config.yaml --vars vars.dev.yaml --locked
+stacksmith plan stack.yaml --config ../shared-config-repo/stacksmith-base-config.yaml --config ../shared-config-repo/stacksmith-config.yaml --vars vars.dev.yaml --locked
 ```
 
 ## Additional commands and options
@@ -273,6 +288,7 @@ Initialize providers and backend for one stack.
 
 ```bash
 stacksmith init "$STACK_FILE" \
+    --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE" \
     --vars "$VARS_FILE"
 ```
@@ -281,6 +297,7 @@ Apply one stack.
 
 ```bash
 stacksmith apply "$STACK_FILE" \
+    --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE" \
     --vars "$VARS_FILE"
 ```
@@ -289,6 +306,7 @@ Destroy one stack.
 
 ```bash
 stacksmith destroy "$STACK_FILE" \
+    --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE" \
     --vars "$VARS_FILE"
 ```
@@ -297,6 +315,7 @@ Inspect configured module mappings.
 
 ```bash
 stacksmith info inspect \
+    --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE"
 ```
 
@@ -304,6 +323,7 @@ Show cache and module diagnostics for one stack.
 
 ```bash
 stacksmith info diagnose "$STACK_FILE" \
+    --config "$BASE_CONFIG_FILE" \
     --config "$CONFIG_FILE"
 ```
 
