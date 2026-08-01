@@ -59,7 +59,79 @@ For example, you can compute values from the stack name like `{{ stack.name }}-{
 
 Components in the same stack consume managed public outputs with ordinary Jinja syntax. The managed config maps each public output to an underlying OpenTofu module output and may transform that reference, so stack authors do not need to know the selected module's interface or repeat adapter logic. For example, `{{ components.app_server.private_ip }}` passes the public `private_ip` output from `app_server` to another component property. Stacksmith binds the deferred value to a native OpenTofu reference during generation, preserving dependency inference.
 
-Component outputs may be interpolated into component properties, stack output values, and operation inputs. They cannot be used in Jinja loops, conditionals, filters, calls, or calculations because their values are not known until OpenTofu evaluates the generated dependency graph. Component names containing hyphens use bracket notation, such as `{{ components["app-server"].private_ip }}`.
+Component outputs may be interpolated into component properties, stack output values, and operation inputs. They cannot drive Jinja loops, conditionals, filters, calls, or calculations because their values are not known until OpenTofu evaluates the generated dependency graph. A Jinja loop may still iterate over known inputs and emit direct component output references from those known keys. Component names containing hyphens use bracket notation, such as `{{ components["app-server"].private_ip }}`.
+
+#### Consuming collection-valued component outputs
+
+A component output may be a complete list, map, or object. Stacksmith can pass that collection to another component as one native OpenTofu value without knowing its contents during generation. The receiving module can then use ordinary OpenTofu expressions or `for_each` to create resources or invoke child modules for the collection. This usually removes the need for a Stacksmith-level `for_each`.
+
+For example, an application module can expose endpoints keyed by stable service names, while a DNS component receives the complete map.
+
+```yaml
+components:
+  services:
+    type: application_services
+
+  dns:
+    type: route53_records
+    properties:
+      zone_id: Z123456
+      zone_name: example.com
+      endpoints: "{{ components.services.endpoints }}"
+```
+
+The module selected for `route53_records` can iterate over that input itself.
+
+```hcl
+variable "endpoints" {
+  description = "Service endpoints keyed by stable service name."
+  type = map(object({
+    ip = string
+  }))
+}
+
+resource "aws_route53_record" "this" {
+  for_each = var.endpoints
+
+  zone_id = var.zone_id
+  name    = "${each.key}.${var.zone_name}"
+  type    = "A"
+  ttl     = 300
+  records = [each.value.ip]
+}
+```
+
+The producing module should preserve stable, configuration-derived keys while allowing the values to remain unknown until apply.
+
+```hcl
+output "endpoints" {
+  description = "Service endpoints keyed by configured service name."
+  value = {
+    for name, instance in aws_instance.this :
+    name => {
+      ip = instance.private_ip
+    }
+  }
+}
+```
+
+OpenTofu can plan the downstream `for_each` because the service names identify the instances even though their IP addresses are not yet known. The same pattern works when the receiving module calls another module with `for_each` instead of declaring resources directly.
+
+Neither a module, a transform, nor a hypothetical Stacksmith-level `for_each` can create same-plan instances when the collection's keys are themselves unknown until apply. For example, a map keyed by generated IP addresses cannot drive `for_each` during the plan that creates those addresses.
+
+```hcl
+output "instances_by_ip" {
+  description = "Instance identifiers keyed by generated IP address."
+  value = {
+    for instance in values(aws_instance.this) :
+    instance.private_ip => instance.id
+  }
+}
+```
+
+Stacksmith transforms run during configuration generation and receive a deferred expression such as `${module.services.endpoints}`, not the eventual map. They may wrap or reshape that expression symbolically, but they cannot inspect its apply-time entries or bypass OpenTofu's requirement that [`for_each` keys be known during planning](https://opentofu.org/docs/language/meta-arguments/for_each/). Model such relationships with stable configured keys and unknown values, pass the whole collection to a collection-aware module or resource, use a fixed set of known slots, or introduce a separate apply boundary when the identities are genuinely discovered at runtime.
+
+A future Stacksmith-level `for_each` could improve authoring convenience, root module addresses, and instance-level targeting, but it would not unlock iteration over unknown output keys. Collection-aware modules are therefore the preferred way to consume repeated or structured component outputs. If you do not want to change a module to be collection-aware, you can create a thin wrapper module that accepts the collection and calls the original module with `for_each`.
 
 #### Generating components with Jinja
 
