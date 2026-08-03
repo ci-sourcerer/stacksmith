@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.gitops.changes import (
     commit_and_push,

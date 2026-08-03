@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from stacksmith.vendor import (
     DEFAULT_VENDOR_DIR,
     MANIFEST_FILENAME,

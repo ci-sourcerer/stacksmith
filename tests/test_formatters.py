@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.formatters import (
     compact_json,

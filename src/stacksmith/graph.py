@@ -54,8 +54,7 @@ def render_execution_preview_dot(preview: ExecutionPreview) -> str:
                 attributes.append(f"label={json.dumps(edge_label)}")
             suffix = f" [{', '.join(attributes)}]" if attributes else ""
             lines.append(
-                f"  {json.dumps(dependency.name)} -> "
-                f"{json.dumps(stack.name)}{suffix};"
+                f"  {json.dumps(dependency.name)} -> {json.dumps(stack.name)}{suffix};"
             )
     lines.append("}")
     return "\n".join(lines)

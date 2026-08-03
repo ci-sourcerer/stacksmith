@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.loading import (
     load_config,
@@ -355,7 +356,7 @@ class TestLoadStack:
     def test_required_name_can_be_supplied_by_later_stack_layer(self, tmp_path: Path):
         base_file = tmp_path / "base-stack.yaml"
         base_file.write_text(
-            "components:\n" "  bucket:\n" "    type: aws_s3_bucket\n",
+            "components:\n  bucket:\n    type: aws_s3_bucket\n",
             encoding="utf-8",
         )
         overlay_file = tmp_path / "overlay-stack.yaml"
@@ -369,7 +370,7 @@ class TestLoadStack:
     def test_missing_name_after_stack_merge_has_actionable_error(self, tmp_path: Path):
         stack_file = tmp_path / "stack.yaml"
         stack_file.write_text(
-            "components:\n" "  bucket:\n" "    type: aws_s3_bucket\n",
+            "components:\n  bucket:\n    type: aws_s3_bucket\n",
             encoding="utf-8",
         )
 
@@ -661,7 +662,7 @@ vars:
     ):
         runfile = tmp_path / "stacksmith.yaml"
         runfile.write_text(
-            "stacks:\n" "  - source: local\n",
+            "stacks:\n  - source: local\n",
             encoding="utf-8",
         )
 
@@ -844,7 +845,7 @@ class TestLoadConfig:
     ):
         config_file = tmp_path / "stacksmith-config.yaml"
         config_file.write_text(
-            "backend:\n" "  type: local\n",
+            "backend:\n  type: local\n",
             encoding="utf-8",
         )
 
@@ -1071,9 +1072,7 @@ class TestLoadConfig:
     def test_module_tags_loaded(self, tmp_path: Path):
         config_file = tmp_path / "stacksmith-config.yaml"
         config_file.write_text(
-            _s3_config_yaml(
-                module_body=("    tags:\n" "      - prod\n" "      - shared\n")
-            ),
+            _s3_config_yaml(module_body=("    tags:\n      - prod\n      - shared\n")),
             encoding="utf-8",
         )
 
@@ -1134,7 +1133,7 @@ class TestLoadConfig:
             _s3_config_yaml(
                 backend_bucket="base-bucket",
                 module_body=(
-                    "    properties:\n" "      acl:\n" "        mapped_to: bucket_acl\n"
+                    "    properties:\n      acl:\n        mapped_to: bucket_acl\n"
                 ),
             ),
             encoding="utf-8",
@@ -1213,7 +1212,7 @@ class TestLoadConfig:
             _s3_config_yaml(
                 backend_bucket="base-bucket",
                 module_body=(
-                    "    properties:\n" "      acl:\n" "        mapped_to: bucket_acl\n"
+                    "    properties:\n      acl:\n        mapped_to: bucket_acl\n"
                 ),
                 extra_body=(
                     "plan_validations:\n"
@@ -1235,9 +1234,7 @@ class TestLoadConfig:
                     "        transform:\n"
                     "          inline: 'def transform(value, **context): return value.upper()'\n"
                 ),
-                extra_body=(
-                    "plan_validations:\n" "  no_destroy:\n" "    enabled: false\n"
-                ),
+                extra_body=("plan_validations:\n  no_destroy:\n    enabled: false\n"),
             ),
             encoding="utf-8",
         )
@@ -1263,7 +1260,7 @@ class TestLoadConfig:
         base.write_text(
             _s3_config_yaml(
                 backend_bucket="base-bucket",
-                module_body=("    tags:\n" "      - base\n" "      - shared\n"),
+                module_body=("    tags:\n      - base\n      - shared\n"),
             ),
             encoding="utf-8",
         )
@@ -1301,7 +1298,7 @@ class TestLoadConfig:
         base = tmp_path / "base.yaml"
         base.write_text(
             _s3_config_yaml(
-                module_body=("    tags:\n" "      - base\n" "      - shared\n"),
+                module_body=("    tags:\n      - base\n      - shared\n"),
             ),
             encoding="utf-8",
         )
@@ -1310,10 +1307,7 @@ class TestLoadConfig:
             _provider_override_yaml(
                 version="= 5.91.0",
                 module_body=(
-                    "module_mappings:\n"
-                    "  aws_s3_bucket:\n"
-                    "    tags:\n"
-                    "      - override\n"
+                    "module_mappings:\n  aws_s3_bucket:\n    tags:\n      - override\n"
                 ),
             ),
             encoding="utf-8",
@@ -1408,7 +1402,7 @@ class TestLoadTestManifest:
         fixture_script = tmp_path / "scripts" / "setup.py"
         fixture_script.parent.mkdir(parents=True)
         fixture_script.write_text(
-            "def run(state):\n" "    state['ready'] = True\n",
+            "def run(state):\n    state['ready'] = True\n",
             encoding="utf-8",
         )
         manifest_file.write_text(

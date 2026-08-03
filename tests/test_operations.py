@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from stacksmith import api
 from stacksmith.generation import generate_tf_json, write_tf_json
 from stacksmith.loading import load_stack

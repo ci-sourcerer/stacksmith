@@ -696,8 +696,7 @@ def _stack_filter_reason(
     exclude = set(exclude_tags or [])
     if include and not include.intersection(stack.tags):
         return (
-            "Did not match any requested include tag "
-            f"({', '.join(sorted(include))})."
+            f"Did not match any requested include tag ({', '.join(sorted(include))})."
         )
     if matches := sorted(exclude.intersection(stack.tags)):
         return f"Matched excluded stack tags ({', '.join(matches)})."

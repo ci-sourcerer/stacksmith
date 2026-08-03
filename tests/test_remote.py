@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from stacksmith.models import GitReference, RemoteAuthEntry
 from stacksmith.remote import (
     apply_terragrunt_auth_env,

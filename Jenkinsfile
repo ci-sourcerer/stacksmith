@@ -127,6 +127,76 @@ int executeStacksmith() {
     )
 }
 
+void setManifestCommand(String command, boolean failOnChanges) {
+    def manifest = readJSON(file: env.CI_MANIFEST_FILE)
+    manifest.command = command
+    manifest.fail_on_changes = failOnChanges
+    writeJSON(file: env.CI_MANIFEST_FILE, json: manifest, pretty: 2)
+}
+
+void executeStacksmithMatrix(
+    String matrixJson,
+    String workdir,
+    String command
+) {
+    def matrix = readJSON(text: matrixJson)
+    Map<String, Closure> branches = [:]
+
+    for (row in matrix) {
+        def environment = row.environment
+        def artifactDir = "${workdir}/.stacksmith-ci/${environment}"
+        def archiveArtifactDir = artifactDir.replaceFirst('^\\./', '')
+
+        branches[environment] = {
+            Map<String, Object> parsedCredentials = [:]
+            def credentialsJson = (env.STACKSMITH_CREDENTIALS_JSON ?: '').toString().trim()
+            if (credentialsJson) {
+                try {
+                    parsedCredentials = readJSON(text: credentialsJson)
+                } catch (Exception e) {
+                    error("Invalid STACKSMITH_CREDENTIALS_JSON: ${e.message}")
+                }
+            }
+
+            List<Map<String, Object>> credentialBindings = buildCredentialBindings(parsedCredentials)
+
+            withEnv([
+                "ENVIRONMENT=${environment}",
+                "VALIDATION_REPORT_PATH=${artifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
+            ]) {
+                int status = credentialBindings
+                    ? withCredentials(credentialBindings) { executeStacksmith() }
+                    : executeStacksmith()
+
+                if (command == 'plan' && parseBoolean(env.STACKSMITH_UPLOAD_ARTIFACTS ?: 'true')) {
+                    List<String> artifacts = []
+
+                    if (fileExists("${artifactDir}/plan.json")) {
+                        artifacts << "${archiveArtifactDir}/plan.json"
+                    }
+
+                    if (fileExists("${artifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}")) {
+                        artifacts << "${archiveArtifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}"
+                    }
+
+                    if (artifacts) {
+                        archiveArtifacts(artifacts: artifacts.join(','))
+                    }
+                }
+
+                return status
+            }
+        }
+    }
+
+    def results = parallel(branches)
+    def failedEnvironments = results.findAll { environment, status -> status != 0 }.keySet()
+
+    if (failedEnvironments) {
+        error("Stacksmith ${command} failed in: ${failedEnvironments.join(', ')}")
+    }
+}
+
 withStacksmithAgent {
     try {
         ansiColor('xterm') {
@@ -207,6 +277,20 @@ withStacksmithAgent {
                     echo("Selected environments: ${env.SELECTED_ENVIRONMENTS}")
                 }
 
+                stage('Plan Stacksmith changes') {
+                    if (env.COMMAND == 'apply' && env.SELECTED_ENVIRONMENTS) {
+                        setManifestCommand('plan', false)
+                        executeStacksmithMatrix(
+                            env.SELECTION_MATRIX,
+                            params.WORKDIR,
+                            'plan'
+                        )
+                        setManifestCommand('apply', params.FAIL_ON_CHANGES)
+                    } else {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                    }
+                }
+
                 stage('Approve execution') {
                     if (env.COMMAND in ['apply', 'operation'] && env.SELECTED_ENVIRONMENTS) {
                         input(
@@ -228,64 +312,11 @@ withStacksmithAgent {
                         return
                     }
 
-                    def matrix = readJSON(text: env.SELECTION_MATRIX)
-                    Map<String, Closure> branches = [:]
-
-                    for (row in matrix) {
-                        def environment = row.environment
-                        def artifactDir = "${params.WORKDIR}/.stacksmith-ci/${environment}"
-                        def archiveArtifactDir = artifactDir.replaceFirst('^\\./', '')
-
-                        branches[environment] = {
-                                Map<String, Object> parsedCredentials = [:]
-                                def credentialsJson = (env.STACKSMITH_CREDENTIALS_JSON ?: '').toString().trim()
-                                if (credentialsJson) {
-                                    try {
-                                        parsedCredentials = readJSON(text: credentialsJson)
-                                    } catch (Exception e) {
-                                        error("Invalid STACKSMITH_CREDENTIALS_JSON: ${e.message}")
-                                    }
-                                }
-
-                                List<Map<String, Object>> credentialBindings = buildCredentialBindings(parsedCredentials)
-
-                                withEnv([
-                                    "ENVIRONMENT=${environment}",
-                                    "VALIDATION_REPORT_PATH=${artifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
-                                ]) {
-                                    int status = credentialBindings
-                                        ? withCredentials(credentialBindings) { executeStacksmith() }
-                                        : executeStacksmith()
-
-                                    if (env.COMMAND == 'plan' && parseBoolean(env.STACKSMITH_UPLOAD_ARTIFACTS ?: 'true')) {
-                                        List<String> artifacts = []
-
-                                        if (fileExists("${artifactDir}/plan.json")) {
-                                            artifacts << "${archiveArtifactDir}/plan.json"
-                                        }
-
-                                        if (fileExists("${artifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}")) {
-                                            artifacts << "${archiveArtifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}"
-                                        }
-
-                                        if (artifacts) {
-                                            archiveArtifacts(
-                                                artifacts: artifacts.join(',')
-                                            )
-                                        }
-                                    }
-
-                                    return status
-                                }
-                        }
-                    }
-
-                    def results = parallel(branches)
-                    def failedEnvironments = results.findAll { environment, status -> status != 0 }.keySet()
-
-                    if (failedEnvironments) {
-                        error("Stacksmith failed in: ${failedEnvironments.join(', ')}")
-                    }
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        params.WORKDIR,
+                        env.COMMAND
+                    )
                 }
 
             }

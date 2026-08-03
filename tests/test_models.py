@@ -1,4 +1,5 @@
 import pytest
+
 from stacksmith.models import ModuleMapping, ProviderConfigSpec, ToolConfig
 
 

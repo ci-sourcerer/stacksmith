@@ -6,6 +6,7 @@ import pytest
 import yaml
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel
+
 from stacksmith.loading.validation import load_fragment_schema
 from stacksmith.models import (
     BackendConfig,

@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from ..enums import DiscoveryMode, ValidationReportFormat
+from ..enums import ValidationReportFormat
 from ..gitops import evaluate_environment_selection
 from .contracts import (
     CiExecutionManifest,
@@ -65,43 +65,16 @@ def inspect_environments(
     Returns:
         Structured environment-selection payload.
     """
-    raw_changed_paths = list(changed_paths) if changed_paths is not None else None
-
-    if discovery_mode == "auto":
-        last_error: ValueError | None = None
-        for candidate_mode in (
-            DiscoveryMode.FOLDERS.value,
-            DiscoveryMode.ENV_FILES.value,
-            DiscoveryMode.FLAT_FILES.value,
-        ):
-            try:
-                selection = evaluate_environment_selection(
-                    gitops_root=gitops_root,
-                    discovery_mode=candidate_mode,
-                    manual_environments=environments,
-                    event_name=event_name,
-                    changed_paths=raw_changed_paths,
-                    base_ref=base_ref,
-                    before=before,
-                    after=after,
-                )
-            except ValueError as exc:
-                last_error = exc
-                continue
-            break
-        else:
-            raise last_error or ValueError("Unable to discover environments.")
-    else:
-        selection = evaluate_environment_selection(
-            gitops_root=gitops_root,
-            discovery_mode=discovery_mode,
-            manual_environments=environments,
-            event_name=event_name,
-            changed_paths=raw_changed_paths,
-            base_ref=base_ref,
-            before=before,
-            after=after,
-        )
+    selection = evaluate_environment_selection(
+        gitops_root=gitops_root,
+        discovery_mode=discovery_mode,
+        manual_environments=environments,
+        event_name=event_name,
+        changed_paths=list(changed_paths) if changed_paths is not None else None,
+        base_ref=base_ref,
+        before=before,
+        after=after,
+    )
     return {
         "gitops_root": selection.gitops_root,
         "discovery_mode": selection.discovery_mode,

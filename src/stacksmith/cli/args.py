@@ -169,7 +169,7 @@ def _add_logging_verbosity_args(parser: argparse.ArgumentParser) -> None:
         "--debug",
         action="store_true",
         default=False,
-        help=("Enable debug logging. " "Can also be enabled via STACKSMITH_DEBUG=1."),
+        help=("Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1."),
     )
     verbosity_group.add_argument(
         "-q",

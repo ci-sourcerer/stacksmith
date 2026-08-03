@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from stacksmith.gitops import (
     discover_environments,
     evaluate_environment_selection,

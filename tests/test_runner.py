@@ -296,8 +296,10 @@ def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path)
         runner,
         "subprocess",
         SimpleNamespace(
-            run=lambda cmd, **kwargs: _supported_tool_version_result(cmd)
-            or FakeVersionResult(returncode=0, stdout="terragrunt plan simulated")
+            run=lambda cmd, **kwargs: (
+                _supported_tool_version_result(cmd)
+                or FakeVersionResult(returncode=0, stdout="terragrunt plan simulated")
+            )
         ),
     )
     runner._TOOL_VERSION_CHECKED = False

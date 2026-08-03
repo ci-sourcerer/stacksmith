@@ -163,8 +163,7 @@ class StacksmithTestGenerator:
                         f"{policy_name!r}, plan_payload)"
                     )
                 lines.append(
-                    "    assert outcome == "
-                    f"PlanValidationOutcome.{case.expect.upper()}"
+                    f"    assert outcome == PlanValidationOutcome.{case.expect.upper()}"
                 )
                 lines.append("")
                 count += 1

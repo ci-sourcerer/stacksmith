@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from stacksmith.exceptions import (
     StacksmithConfigError,
     StacksmithTransformError,
@@ -206,7 +207,8 @@ class TestGenerateTfJson:
                             data:
                                 repo: "https://github.com/org/terraform-aws-ec2.git"
                                 ref: "2.0.0"
-                """).strip() + "\n",
+                """).strip()
+            + "\n",
             encoding="utf-8",
         )
         config = load_config(config_path)
@@ -271,7 +273,8 @@ class TestGenerateTfJson:
                                             data:
                                                 repo: "https://github.com/org/terraform-aws-ec2.git"
                                                 ref: "2.0.0"
-                                """).strip() + "\n",
+                                """).strip()
+            + "\n",
             encoding="utf-8",
         )
 
@@ -331,7 +334,8 @@ class TestGenerateTfJson:
                                             data:
                                                 repo: "https://github.com/org/terraform-aws-ec2.git"
                                                 ref: "2.0.0"
-                                """).strip() + "\n",
+                                """).strip()
+            + "\n",
             encoding="utf-8",
         )
 
@@ -394,7 +398,8 @@ class TestGenerateTfJson:
                                             data:
                                                 repo: "https://github.com/org/terraform-aws-ec2.git"
                                                 ref: "2.0.0"
-                                """).strip() + "\n",
+                                """).strip()
+            + "\n",
             encoding="utf-8",
         )
 

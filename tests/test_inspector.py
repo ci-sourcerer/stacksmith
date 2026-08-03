@@ -3,6 +3,7 @@ import textwrap
 from unittest.mock import patch
 
 import pytest
+
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.inspector import (
     ComponentTypeInfo,
@@ -290,7 +291,8 @@ def test_inspect_component_type_transform_script_path_is_relative(tmp_path):
                                     source: local
                                     data:
                                         path: scripts/transform_bucket_name.py
-            """).strip() + "\n",
+            """).strip()
+        + "\n",
         encoding="utf-8",
     )
     config, locations = load_config_with_locations([config_path])
@@ -352,7 +354,8 @@ def test_inspect_component_type_policy_metadata_renders(tmp_path):
                                     source: local
                                     data:
                                         path: scripts/policy.py
-            """).strip() + "\n",
+            """).strip()
+        + "\n",
         encoding="utf-8",
     )
     config, locations = load_config_with_locations([config_path])
@@ -413,7 +416,8 @@ def test_load_config_with_locations_reports_validation_block(tmp_path):
                                 inline: |
                                     def validate(value):
                                         return True
-            """).strip() + "\n",
+            """).strip()
+        + "\n",
         encoding="utf-8",
     )
     _, locations = load_config_with_locations([config_path])
@@ -474,7 +478,8 @@ def test_load_config_with_locations_reports_var_validation_block(tmp_path):
                     inline: |
                         def validate(value, **context):
                             return value == "us-east-1"
-            """).strip() + "\n",
+            """).strip()
+        + "\n",
         encoding="utf-8",
     )
     _, locations = load_config_with_locations([config_path])
@@ -530,7 +535,8 @@ def test_inspect_component_type_uses_var_validation_script_location(tmp_path):
                         source: local
                         data:
                             path: scripts/validate_aws_region.py
-            """).strip() + "\n",
+            """).strip()
+        + "\n",
         encoding="utf-8",
     )
     config, locations = load_config_with_locations([config_path])

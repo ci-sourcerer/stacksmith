@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from stacksmith import variables
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.models import InlineReference, ValidationSpec
@@ -93,7 +94,7 @@ class TestResolveInputs:
     def test_cli_var_list_appends_to_existing_vars(self, tmp_path: Path):
         vars_file = tmp_path / "values.yaml"
         vars_file.write_text(
-            ("items:\n" "  - one\n"),
+            ("items:\n  - one\n"),
             encoding="utf-8",
         )
 
@@ -107,12 +108,12 @@ class TestResolveInputs:
     def test_input_layers_deep_merge_in_cli_order(self, tmp_path: Path):
         base_vars_file = tmp_path / "base.yaml"
         base_vars_file.write_text(
-            ("beep:\n" "  nested:\n" "    base: true\n" "  some:\n" "    - base\n"),
+            ("beep:\n  nested:\n    base: true\n  some:\n    - base\n"),
             encoding="utf-8",
         )
         override_vars_file = tmp_path / "override.yaml"
         override_vars_file.write_text(
-            ("beep:\n" "  nested:\n" "    after: true\n" "  some:\n" "    - late\n"),
+            ("beep:\n  nested:\n    after: true\n  some:\n    - late\n"),
             encoding="utf-8",
         )
 
@@ -144,19 +145,12 @@ class TestResolveInputs:
     def test_vars_files_override_mode_replaces_previous_values(self, tmp_path: Path):
         base_values_file = tmp_path / "base.yaml"
         base_values_file.write_text(
-            (
-                "settings:\n"
-                "  nested:\n"
-                "    y: 20\n"
-                "    z: 30\n"
-                "items:\n"
-                "  - one\n"
-            ),
+            ("settings:\n  nested:\n    y: 20\n    z: 30\nitems:\n  - one\n"),
             encoding="utf-8",
         )
         override_values_file = tmp_path / "override.yaml"
         override_values_file.write_text(
-            ("settings:\n" "  nested:\n" "    x: 1\n" "items:\n" "  - two\n"),
+            ("settings:\n  nested:\n    x: 1\nitems:\n  - two\n"),
             encoding="utf-8",
         )
 

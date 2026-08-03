@@ -134,7 +134,7 @@ def validate_discovery_mode(value: str) -> DiscoveryMode:
 
 
 def resolve_discovery_mode(mode: DiscoveryMode, root: Path) -> DiscoveryMode:
-    """Resolve discovery mode, defaulting to env-files for hybrid GitOps layouts."""
+    """Resolve discovery mode from the GitOps layout when set to `auto`."""
     if mode != DiscoveryMode.AUTO:
         return mode
 
@@ -146,7 +146,24 @@ def resolve_discovery_mode(mode: DiscoveryMode, root: Path) -> DiscoveryMode:
             }:
                 return DiscoveryMode.ENV_FILES
         return DiscoveryMode.FOLDERS
+    if any(
+        _flat_file_environment_name(path) not in _NON_ENVIRONMENT_NAMES
+        for path in _flat_environment_files(root)
+    ):
+        return DiscoveryMode.FLAT_FILES
     return DiscoveryMode.FOLDERS
+
+
+def _flat_environment_files(root: Path) -> list[Path]:
+    return (
+        sorted(root.glob("stacksmith.*.yaml"))
+        + sorted(root.glob("stacksmith.*.yml"))
+        + sorted(root.glob("stacksmith.*.json"))
+    )
+
+
+def _flat_file_environment_name(path: Path) -> str:
+    return path.stem.replace("stacksmith.", "", 1)
 
 
 def project_root(gitops_root: str) -> Path:
@@ -196,12 +213,8 @@ def discover_environments(mode: DiscoveryMode, root: Path) -> tuple[list[str], s
     if mode == DiscoveryMode.FLAT_FILES:
         common_file = common_run_file_for(root)
         LOGGER.debug("Scanning flat-files under %s", root)
-        for path in (
-            sorted(root.glob("stacksmith.*.yaml"))
-            + sorted(root.glob("stacksmith.*.yml"))
-            + sorted(root.glob("stacksmith.*.json"))
-        ):
-            name = path.stem.replace("stacksmith.", "", 1)
+        for path in _flat_environment_files(root):
+            name = _flat_file_environment_name(path)
             if name in _NON_ENVIRONMENT_NAMES:
                 continue
             all_envs.append(name)
@@ -545,6 +558,8 @@ def evaluate_environment_selection(
     mode = validate_discovery_mode(discovery_mode)
     root = project_root(normalized_root)
     resolved_mode = resolve_discovery_mode(mode, root)
+    if mode == DiscoveryMode.AUTO:
+        LOGGER.info("Auto-detected GitOps discovery mode=%s", resolved_mode)
     LOGGER.debug("Validated discovery mode=%s root=%s", resolved_mode, root)
     all_envs, common_runfile = discover_environments(resolved_mode, root)
 
@@ -592,7 +607,7 @@ def evaluate_environment_selection(
     )
     return GitOpsSelectionResult(
         gitops_root=normalized_root,
-        discovery_mode=mode.value,
+        discovery_mode=resolved_mode.value,
         all_environments=all_envs,
         selected_environments=selected,
         common_runfile=common_runfile,

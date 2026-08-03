@@ -1,4 +1,5 @@
 import pytest
+
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.models import ToolConfig
 from stacksmith.module_mapping import resolve_module_mapping

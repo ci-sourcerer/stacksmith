@@ -57,7 +57,7 @@ def _load_vars_file(
         cache_dir,
         auth_config,
         missing_cache_error_factory=lambda reference: StacksmithConfigError(
-            "Cannot fetch remote vars file without a cache directory: " f"{reference}"
+            f"Cannot fetch remote vars file without a cache directory: {reference}"
         ),
     )
     suffix = path.suffix.lower()

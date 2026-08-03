@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.loading import (
     load_config_with_locations,
@@ -82,9 +83,7 @@ def test_json_pointer_address_escapes_mapping_keys():
     ).merge(
         {"a/b": {"~key": {"old": True}}},
         {"a/b": {"~key": {"new": True}}},
-    ) == {
-        "a/b": {"~key": {"new": True}}
-    }
+    ) == {"a/b": {"~key": {"new": True}}}
 
 
 def test_merge_rule_selector_must_return_boolean():
@@ -151,7 +150,7 @@ def test_replaced_config_subtree_prunes_stale_source_locations(
         "          return True\n"
     )
     config = config.replace(
-        "      acl:\n" "        mapped_to: bucket_acl\n",
+        "      acl:\n        mapped_to: bucket_acl\n",
         "      old:\n"
         "        validation:\n"
         "          inline: |\n"
@@ -206,10 +205,7 @@ def test_replaced_config_subtree_prunes_stale_source_locations(
 def test_runfile_rules_do_not_control_their_bootstrap_merge(tmp_path: Path):
     base = tmp_path / "base.yaml"
     base.write_text(
-        "stacks:\n"
-        "  - source: local\n"
-        "    data:\n"
-        "      path: ./base-stack.yaml\n",
+        "stacks:\n  - source: local\n    data:\n      path: ./base-stack.yaml\n",
         encoding="utf-8",
     )
     overlay = tmp_path / "overlay.yaml"
@@ -235,18 +231,12 @@ def test_runfile_rules_do_not_control_their_bootstrap_merge(tmp_path: Path):
 def test_external_policy_can_control_runfile_merge(tmp_path: Path):
     base = tmp_path / "base.yaml"
     base.write_text(
-        "stacks:\n"
-        "  - source: local\n"
-        "    data:\n"
-        "      path: ./base-stack.yaml\n",
+        "stacks:\n  - source: local\n    data:\n      path: ./base-stack.yaml\n",
         encoding="utf-8",
     )
     overlay = tmp_path / "overlay.yaml"
     overlay.write_text(
-        "stacks:\n"
-        "  - source: local\n"
-        "    data:\n"
-        "      path: ./overlay-stack.yaml\n",
+        "stacks:\n  - source: local\n    data:\n      path: ./overlay-stack.yaml\n",
         encoding="utf-8",
     )
 

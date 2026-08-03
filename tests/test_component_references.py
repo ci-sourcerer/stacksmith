@@ -2,6 +2,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from stacksmith.exceptions import StacksmithConfigError, StacksmithTransformError
 from stacksmith.generation import generate_tf_json
 from stacksmith.loading import load_stack

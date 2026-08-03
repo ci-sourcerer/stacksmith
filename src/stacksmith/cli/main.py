@@ -15,6 +15,7 @@ from typing import Any
 from loguru import logger as LOGGER
 from rich.console import Console
 from rich.table import Table
+
 from stacksmith.cli.args import (
     get_default_run_file,
     get_default_stack_refs,

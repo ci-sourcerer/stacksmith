@@ -132,8 +132,7 @@ def resolve_reference_path(
             if missing_cache_error_factory is not None:
                 raise missing_cache_error_factory(rendered)
             raise StacksmithRemoteError(
-                "Cannot fetch remote reference without a cache directory: "
-                f"{rendered}"
+                f"Cannot fetch remote reference without a cache directory: {rendered}"
             )
         return resolve_remote(reference, cache_dir, auth_config)
 
@@ -493,8 +492,7 @@ def read_reference_content(
 def _require_git() -> None:
     if shutil.which("git") is None:
         raise StacksmithRemoteError(
-            "git is not installed or not on PATH. "
-            "Install git to use git+ remote URLs."
+            "git is not installed or not on PATH. Install git to use git+ remote URLs."
         )
 
 
@@ -526,8 +524,7 @@ def resolve_if_remote(
             if missing_cache_error_factory is not None:
                 raise missing_cache_error_factory(rendered)
             raise StacksmithRemoteError(
-                "Cannot fetch remote reference without a cache directory: "
-                f"{rendered}"
+                f"Cannot fetch remote reference without a cache directory: {rendered}"
             )
         return resolve_remote(reference, cache_dir, auth_config)
     return Path(rendered).expanduser()

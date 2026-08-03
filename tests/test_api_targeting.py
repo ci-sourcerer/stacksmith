@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 from loguru import logger as LOGGER
+
 from stacksmith import api
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.loading import load_config, load_stack

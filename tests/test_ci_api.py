@@ -1,6 +1,8 @@
+import logging
 from pathlib import Path
 
 import pytest
+
 from stacksmith.api import (
     inspect_environments,
     prepare_ci_execution,
@@ -43,19 +45,37 @@ def test_validate_ci_inputs_passes_for_valid_layout(tmp_path: Path):
     assert report["exit_code"] == 0
 
 
-def test_inspect_environments_auto_discovers_env_files_layout(tmp_path: Path):
+def test_inspect_environments_auto_discovers_env_files_layout(
+    caplog: pytest.LogCaptureFixture, tmp_path: Path
+):
     (tmp_path / "common").mkdir()
     (tmp_path / "common" / "stacksmith.yaml").write_text("merge_mode: deep\n")
     (tmp_path / "environments").mkdir()
     (tmp_path / "environments" / "dev.yaml").write_text("stacks: []\n")
     (tmp_path / "environments" / "prod.yaml").write_text("stacks: []\n")
 
+    with caplog.at_level(logging.INFO, logger="stacksmith.gitops"):
+        payload = inspect_environments(
+            gitops_root=str(tmp_path),
+            discovery_mode="auto",
+        )
+
+    assert payload["discovery_mode"] == "env-files"
+    assert payload["selected_environments"] == ["dev", "prod"]
+    assert "Auto-detected GitOps discovery mode=env-files" in caplog.messages
+    assert not any(record.levelno >= logging.ERROR for record in caplog.records)
+
+
+def test_inspect_environments_auto_discovers_flat_files_layout(tmp_path: Path):
+    (tmp_path / "stacksmith.dev.yaml").write_text("stacks: []\n")
+    (tmp_path / "stacksmith.prod.yaml").write_text("stacks: []\n")
+
     payload = inspect_environments(
         gitops_root=str(tmp_path),
         discovery_mode="auto",
     )
 
-    assert payload["discovery_mode"] == "env-files"
+    assert payload["discovery_mode"] == "flat-files"
     assert payload["selected_environments"] == ["dev", "prod"]
 
 
@@ -333,6 +353,12 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert "booleanParam(name: 'REQUIRE_LOCKFILE'" not in jenkins_pipeline
     assert "booleanParam(name: 'OFFLINE'" not in jenkins_pipeline
     assert "string(name: 'LOCKFILE'" not in jenkins_pipeline
+    plan_stage = jenkins_pipeline.index("stage('Plan Stacksmith changes')")
+    approval_stage = jenkins_pipeline.index("stage('Approve execution')")
+    apply_stage = jenkins_pipeline.index("stage('Run Stacksmith')")
+    assert plan_stage < approval_stage < apply_stage
+    assert "setManifestCommand('plan', false)" in jenkins_pipeline
+    assert "setManifestCommand('apply', params.FAIL_ON_CHANGES)" in jenkins_pipeline
 
 
 def test_ci_plan_execution_only_writes_redacted_plan_json():

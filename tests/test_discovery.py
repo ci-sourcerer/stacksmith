@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from stacksmith.discovery import (
     build_dependency_graph,
     discover_stacks,

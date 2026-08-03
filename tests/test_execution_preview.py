@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+
 from stacksmith import api
 from stacksmith.cli import main as cli_main
 from stacksmith.cli.parser import build_parser
@@ -257,7 +258,7 @@ def test_run_all_dry_run_propagates_static_validation_errors(
     sample_config_yaml: Path,
 ):
     (tmp_path / "stack.yaml").write_text(
-        "name: invalid\n" "components:\n" "  resource:\n" "    type: aws_s3_bucket\n",
+        "name: invalid\ncomponents:\n  resource:\n    type: aws_s3_bucket\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(

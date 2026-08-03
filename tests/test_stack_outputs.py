@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.generation import generate_tf_json
 from stacksmith.loading import load_stack
@@ -167,7 +168,7 @@ def test_rejects_stack_output_context_outside_transform(tmp_path: Path):
     ):
         _load_stack(
             tmp_path / "stack.yaml",
-            "name: exports\n" 'description: "{{ output.value }}"\n',
+            'name: exports\ndescription: "{{ output.value }}"\n',
         )
 
 

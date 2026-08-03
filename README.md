@@ -1005,7 +1005,7 @@ The reusable workflow also supports the `folders` and `flat-files` discovery mod
 
 #### Jenkins
 
-Configure a Jenkins Multibranch Pipeline with [`Jenkinsfile`](./Jenkinsfile) as its pipeline script path. The pipeline checks out the branch, prepares its CI manifest once, runs each selected environment in parallel, requests manual approval for `apply` and `operation`, and archives redacted plan JSON and validation reports when artifact uploads are enabled. It maps Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically.
+Configure a Jenkins Multibranch Pipeline with [`Jenkinsfile`](./Jenkinsfile) as its pipeline script path. The pipeline checks out the branch, prepares its CI manifest once, and runs each selected environment in parallel. Apply jobs first produce and archive a redacted plan, then request manual approval before applying. Operations request manual approval before execution, while plan jobs run directly and archive redacted plan JSON and validation reports when artifact uploads are enabled. It maps Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically.
 
 Choose one execution mode through Jenkins folder properties or the job environment.
 

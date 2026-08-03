@@ -1,6 +1,7 @@
 from io import StringIO
 
 from loguru import logger as LOGGER
+
 from stacksmith.models import PlanValidation, ValidationSpec
 from stacksmith.validations import (
     InputValidationOutcome,

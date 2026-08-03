@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from stacksmith.plan_redaction import (
     REDACTION_MARKER,
     redact_plan,
