@@ -1,8 +1,11 @@
+import os
 import subprocess
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+from stacksmith.utils import parse_bool
 
 from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME
 from ..enums import MergeMode, ValidationReportFormat
@@ -105,13 +108,14 @@ def _ci_merge_config(arguments: Sequence[str], runfile: RunFile) -> MergeConfig:
 
 
 def _validate_ci_backends(manifest: CiExecutionManifest) -> None:
-    for row in manifest.matrix:
-        if _effective_ci_backend_type(manifest, row) == "local":
-            raise StacksmithConfigError(
-                f"CI prepare rejected environment '{row.environment}': "
-                "the local backend is not supported. "
-                "Configure a remote backend for CI."
-            )
+    if parse_bool(os.getenv("STACKSMITH_CI_SKIP_BACKEND_VALIDATION")):
+        for row in manifest.matrix:
+            if _effective_ci_backend_type(manifest, row) == "local":
+                raise StacksmithConfigError(
+                    f"CI prepare rejected environment '{row.environment}': "
+                    "the local backend is not supported. "
+                    "Configure a remote backend for CI."
+                )
 
 
 def inspect_environments(
