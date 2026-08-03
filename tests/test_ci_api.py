@@ -490,6 +490,14 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert "stacksmith ci execute-from-env" in jenkins_pipeline
     assert "INPUT_DEBUG" in actions_workflow
     assert "INPUT_DEBUG" in jenkins_pipeline
+    assert (
+        "STACKSMITH_JENKINS_USERNAME: ${{ secrets.STACKSMITH_JENKINS_USERNAME }}"
+        in actions_executor
+    )
+    assert (
+        "STACKSMITH_JENKINS_API_TOKEN: ${{ secrets.STACKSMITH_JENKINS_API_TOKEN }}"
+        in actions_executor
+    )
     assert "operation_names_json" not in actions_workflow
     assert "INPUT_OPERATION_NAME:" not in actions_workflow
     assert "OPERATION_NAMES_JSON" not in jenkins_pipeline

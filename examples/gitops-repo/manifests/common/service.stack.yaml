@@ -48,9 +48,9 @@ components:
 
 operations:
   deploy_app:
-    use: deploy
+    description: Deploy the pinned application commit through the approved Jenkins job.
+    use: jenkins_deploy
     with:
       environment: "{{ inputs.environment }}"
       release_tag: "{{ inputs.deployment_name }}"
-      deployment_tags: "{{ inputs.deployment_tags }}"
-      logs_bucket_id: "{{ components.logs_bucket.id }}"
+      commit_id: "{{ inputs.application_commit }}"

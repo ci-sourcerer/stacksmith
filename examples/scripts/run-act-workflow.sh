@@ -17,7 +17,9 @@ Examples:
   $0 gitops-simple-repo apply dev
 
 Environment variables:
-  IMAGE_VERSION      Optional image version (default: latest)
+  IMAGE_VERSION                    Optional image version (default: latest)
+  STACKSMITH_JENKINS_USERNAME      Required for gitops-repo apply
+  STACKSMITH_JENKINS_API_TOKEN     Required for gitops-repo apply
 EOF
   exit 1
 }
@@ -56,6 +58,11 @@ if [ "$gitops_root" = "examples/gitops-repo" ]; then
   : "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set}"
   : "${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set}"
 
+  if [ "$stacksmith_command" = "apply" ]; then
+    : "${STACKSMITH_JENKINS_USERNAME:?must be set}"
+    : "${STACKSMITH_JENKINS_API_TOKEN:?must be set}"
+  fi
+
   aws_region=${AWS_REGION:-${AWS_DEFAULT_REGION:-}}
   if [ -z "$aws_region" ]; then
     aws_region=$(aws configure get region)
@@ -81,7 +88,8 @@ fi
 tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/stacksmith-act.XXXXXX")
 manifest_file=$tmpdir/ci-manifest.json
 event_file=$tmpdir/workflow-call.json
-trap 'rm -f "$manifest_file" "$event_file"; rmdir "$tmpdir"' EXIT
+secret_file=$tmpdir/secrets
+trap 'rm -f "$manifest_file" "$event_file" "$secret_file"; rmdir "$tmpdir"' EXIT
 
 docker run --rm \
   --volume "$PWD:/workspace:ro" \
@@ -133,6 +141,18 @@ if [ "$gitops_root" = "examples/gitops-repo" ]; then
     --env AWS_SESSION_TOKEN \
     --env AWS_REGION \
     --env AWS_DEFAULT_REGION
+fi
+
+if [ "$gitops_root" = "examples/gitops-repo" ] &&
+  [ "$stacksmith_command" = "apply" ]; then
+  umask 077
+  {
+    printf 'STACKSMITH_JENKINS_USERNAME=%s\n' \
+      "$STACKSMITH_JENKINS_USERNAME"
+    printf 'STACKSMITH_JENKINS_API_TOKEN=%s\n' \
+      "$STACKSMITH_JENKINS_API_TOKEN"
+  } >"$secret_file"
+  set -- "$@" --secret-file "$secret_file"
 fi
 
 act "$@"

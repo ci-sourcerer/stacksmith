@@ -1,10 +1,13 @@
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from stacksmith.exceptions import StacksmithConfigError
+from stacksmith.generation import build_operation_module_spec
 from stacksmith.loading import (
+    load_config,
     load_config_with_locations,
     load_runfile,
     load_runfiles,
@@ -272,9 +275,46 @@ def test_gitops_example_overrides_environment_values_files():
             "inputs": {
                 "environment": "dev",
                 "deployment_name": "example-dev",
-                "deployment_tags": "dev",
+                "application_commit": ("4e6f8a20b1c3d5e7f90123456789abcdef012345"),
             }
         },
     ).components["frontend_release"].properties["values_files"] == [
         "examples/gitops-repo/manifests/environments/dev/frontend-values.yaml"
     ]
+
+
+def test_gitops_example_wires_pinned_commit_to_jenkins_operation():
+    examples_root = Path(__file__).parents[1] / "examples"
+    runfile = load_runfile(examples_root / "gitops-repo/common/stacksmith.yaml")
+    application_commit = yaml.safe_load(
+        (examples_root / "gitops-repo/vars/vars.dev.yaml").read_text(encoding="utf-8")
+    )["application_commit"]
+    stack = load_stacks(
+        [Path(reference.data.path) for reference in runfile.stacks],
+        merge_mode=MergePolicy(
+            default=runfile.merge_mode or "deep",
+            rules=runfile.merge_rules,
+        ),
+        template_context={
+            "inputs": {
+                "environment": "dev",
+                "deployment_name": "app-artifacts-dev",
+                "application_commit": application_commit,
+            }
+        },
+    )
+
+    spec = build_operation_module_spec(
+        stack,
+        load_config([Path(reference.data.path) for reference in runfile.configs]),
+        "deploy_app",
+    )
+
+    assert spec["runner"] == "jenkins"
+    assert spec["username_env"] == "STACKSMITH_JENKINS_USERNAME"
+    assert spec["api_token_env"] == "STACKSMITH_JENKINS_API_TOKEN"
+    assert spec["parameters"] == {
+        "ENVIRONMENT": "dev",
+        "RELEASE_TAG": "app-artifacts-dev",
+        "GIT_COMMIT": application_commit,
+    }

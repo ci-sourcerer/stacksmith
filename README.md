@@ -794,8 +794,8 @@ operations:
     trigger: after_apply
     url: https://jenkins.example.com
     job_name: deployments/application
-    username_env: JENKINS_USERNAME
-    api_token_env: JENKINS_API_TOKEN
+    username_env: STACKSMITH_JENKINS_USERNAME
+    api_token_env: STACKSMITH_JENKINS_API_TOKEN
     parameters:
       ENVIRONMENT: environment
       GIT_COMMIT: commit_id
@@ -981,7 +981,7 @@ The wrappers pass reusable workflow inputs from repository variables when availa
 - `TG_AUTH_PROVIDER_CMD` (default empty)
 - `TG_IAM_ASSUME_ROLE` (default empty)
 
-Credential values are inherited into the reusable workflows with standard GitHub Actions `secrets: inherit`. The supported secret names are `STACKSMITH_GIT_TOKEN`, `STACKSMITH_GIT_SSH_KEY`, `STACKSMITH_HTTP_TOKEN`, `STACKSMITH_HTTP_USERNAME`, and `STACKSMITH_HTTP_PASSWORD`.
+Credential values are inherited into the reusable workflows with standard GitHub Actions `secrets: inherit`. The supported secret names are `STACKSMITH_GIT_TOKEN`, `STACKSMITH_GIT_SSH_KEY`, `STACKSMITH_HTTP_TOKEN`, `STACKSMITH_HTTP_USERNAME`, `STACKSMITH_HTTP_PASSWORD`, `STACKSMITH_JENKINS_USERNAME`, and `STACKSMITH_JENKINS_API_TOKEN`.
 
 The GitHub workflows expose this as their `stacksmith_args_json` input. JSON arrays are used so repeated options, argument order, and values containing whitespace are preserved exactly. The workflow requires the platform-managed config reference in `STACKSMITH_CONFIG_REF`, injects it as `--config <ref>` for every Stacksmith invocation, and rejects attempts to override the managed config or lock policy through `stacksmith_args_json`.
 

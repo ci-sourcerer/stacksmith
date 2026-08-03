@@ -42,6 +42,12 @@ on:
       STACKSMITH_HTTP_PASSWORD:
         description: Optional Stacksmith HTTP basic password.
         required: false
+      STACKSMITH_JENKINS_USERNAME:
+        description: Optional username for approved Jenkins operation runners.
+        required: false
+      STACKSMITH_JENKINS_API_TOKEN:
+        description: Optional API token for approved Jenkins operation runners.
+        required: false
 
 permissions:
   contents: read
@@ -72,6 +78,8 @@ jobs:
           STACKSMITH_HTTP_TOKEN: ${{ secrets.STACKSMITH_HTTP_TOKEN }}
           STACKSMITH_HTTP_USERNAME: ${{ secrets.STACKSMITH_HTTP_USERNAME }}
           STACKSMITH_HTTP_PASSWORD: ${{ secrets.STACKSMITH_HTTP_PASSWORD }}
+          STACKSMITH_JENKINS_USERNAME: ${{ secrets.STACKSMITH_JENKINS_USERNAME }}
+          STACKSMITH_JENKINS_API_TOKEN: ${{ secrets.STACKSMITH_JENKINS_API_TOKEN }}
           TG_AUTH_PROVIDER_CMD: ${{ vars.TG_AUTH_PROVIDER_CMD || '' }}
           TG_IAM_ASSUME_ROLE: ${{ vars.TG_IAM_ASSUME_ROLE || '' }}
         run: |
