@@ -6,7 +6,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from shlex import quote
-from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import requests
@@ -16,7 +15,12 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from .exceptions import StacksmithNotFoundError, StacksmithRemoteError
-from .models import is_file_reference_remote, render_file_reference
+from .models import (
+    FileReference,
+    RemoteAuthConfig,
+    is_file_reference_remote,
+    render_file_reference,
+)
 from .utils import (
     cache_key,
     clone_git_repo,
@@ -24,9 +28,6 @@ from .utils import (
     resolve_git_env,
     stacksmith_env,
 )
-
-if TYPE_CHECKING:
-    from .models import FileReference, RemoteAuthConfig
 
 _REMOTE_PREFIXES = ("http://", "https://", "git+https://", "git+ssh://")
 
@@ -40,7 +41,7 @@ class GitRef:
     ref: str | None
 
 
-def is_remote_url(reference: str | Path | "FileReference") -> bool:
+def is_remote_url(reference: str | Path | FileReference) -> bool:
     """Return `True` when `reference` is a remote URL or structured remote ref."
 
     Args:
@@ -96,10 +97,10 @@ def parse_git_url(url: str) -> GitRef:
 
 
 def resolve_reference_path(
-    reference: str | Path | "FileReference",
+    reference: str | Path | FileReference,
     base_path: Path | None,
     cache_dir: Path | None = None,
-    auth_config: "RemoteAuthConfig | None" = None,
+    auth_config: RemoteAuthConfig | None = None,
     missing_cache_error_factory: Callable[[str], Exception] | None = None,
     relative_path_error_factory: Callable[[str], Exception] | None = None,
     not_found_error_factory: Callable[[Path], Exception] | None = None,
@@ -280,9 +281,7 @@ def _has_http_credentials(host: str, auth_config: RemoteAuthConfig | None) -> bo
         return True
     if stacksmith_env("HTTP_TOKEN"):
         return True
-    if stacksmith_env("HTTP_USERNAME") and stacksmith_env("HTTP_PASSWORD"):
-        return True
-    return False
+    return bool(stacksmith_env("HTTP_USERNAME") and stacksmith_env("HTTP_PASSWORD"))
 
 
 def _has_git_credentials(host: str, auth_config: RemoteAuthConfig | None) -> bool:
@@ -290,9 +289,7 @@ def _has_git_credentials(host: str, auth_config: RemoteAuthConfig | None) -> boo
         return True
     if stacksmith_env("GIT_TOKEN"):
         return True
-    if stacksmith_env("GIT_SSH_KEY"):
-        return True
-    return False
+    return bool(stacksmith_env("GIT_SSH_KEY"))
 
 
 def _interactive_http_auth(host: str) -> None:
@@ -431,7 +428,7 @@ def _fetch_git(
 
 
 def resolve_remote(
-    reference: str | Path | "FileReference",
+    reference: str | Path | FileReference,
     cache_dir: Path,
     auth_config: RemoteAuthConfig | None = None,
 ) -> Path:
@@ -463,7 +460,7 @@ def resolve_remote(
 
 
 def read_reference_content(
-    reference: str | Path | "FileReference",
+    reference: str | Path | FileReference,
     cache_dir: Path,
     auth_config: RemoteAuthConfig | None = None,
 ) -> str:
@@ -497,7 +494,7 @@ def _require_git() -> None:
 
 
 def resolve_if_remote(
-    reference: str | Path | "FileReference",
+    reference: str | Path | FileReference,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
     missing_cache_error_factory: Callable[[str], Exception] | None = None,
@@ -531,7 +528,7 @@ def resolve_if_remote(
 
 
 def resolve_references(
-    references: Sequence[str | Path | "FileReference"],
+    references: Sequence[str | Path | FileReference],
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
     missing_cache_error_factory: Callable[[str], Exception] | None = None,

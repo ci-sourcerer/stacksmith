@@ -1,5 +1,6 @@
+from collections.abc import Sequence
 from copy import deepcopy
-from typing import Any, Literal, Sequence, TypeAlias
+from typing import Any, Literal
 
 import jmespath
 from deepmerge import Merger
@@ -9,7 +10,7 @@ from .enums import MergeMode
 from .exceptions import StacksmithConfigError
 from .models import MergeConfig, MergePolicy
 
-MergeScope: TypeAlias = Literal["stack", "config", "runfile", "vars"]
+type MergeScope = Literal["stack", "config", "runfile", "vars"]
 
 
 def _normalize_path(path: Sequence[Any]) -> list[str | int]:

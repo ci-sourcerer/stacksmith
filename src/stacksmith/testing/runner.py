@@ -1,9 +1,7 @@
-"""Public helpers for testing managed Stacksmith policies and properties."""
-
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from ..exceptions import StacksmithNotFoundError
 from ..generation.properties import apply_property_spec, build_property_context
@@ -60,7 +58,7 @@ class StacksmithTestRunner:
         config_path: Path | str,
         cache_dir: Path | None = None,
         auth_config: RemoteAuthConfig | None = None,
-    ) -> "StacksmithTestRunner":
+    ) -> StacksmithTestRunner:
         """Load a managed configuration and create a test runner.
 
         Args:
@@ -81,7 +79,7 @@ class StacksmithTestRunner:
         merge_mode: MergeConfig,
         cache_dir: Path | None = None,
         auth_config: RemoteAuthConfig | None = None,
-    ) -> "StacksmithTestRunner":
+    ) -> StacksmithTestRunner:
         """Load merged managed-config layers and create a test runner.
 
         Args:

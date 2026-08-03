@@ -1,5 +1,3 @@
-"""Helpers for generating and running managed Stacksmith tests."""
-
 from .generation import GeneratedPytestModule, StacksmithTestGenerator
 from .runner import ComponentPropertyResult, StacksmithTestRunner
 

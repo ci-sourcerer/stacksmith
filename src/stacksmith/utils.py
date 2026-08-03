@@ -279,7 +279,7 @@ def clone_git_repo(
         str(dest),
     ]
     LOGGER.debug("Cloning git repo: {cmd}", cmd=" ".join(cmd))
-    return subprocess.run(cmd, env=env, capture_output=True, text=True)
+    return subprocess.run(cmd, env=env, capture_output=True, text=True, check=True)
 
 
 def resolve_git_env(host: str, auth_config: dict[str, Any] | None) -> dict[str, str]:

@@ -416,7 +416,7 @@ def validate_value_with_outcome(
             spec, base_path, cache_dir=cache_dir, auth_config=auth_config
         )
         code = textwrap.dedent(code)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return PlanValidationOutcome.FAIL, _format_validation_error(
             str(exc) if str(exc) else f"{type(exc).__name__} raised during validation",
             origin="<validation-spec>",
@@ -434,7 +434,7 @@ def validate_value_with_outcome(
     ns = {"value": value, "context": context or {}} if spec.inline is not None else {}
     try:
         exec(compile(code, origin, "exec"), ns)  # noqa: S102
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return PlanValidationOutcome.FAIL, _format_validation_error(
             str(exc) if str(exc) else f"{type(exc).__name__} raised during validation",
             origin,
@@ -447,7 +447,7 @@ def validate_value_with_outcome(
     if callable(validate_fn):
         try:
             raw_result = validate_fn(value, **(context or {}))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return PlanValidationOutcome.FAIL, _format_validation_error(
                 (
                     str(exc)
@@ -461,7 +461,7 @@ def validate_value_with_outcome(
     elif spec.inline is not None:
         try:
             raw_result = _evaluate_inline_validation(code, origin, value, context)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return PlanValidationOutcome.FAIL, _format_validation_error(
                 (
                     str(exc)

@@ -370,9 +370,8 @@ def _runfile_refs_for_lock(
     runfile_refs: list[Path | str | FileReference] = list(
         getattr(args, "runfile", None) or []
     )
-    if not runfile_refs:
-        if default_runfile := get_default_run_file():
-            runfile_refs.append(default_runfile)
+    if not runfile_refs and (default_runfile := get_default_run_file()):
+        runfile_refs.append(default_runfile)
     return runfile_refs
 
 
@@ -1094,9 +1093,11 @@ def _run_ci_execute(
         return _execute_ci_manifest(manifest, environment, phase)
 
     validation_report_output.parent.mkdir(parents=True, exist_ok=True)
-    with validation_report_output.open("w", encoding="utf-8") as output_stream:
-        with contextlib.redirect_stdout(output_stream):
-            return _execute_ci_manifest(manifest, environment, phase)
+    with (
+        validation_report_output.open("w", encoding="utf-8") as output_stream,
+        contextlib.redirect_stdout(output_stream),
+    ):
+        return _execute_ci_manifest(manifest, environment, phase)
 
 
 def _cmd_ci_execute_from_env(args: argparse.Namespace) -> int:

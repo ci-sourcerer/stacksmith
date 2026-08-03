@@ -1,4 +1,5 @@
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -22,6 +23,8 @@ from .models import (
 from .module_mapping import auto_exposed_output_names, resolve_module_mapping
 from .remote import is_remote_url
 from .vendor import get_vendor_dir
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -92,7 +95,12 @@ def _format_script_location(
         return rendered
     try:
         return str(Path(rendered).relative_to(config.source_path.parent))
-    except Exception:
+    except Exception:  # noqa: BLE001
+        LOGGER.debug(
+            "Could not relativize script path {script} to config source {config}",
+            script=script,
+            config=config.source_path,
+        )
         return rendered
 
 

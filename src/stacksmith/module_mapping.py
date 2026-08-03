@@ -19,8 +19,7 @@ _AUTO_EXPOSED_OUTPUT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def auto_exposed_output_names(
-    mapping: ModuleMapping,
-    discovered_outputs: set[str],
+    mapping: ModuleMapping, discovered_outputs: set[str]
 ) -> set[str]:
     """Return discovered module outputs exposed by a mapping.
 

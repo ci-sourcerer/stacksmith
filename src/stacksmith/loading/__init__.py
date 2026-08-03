@@ -1,5 +1,3 @@
-"""Load and assemble Stacksmith stack, config, runfile, and test documents."""
-
 from .service import (
     load_config,
     load_config_with_locations,

@@ -1,18 +1,15 @@
 import json
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import hcl2
 from loguru import logger as LOGGER
 
 from .exceptions import StacksmithConfigError
+from .models import RemoteAuthConfig
 from .utils import cache_key, clone_git_repo, resolve_git_env
 from .vendor import vendor_path
-
-if TYPE_CHECKING:
-    from .models import RemoteAuthConfig
 
 
 def _find_module_subdir_separator(source: str) -> int:
@@ -45,7 +42,7 @@ def resolve_module_dir(
     source: str,
     version: str,
     cache_dir: Path | None = None,
-    auth_config: "RemoteAuthConfig | None" = None,
+    auth_config: RemoteAuthConfig | None = None,
     vendor_dir: Path | None = None,
 ) -> Path:
     """Resolve a module source to a local directory for introspection.
@@ -123,7 +120,7 @@ def resolve_module_dir(
 
 
 def _clone_module(
-    source: str, version: str, dest: Path, auth_config: "RemoteAuthConfig | None"
+    source: str, version: str, dest: Path, auth_config: RemoteAuthConfig | None
 ) -> None:
     host = urlparse(source).hostname or ""
     LOGGER.debug(
@@ -145,7 +142,7 @@ def discover_module_variables(
     source: str,
     version: str,
     cache_dir: Path | None = None,
-    auth_config: "RemoteAuthConfig | None" = None,
+    auth_config: RemoteAuthConfig | None = None,
     vendor_dir: Path | None = None,
 ) -> set[str]:
     """Discover variable names declared by a OpenTofu module.
@@ -179,7 +176,7 @@ def discover_module_outputs(
     source: str,
     version: str,
     cache_dir: Path | None = None,
-    auth_config: "RemoteAuthConfig | None" = None,
+    auth_config: RemoteAuthConfig | None = None,
     vendor_dir: Path | None = None,
 ) -> set[str]:
     """Discover output names declared by an OpenTofu module.
@@ -269,7 +266,7 @@ def _parse_hcl_block_names(module_dir: Path, block_type: str) -> set[str]:
         try:
             with open(tf_file, encoding="utf-8") as f:
                 parsed = hcl2.load(f)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             LOGGER.warning(
                 "Failed to parse {file} during introspection: {exc}",
                 file=tf_file,
@@ -293,7 +290,7 @@ def _parse_json_block_names(module_dir: Path, block_type: str) -> set[str]:
     for tf_json_file in sorted(module_dir.glob("*.tf.json")):
         try:
             data = json.loads(tf_json_file.read_text(encoding="utf-8"))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             LOGGER.warning(
                 "Failed to parse {file} during introspection: {exc}",
                 file=tf_json_file,

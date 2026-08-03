@@ -1,5 +1,3 @@
-"""Provider-neutral continuous-integration contracts."""
-
 import json
 from typing import Literal, cast
 
@@ -68,7 +66,7 @@ class CiExecutionManifest(BaseModel):
     matrix: list[CiExecutionRow] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _validate_manifest(self) -> "CiExecutionManifest":
+    def _validate_manifest(self) -> CiExecutionManifest:
         if not self.config_ref.strip():
             raise ValueError("config_ref must be a non-empty string")
         if self.command == "operation" and not self.operation_name.strip():

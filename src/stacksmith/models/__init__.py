@@ -1,5 +1,3 @@
-"""Pydantic models for configuration, stacks, runfiles, and tests."""
-
 from .configuration import (
     BackendConfig,
     DefaultModuleMapping,

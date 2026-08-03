@@ -92,9 +92,7 @@ def redact_sensitive_plan_value(value: Any, sensitivity: Any = None) -> Any:
                 redacted_values.append(current_value)
             continue
 
-        if current_sensitivity is True:
-            redacted_values.append(REDACTION_MARKER)
-        elif not _sensitivity_shape_matches(
+        if current_sensitivity is True or not _sensitivity_shape_matches(
             current_value,
             current_sensitivity,
         ):
@@ -140,7 +138,7 @@ def _copy_fields(value: dict[str, Any], names: tuple[str, ...]) -> dict[str, Any
 
 def _redact_output(output: Any) -> Any:
     if not isinstance(output, dict):
-        raise ValueError("Plan output entries must be objects.")
+        raise TypeError("Plan output entries must be objects.")
 
     redacted = _copy_fields(output, ("type", "sensitive"))
     if "value" in output:
@@ -152,7 +150,7 @@ def _redact_output(output: Any) -> Any:
 
 def _redact_resource(resource: Any) -> Any:
     if not isinstance(resource, dict):
-        raise ValueError("Plan resource entries must be objects.")
+        raise TypeError("Plan resource entries must be objects.")
 
     redacted = _copy_fields(resource, _RESOURCE_METADATA_FIELDS)
     if "values" in resource:
@@ -167,7 +165,7 @@ def _redact_resource(resource: Any) -> Any:
 
 def _redact_module(module: Any) -> Any:
     if not isinstance(module, dict):
-        raise ValueError("Plan module entries must be objects.")
+        raise TypeError("Plan module entries must be objects.")
 
     redacted = _copy_fields(module, ("address",))
     if isinstance(module.get("resources"), list):
@@ -183,7 +181,7 @@ def _redact_module(module: Any) -> Any:
 
 def _redact_values(values: Any) -> Any:
     if not isinstance(values, dict):
-        raise ValueError("Plan values representations must be objects.")
+        raise TypeError("Plan values representations must be objects.")
 
     redacted: dict[str, Any] = {}
     if isinstance(values.get("outputs"), dict):
@@ -197,7 +195,7 @@ def _redact_values(values: Any) -> Any:
 
 def _redact_change(change: Any) -> Any:
     if not isinstance(change, dict):
-        raise ValueError("Plan change representations must be objects.")
+        raise TypeError("Plan change representations must be objects.")
 
     redacted = _copy_fields(change, _CHANGE_METADATA_FIELDS)
     if "before" in change:
@@ -224,7 +222,7 @@ def _redact_change(change: Any) -> Any:
 
 def _redact_resource_change(resource_change: Any) -> Any:
     if not isinstance(resource_change, dict):
-        raise ValueError("Plan resource change entries must be objects.")
+        raise TypeError("Plan resource change entries must be objects.")
 
     redacted = _copy_fields(resource_change, _RESOURCE_METADATA_FIELDS)
     if "change" in resource_change:
@@ -234,7 +232,7 @@ def _redact_resource_change(resource_change: Any) -> Any:
 
 def _redact_resource_changes(resource_changes: Any) -> Any:
     if not isinstance(resource_changes, list):
-        raise ValueError("Plan resource change collections must be arrays.")
+        raise TypeError("Plan resource change collections must be arrays.")
     return [
         _redact_resource_change(resource_change) for resource_change in resource_changes
     ]
@@ -242,7 +240,7 @@ def _redact_resource_changes(resource_changes: Any) -> Any:
 
 def _redact_output_changes(output_changes: Any) -> Any:
     if not isinstance(output_changes, dict):
-        raise ValueError("Plan output changes must be an object.")
+        raise TypeError("Plan output changes must be an object.")
     return {
         name: (
             {"change": _redact_change(output_change["change"])}
@@ -255,13 +253,13 @@ def _redact_output_changes(output_changes: Any) -> Any:
 
 def _redact_check_address(address: Any) -> Any:
     if not isinstance(address, dict):
-        raise ValueError("Plan check addresses must be objects.")
+        raise TypeError("Plan check addresses must be objects.")
     return _copy_fields(address, _CHECK_ADDRESS_FIELDS)
 
 
 def _redact_check_instance(instance: Any) -> Any:
     if not isinstance(instance, dict):
-        raise ValueError("Plan check instances must be objects.")
+        raise TypeError("Plan check instances must be objects.")
 
     redacted = _copy_fields(instance, ("status",))
     if "address" in instance:
@@ -271,12 +269,12 @@ def _redact_check_instance(instance: Any) -> Any:
 
 def _redact_checks(checks: Any) -> Any:
     if not isinstance(checks, list):
-        raise ValueError("Plan checks must be an array.")
+        raise TypeError("Plan checks must be an array.")
 
     redacted_checks = []
     for check in checks:
         if not isinstance(check, dict):
-            raise ValueError("Plan check entries must be objects.")
+            raise TypeError("Plan check entries must be objects.")
 
         redacted = _copy_fields(check, ("status",))
         if "address" in check:
@@ -291,7 +289,7 @@ def _redact_checks(checks: Any) -> Any:
 
 def _redact_state(state: Any) -> Any:
     if not isinstance(state, dict):
-        raise ValueError("Prior state must be an object.")
+        raise TypeError("Prior state must be an object.")
 
     redacted = _copy_fields(state, ("format_version", "terraform_version"))
     if "values" in state:
@@ -303,12 +301,12 @@ def _redact_state(state: Any) -> Any:
 
 def _redact_deferred_changes(deferred_changes: Any) -> Any:
     if not isinstance(deferred_changes, list):
-        raise ValueError("Deferred plan changes must be an array.")
+        raise TypeError("Deferred plan changes must be an array.")
 
     redacted_changes = []
     for deferred_change in deferred_changes:
         if not isinstance(deferred_change, dict):
-            raise ValueError("Deferred plan change entries must be objects.")
+            raise TypeError("Deferred plan change entries must be objects.")
 
         redacted = _copy_fields(deferred_change, ("reason",))
         if "resource_change" in deferred_change:
@@ -344,10 +342,10 @@ def redact_plan(plan: dict[str, Any]) -> dict[str, Any]:
         Sanitized plan document containing review-safe metadata and values.
 
     Raises:
-        ValueError: If `plan` does not use a supported JSON format.
+        TypeError: If `plan` does not use a supported JSON format.
     """
     if not isinstance(plan, dict):
-        raise ValueError("Plan JSON must contain an object at the document root.")
+        raise TypeError("Plan JSON must contain an object at the document root.")
     _validate_plan_format(plan)
 
     redacted = _copy_fields(plan, _PLAN_METADATA_FIELDS)
@@ -409,7 +407,7 @@ def write_redacted_plan(plan: dict[str, Any], output_path: Path) -> None:
         None.
 
     Raises:
-        ValueError: If `plan` does not use a supported JSON format.
+        TypeError: If `plan` does not use a supported JSON format.
         OSError: If the destination cannot be written.
     """
     _write_json_atomically(redact_plan(plan), output_path)
@@ -427,10 +425,10 @@ def redact_plan_file(input_path: Path, output_path: Path) -> None:
 
     Raises:
         json.JSONDecodeError: If the input does not contain valid JSON.
-        ValueError: If the input does not contain a supported plan document.
+        TypeError: If the input does not contain a supported plan document.
         OSError: If either path cannot be read or written.
     """
     plan = json.loads(input_path.read_text(encoding="utf-8"))
     if not isinstance(plan, dict):
-        raise ValueError("Plan JSON must contain an object at the document root.")
+        raise TypeError("Plan JSON must contain an object at the document root.")
     write_redacted_plan(plan, output_path)

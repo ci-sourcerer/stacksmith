@@ -7,11 +7,12 @@ import stat
 import subprocess
 import tarfile
 import zipfile
+from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator, Literal
+from typing import Literal
 
 if os.name == "nt":
     import msvcrt as _msvcrt
@@ -151,9 +152,7 @@ def _resolve_single_tool_unlocked(
 
 
 @contextmanager
-def _tool_cache_lock(
-    cache_root: Path, tool_name: ToolName
-) -> Generator[None, None, None]:
+def _tool_cache_lock(cache_root: Path, tool_name: ToolName) -> Generator[None]:
     lock_path = cache_root / tool_name / ".lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -334,9 +333,7 @@ def _convert_pessimistic_constraint(constraint: str) -> str:
         numbers.append(0)
 
     lower_bound = f">={numbers[0]}.{numbers[1]}.{numbers[2]}"
-    if len(parts) == 1:
-        upper_bound = f"<{numbers[0] + 1}.0.0"
-    elif len(parts) == 2:
+    if len(parts) == 1 or len(parts) == 2:
         upper_bound = f"<{numbers[0] + 1}.0.0"
     else:
         upper_bound = f"<{numbers[0]}.{numbers[1] + 1}.0"

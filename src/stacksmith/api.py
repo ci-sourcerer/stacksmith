@@ -87,8 +87,8 @@ from .vendor import get_vendor_dir, load_vendor_manifest
 __all__ = [
     "generate_stack",
     "inspect_cache_diagnostics",
-    "inspect_environments",
     "inspect_dependency_graph",
+    "inspect_environments",
     "inspect_modules",
     "lock_stack",
     "prepare_ci_execution",

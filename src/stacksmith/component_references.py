@@ -3,31 +3,28 @@ import binascii
 import json
 import re
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 from jinja2 import TemplateError, TemplateRuntimeError, TemplateSyntaxError, nodes
+from jinja2.sandbox import SandboxedEnvironment
 from jinja2.visitor import NodeVisitor
 
 from .exceptions import StacksmithConfigError, StacksmithTransformError
 from .introspection import discover_module_outputs
-from .models import ModuleOutputSpec, render_module_source_identity
+from .models import (
+    ModuleMapping,
+    ModuleOutputSpec,
+    RemoteAuthConfig,
+    StackDefinition,
+    ToolConfig,
+    render_module_source_identity,
+)
 from .templating import create_sandboxed_jinja_environment
 from .transforms import render_jinja_transform
 from .utils import get_current_git_repository
 from .validations import apply_transform
 from .vendor import get_vendor_dir
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from jinja2.sandbox import SandboxedEnvironment
-
-    from .models import (
-        ModuleMapping,
-        RemoteAuthConfig,
-        StackDefinition,
-        ToolConfig,
-    )
 
 _MARKER_PREFIX = "__STACKSMITH_COMPONENT_REFERENCE_"
 _MARKER_PATTERN = re.compile(rf"{re.escape(_MARKER_PREFIX)}([A-Za-z0-9_-]+)__")
@@ -260,7 +257,7 @@ class _ComponentReferenceTemplateValidator(NodeVisitor):
 
 
 def validate_component_reference_template(
-    environment: "SandboxedEnvironment", source: str
+    environment: SandboxedEnvironment, source: str
 ) -> None:
     """Validate deferred output references in a stack Jinja template.
 
@@ -387,12 +384,12 @@ def validate_component_reference_locations(
 def _render_reference(
     component_name: str,
     output_name: str,
-    stack: "StackDefinition",
-    config: "ToolConfig",
+    stack: StackDefinition,
+    config: ToolConfig,
     consumer_component_name: str | None,
-    cache_dir: "Path | None",
-    auth_config: "RemoteAuthConfig | None",
-    vendor_dir: "Path | None",
+    cache_dir: Path | None,
+    auth_config: RemoteAuthConfig | None,
+    vendor_dir: Path | None,
 ) -> Any:
     from .module_mapping import resolve_module_mapping
 
@@ -440,13 +437,13 @@ def _render_reference(
 
 def _resolve_component_output(
     output_name: str,
-    mapping: "ModuleMapping",
+    mapping: ModuleMapping,
     component_name: str,
     component_type: str,
-    config: "ToolConfig",
-    cache_dir: "Path | None",
-    auth_config: "RemoteAuthConfig | None",
-    vendor_dir: "Path | None",
+    config: ToolConfig,
+    cache_dir: Path | None,
+    auth_config: RemoteAuthConfig | None,
+    vendor_dir: Path | None,
 ) -> tuple[ModuleOutputSpec, str]:
     if output := mapping.outputs.get(output_name):
         return output, output.mapped_from or output_name
@@ -471,13 +468,13 @@ def _resolve_component_output(
 
 
 def _discover_auto_exposed_outputs(
-    mapping: "ModuleMapping",
+    mapping: ModuleMapping,
     component_name: str,
     component_type: str,
-    config: "ToolConfig",
-    cache_dir: "Path | None",
-    auth_config: "RemoteAuthConfig | None",
-    vendor_dir: "Path | None",
+    config: ToolConfig,
+    cache_dir: Path | None,
+    auth_config: RemoteAuthConfig | None,
+    vendor_dir: Path | None,
 ) -> set[str]:
     from .module_mapping import auto_exposed_output_names
 
@@ -515,7 +512,7 @@ def _build_output_transform_context(
     module_output: str,
     component_name: str,
     component_type: str,
-    stack: "StackDefinition",
+    stack: StackDefinition,
 ) -> dict[str, Any]:
     context = {
         "output": {
@@ -540,15 +537,15 @@ def _build_output_transform_context(
 
 def _apply_output_transform(
     value: Any,
-    output: "ModuleOutputSpec",
+    output: ModuleOutputSpec,
     output_name: str,
     module_output: str,
     component_name: str,
     component_type: str,
-    stack: "StackDefinition",
-    config: "ToolConfig",
-    cache_dir: "Path | None",
-    auth_config: "RemoteAuthConfig | None",
+    stack: StackDefinition,
+    config: ToolConfig,
+    cache_dir: Path | None,
+    auth_config: RemoteAuthConfig | None,
 ) -> Any:
     if output.transform is None:
         return value
@@ -600,12 +597,12 @@ def _defer_component_references(value: str) -> str:
 
 def bind_component_references(
     value: Any,
-    stack: "StackDefinition",
-    config: "ToolConfig",
+    stack: StackDefinition,
+    config: ToolConfig,
     consumer_component_name: str | None = None,
-    cache_dir: "Path | None" = None,
-    auth_config: "RemoteAuthConfig | None" = None,
-    vendor_dir: "Path | None" = None,
+    cache_dir: Path | None = None,
+    auth_config: RemoteAuthConfig | None = None,
+    vendor_dir: Path | None = None,
 ) -> Any:
     """Bind deferred Jinja component outputs to native Terraform references.
 

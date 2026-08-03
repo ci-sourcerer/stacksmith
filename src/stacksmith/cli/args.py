@@ -52,7 +52,7 @@ class _OrderedInputAction(argparse.Action):
         kind = "vars" if option_string == "--vars" else "var"
         current_layers = list(getattr(namespace, "input_layers", None) or [])
         current_layers.append((kind, values))
-        setattr(namespace, "input_layers", current_layers)
+        namespace.input_layers = current_layers
 
 
 def is_debug_enabled(args: argparse.Namespace | None = None) -> bool:

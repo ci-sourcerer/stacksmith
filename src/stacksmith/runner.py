@@ -157,9 +157,9 @@ def _run_terragrunt(
 
     if capture_output:
         kwargs.update({"capture_output": True, "text": True})
-        return subprocess.run(cmd, **kwargs)
+        return subprocess.run(cmd, **kwargs)  # noqa: PLW1510
 
-    return subprocess.run(
+    return subprocess.run(  # noqa: PLW1510
         cmd,
         stdout=sys.stderr,
         stderr=sys.stderr,

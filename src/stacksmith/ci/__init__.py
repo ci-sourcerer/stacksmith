@@ -1,5 +1,3 @@
-"""Provider-neutral continuous-integration contracts and services."""
-
 from .contracts import (
     CiCommand,
     CiExecutionManifest,
@@ -24,10 +22,10 @@ __all__ = [
     "CiPhase",
     "CiValidationCheckResult",
     "build_ci_execution_argv",
+    "inspect_environments",
     "parse_ci_stacksmith_args",
     "prepare_ci_execution",
     "resolve_ci_execution_phase",
-    "inspect_environments",
     "validate_ci_inputs",
     "validate_ci_policy",
 ]

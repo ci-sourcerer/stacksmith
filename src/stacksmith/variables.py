@@ -3,7 +3,7 @@ import os
 from collections.abc import Sequence
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal
 
 import yaml
 
@@ -31,7 +31,7 @@ from .validations import InputValidationOutcome, validate_value
 _JINJA_ENV = create_sandboxed_jinja_environment()
 
 _ENV_PREFIX = "STACKSMITH_VAR_"
-InputLayer: TypeAlias = tuple[Literal["vars", "var"], str | VariableReference]
+type InputLayer = tuple[Literal["vars", "var"], str | VariableReference]
 
 
 def _merge_resolved_value(
