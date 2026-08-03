@@ -270,7 +270,7 @@ withStacksmithAgent {
 
                     if (!env.SELECTED_ENVIRONMENTS) {
                         echo "No environments selected; skipping ${params.COMMAND}."
-                        currentBuild.result = 'SUCCESS'
+                        currentBuild.result = 'NOT_BUILT'
                         return
                     }
 
@@ -293,18 +293,27 @@ withStacksmithAgent {
 
                 stage('Approve execution') {
                     if (env.COMMAND in ['apply', 'operation'] && env.SELECTED_ENVIRONMENTS) {
-                        input(
-                            message: env.COMMAND == 'operation'
-                                ? "Run Stacksmith operation '${env.OPERATION_NAME}' in ${env.SELECTED_ENVIRONMENTS}?"
-                                : "Apply Stacksmith changes to ${env.SELECTED_ENVIRONMENTS}?",
-                            ok: 'Run'
-                        )
+                        try {
+                            input(
+                                message: env.COMMAND == 'operation'
+                                    ? "Run Stacksmith operation '${env.OPERATION_NAME}' in ${env.SELECTED_ENVIRONMENTS}?"
+                                    : "Apply Stacksmith changes to ${env.SELECTED_ENVIRONMENTS}?"
+                            )
+                        } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+                            currentBuild.result = 'ABORTED'
+                            env.DO_NOT_EXECUTE_STACKSMITH = '1'
+                        }
                     } else {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
                     }
                 }
 
                 stage('Run Stacksmith') {
+                if (env.DO_NOT_EXECUTE_STACKSMITH) {
+                        echo('Stacksmith execution aborted by user')
+                        return
+                    }
+
                     if (!env.SELECTED_ENVIRONMENTS) {
                         echo('No selected environments to run')
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
