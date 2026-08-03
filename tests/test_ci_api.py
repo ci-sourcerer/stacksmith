@@ -520,6 +520,8 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     apply_stage = jenkins_pipeline.index("stage('Apply')")
     assert plan_stage < approval_stage < apply_stage
     assert "setManifestCommand" not in jenkins_pipeline
+    assert jenkins_pipeline.count("returnPojo: true") == 3
+    assert "readJSON(text: manifestOutput, returnPojo: true)" in jenkins_pipeline
     assert "import org.jenkinsci.plugins.pipeline.modeldefinition.Utils" in (
         jenkins_pipeline
     )

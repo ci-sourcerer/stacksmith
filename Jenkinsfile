@@ -134,7 +134,7 @@ void executeStacksmithMatrix(
     String workdir,
     String command
 ) {
-    def matrix = readJSON(text: matrixJson)
+    def matrix = readJSON(text: matrixJson, returnPojo: true)
     Map<String, Closure> branches = [:]
 
     for (row in matrix) {
@@ -147,7 +147,7 @@ void executeStacksmithMatrix(
             def credentialsJson = (env.STACKSMITH_CREDENTIALS_JSON ?: '').toString().trim()
             if (credentialsJson) {
                 try {
-                    parsedCredentials = readJSON(text: credentialsJson)
+                    parsedCredentials = readJSON(text: credentialsJson, returnPojo: true)
                 } catch (Exception e) {
                     error("Invalid STACKSMITH_CREDENTIALS_JSON: ${e.message}")
                 }
@@ -260,7 +260,7 @@ withStacksmithAgent {
                         )
                     }
 
-                    def manifest = readJSON(text: manifestOutput)
+                    def manifest = readJSON(text: manifestOutput, returnPojo: true)
                     def matrix = manifest.matrix
                     env.SELECTED_ENVIRONMENTS = matrix.collect { it.environment }.join(',')
                     env.SELECTION_MATRIX = writeJSON(json: matrix, returnText: true)
