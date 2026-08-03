@@ -1,7 +1,7 @@
 """Provider-neutral continuous-integration contracts."""
 
 import json
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -9,6 +9,7 @@ from ..enums import ValidationReportFormat
 from ..exceptions import StacksmithConfigError, StacksmithError
 
 CiCommand = Literal["plan", "apply", "operation"]
+CiPhase = CiCommand
 
 
 class CiExecutionRow(BaseModel):
@@ -192,15 +193,48 @@ def validate_ci_policy(
         )
 
 
+def resolve_ci_execution_phase(
+    manifest: CiExecutionManifest, phase: str = ""
+) -> CiPhase:
+    """Resolve and validate a lifecycle phase for a CI manifest.
+
+    Args:
+        manifest: Provider-neutral CI execution manifest.
+        phase: Optional execution phase override.
+
+    Returns:
+        Validated phase to execute.
+
+    Raises:
+        StacksmithError: If the phase is not valid for the manifest command.
+    """
+    resolved_phase = phase or manifest.command
+    if (
+        resolved_phase
+        not in {
+            "plan": {"plan"},
+            "apply": {"plan", "apply"},
+            "operation": {"operation"},
+        }[manifest.command]
+    ):
+        raise StacksmithError(
+            f"CI manifest command '{manifest.command}' cannot execute "
+            f"phase '{resolved_phase}'."
+        )
+    return cast(CiPhase, resolved_phase)
+
+
 def build_ci_execution_argv(
     manifest: CiExecutionManifest,
     environment: str,
+    phase: str = "",
 ) -> list[str]:
     """Build Stacksmith command arguments for one CI manifest environment.
 
     Args:
         manifest: Provider-neutral CI execution manifest.
         environment: Environment row to execute.
+        phase: Optional lifecycle phase override.
 
     Returns:
         Stacksmith command arguments for the selected environment.
@@ -208,6 +242,7 @@ def build_ci_execution_argv(
     Raises:
         StacksmithError: If the manifest does not contain the environment.
     """
+    execution_phase = resolve_ci_execution_phase(manifest, phase)
     row = next(
         (
             candidate
@@ -239,14 +274,14 @@ def build_ci_execution_argv(
         common_args.append("--debug")
     if manifest.no_cas:
         common_args.append("--no-cas")
-    if manifest.command != "operation":
+    if execution_phase != "operation":
         if manifest.locked:
             common_args.append("--locked")
         if manifest.offline:
             common_args.append("--offline")
         if manifest.lockfile:
             common_args.extend(["--lockfile", manifest.lockfile])
-    if manifest.command == "plan":
+    if execution_phase == "plan":
         return [
             "plan",
             *common_args,
@@ -254,14 +289,18 @@ def build_ci_execution_argv(
             f".stacksmith-ci/{row.environment}/plan.json",
             "--validation-report-format",
             manifest.validation_report_format,
-            *(["--fail-on-changes"] if manifest.fail_on_changes else []),
+            *(
+                ["--fail-on-changes"]
+                if manifest.command == "plan" and manifest.fail_on_changes
+                else []
+            ),
             *(
                 ["--strict-validation-warnings"]
                 if manifest.strict_validation_warnings
                 else []
             ),
         ]
-    if manifest.command == "apply":
+    if execution_phase == "apply":
         return ["apply", *common_args, "--auto-approve"]
     return [
         "operation",

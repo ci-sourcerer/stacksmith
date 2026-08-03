@@ -5,7 +5,7 @@ from pathlib import Path
 from ..exceptions import StacksmithError
 from ..formatters import compact_json
 from ..utils import parse_bool
-from .contracts import CiExecutionManifest
+from .contracts import CiExecutionManifest, resolve_ci_execution_phase
 from .service import prepare_ci_execution
 
 
@@ -194,7 +194,10 @@ def resolve_ci_environment(explicit_environment: str) -> str:
 
 
 def resolve_validation_report_output(
-    explicit_output: Path | None, manifest: CiExecutionManifest, environment: str
+    explicit_output: Path | None,
+    manifest: CiExecutionManifest,
+    environment: str,
+    phase: str = "",
 ) -> Path | None:
     """Resolve the validation report output path for a CI execution.
 
@@ -202,6 +205,7 @@ def resolve_validation_report_output(
         explicit_output: Optional explicit report path.
         manifest: CI execution manifest.
         environment: Selected environment name.
+        phase: Optional lifecycle phase override.
 
     Returns:
         Report output path, or `None` for non-plan executions without a path.
@@ -215,7 +219,7 @@ def resolve_validation_report_output(
     ):
         return Path(env_output_path)
 
-    if manifest.command != "plan":
+    if resolve_ci_execution_phase(manifest, phase) != "plan":
         return None
 
     return (

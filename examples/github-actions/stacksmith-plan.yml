@@ -18,23 +18,6 @@ on:
       - "**/manifests/environments/**"
       - .github/workflows/stacksmith-plan.yml
       - .github/workflows/stacksmith-apply.yml
-  push:
-    branches:
-      - main
-    paths:
-      - "**/stacksmith.yaml"
-      - "**/stacksmith.*.yaml"
-      - "**/stacksmith.*.yml"
-      - "**/stacksmith.*.json"
-      - "**/*.stack.yaml"
-      - "**/*.stack.yml"
-      - "**/environments/*.yaml"
-      - "**/environments/*.yml"
-      - "**/environments/*.json"
-      - "**/manifests/common/**"
-      - "**/manifests/environments/**"
-      - .github/workflows/stacksmith-plan.yml
-      - .github/workflows/stacksmith-apply.yml
   workflow_dispatch:
     inputs:
       environments:

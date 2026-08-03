@@ -97,7 +97,7 @@ jobs:
   plan:
     name: plan
     needs: discover
-    if: ${{ inputs.command == 'plan' && needs.discover.outputs.count != '0' }}
+    if: ${{ (inputs.command == 'plan' || inputs.command == 'apply') && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false
       matrix:
@@ -106,13 +106,14 @@ jobs:
     with:
       ci_manifest: ${{ needs.discover.outputs.manifest }}
       environment: ${{ matrix.environment }}
+      phase: plan
       image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
       upload_artifacts: ${{ (fromJson(toJson(vars)).STACKSMITH_UPLOAD_ARTIFACTS || 'true') != 'false' }}
     secrets: inherit
 
   apply:
     name: apply
-    needs: discover
+    needs: [discover, plan]
     if: ${{ inputs.command == 'apply' && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false
@@ -122,6 +123,7 @@ jobs:
     with:
       ci_manifest: ${{ needs.discover.outputs.manifest }}
       environment: ${{ matrix.environment }}
+      phase: apply
       image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
     secrets: inherit
 
@@ -137,6 +139,7 @@ jobs:
     with:
       ci_manifest: ${{ needs.discover.outputs.manifest }}
       environment: ${{ matrix.environment }}
+      phase: operation
       image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
     secrets: inherit
 

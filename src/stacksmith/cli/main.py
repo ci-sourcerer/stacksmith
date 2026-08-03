@@ -59,7 +59,11 @@ from ..ci.adapters import (
     write_github_output_manifest,
     write_ssh_key_material,
 )
-from ..ci.contracts import CiExecutionManifest, build_ci_execution_argv
+from ..ci.contracts import (
+    CiExecutionManifest,
+    build_ci_execution_argv,
+    resolve_ci_execution_phase,
+)
 from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME, TEST_FILE_CANDIDATES
 from ..enums import (
     ExecutionPreviewFormat,
@@ -1036,17 +1040,21 @@ def _cmd_ci_execute(args: argparse.Namespace) -> int:
         manifest,
         args.environment,
         getattr(args, "validation_report_output", None),
+        args.phase,
     )
 
 
-def _execute_ci_manifest(manifest: CiExecutionManifest, environment: str) -> int:
+def _execute_ci_manifest(
+    manifest: CiExecutionManifest, environment: str, phase: str = ""
+) -> int:
+    execution_phase = resolve_ci_execution_phase(manifest, phase)
     if manifest.env_file != "/dev/null":
         load_env_files([Path(manifest.env_file)])
     original_directory = Path.cwd()
     try:
         os.chdir(manifest.workdir)
         execution_args = build_parser().parse_args(
-            build_ci_execution_argv(manifest, environment)
+            build_ci_execution_argv(manifest, environment, execution_phase)
         )
         debug_enabled = is_debug_enabled(execution_args)
         _configure_logging(
@@ -1066,9 +1074,9 @@ def _execute_ci_manifest(manifest: CiExecutionManifest, environment: str) -> int
             info_args.format = InspectOutputFormat.TABLE.value
             info_args.basic = False
             _cmd_info_modules_and_policies(info_args)
-        if manifest.command == "operation":
+        if execution_phase == "operation":
             return _cmd_operation_run(execution_args)
-        return _cmd_terragrunt_action(execution_args, manifest.command)
+        return _cmd_terragrunt_action(execution_args, execution_phase)
     finally:
         os.chdir(original_directory)
 
@@ -1077,14 +1085,18 @@ def _run_ci_execute(
     manifest: CiExecutionManifest,
     environment: str,
     validation_report_output: Path | None,
+    phase: str = "",
 ) -> int:
-    if manifest.command != "plan" or validation_report_output is None:
-        return _execute_ci_manifest(manifest, environment)
+    if (
+        resolve_ci_execution_phase(manifest, phase) != "plan"
+        or validation_report_output is None
+    ):
+        return _execute_ci_manifest(manifest, environment, phase)
 
     validation_report_output.parent.mkdir(parents=True, exist_ok=True)
     with validation_report_output.open("w", encoding="utf-8") as output_stream:
         with contextlib.redirect_stdout(output_stream):
-            return _execute_ci_manifest(manifest, environment)
+            return _execute_ci_manifest(manifest, environment, phase)
 
 
 def _cmd_ci_execute_from_env(args: argparse.Namespace) -> int:
@@ -1095,6 +1107,7 @@ def _cmd_ci_execute_from_env(args: argparse.Namespace) -> int:
     ssh_key_path = write_ssh_key_material(environment)
     try:
         manifest = load_ci_execution_manifest(manifest_path)
+        phase = args.phase or os.getenv("STACKSMITH_CI_PHASE", "")
         return _run_ci_execute(
             manifest,
             environment,
@@ -1102,7 +1115,9 @@ def _cmd_ci_execute_from_env(args: argparse.Namespace) -> int:
                 args.validation_report_output,
                 manifest,
                 environment,
+                phase,
             ),
+            phase,
         )
     finally:
         if temporary_manifest_path is not None:

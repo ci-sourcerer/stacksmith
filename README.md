@@ -852,7 +852,7 @@ Each `resources` item requires `type`; Stacksmith supplies `address: <type>.this
 
 Stacksmith provides equivalent opinionated GitOps entrypoints for GitHub Actions and Jenkins. Both use the same provider-neutral CI manifest and the `stacksmith ci prepare` / `stacksmith ci execute` contract, so environment selection and per-environment execution stay consistent across providers.
 
-- [`.github/workflows/stacksmith-gitops-reusable.yml`](./.github/workflows/stacksmith-gitops-reusable.yml) executes one environment from a versioned CI manifest in `plan`, `apply`, or native `operation` mode.
+- [`.github/workflows/stacksmith-gitops-reusable.yml`](./.github/workflows/stacksmith-gitops-reusable.yml) executes one lifecycle phase for one environment from a versioned CI manifest.
 - [`.github/workflows/stacksmith-gitops-opinionated-reusable.yml`](./.github/workflows/stacksmith-gitops-opinionated-reusable.yml) discovers environments and fans out to the single-environment reusable workflow.
 - [`examples/github-actions/stacksmith-plan.yml`](./examples/github-actions/stacksmith-plan.yml), [`examples/github-actions/stacksmith-apply.yml`](./examples/github-actions/stacksmith-apply.yml), and [`examples/github-actions/stacksmith-operation.yml`](./examples/github-actions/stacksmith-operation.yml) are trigger wrappers that call the opinionated reusable workflow using `uses`.
 - [`Jenkinsfile`](./Jenkinsfile) is the opinionated Jenkins GitOps wrapper and is best used as a Multibranch Pipeline.
@@ -861,7 +861,7 @@ The GitHub templates under `examples/` do not execute in this repository because
 
 #### Shared behavior
 
-The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins wrapper uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
+The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins wrapper uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. A plan request executes only the `plan` phase. An apply request executes `plan`, waits for provider approval, and then executes `apply`; native operations wait for approval and execute the `operation` phase. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
 
 The CI selector is named `command` in GitHub Actions and `COMMAND` in Jenkins. Callers using the former `operation` or `OPERATION` selector must update to the new name.
 
@@ -929,15 +929,13 @@ The opinionated reusable workflow exposes `debug` as an optional input. `STACKSM
 
 Call the opinionated reusable workflow from your repository using `uses:`. Keep triggers and approval policies local and delegate discovery + per-environment execution to the reusable workflow here.
 
-Plan on PR/push/manual (minimal example):
+Plan on PR/manual (minimal example):
 
 ```yaml
 name: stacksmith-plan
 
 on:
   pull_request:
-    branches: [main]
-  push:
     branches: [main]
   workflow_dispatch: {}
 
@@ -1005,7 +1003,7 @@ The reusable workflow also supports the `folders` and `flat-files` discovery mod
 
 #### Jenkins
 
-Configure a Jenkins Multibranch Pipeline with [`Jenkinsfile`](./Jenkinsfile) as its pipeline script path. The pipeline checks out the branch, prepares its CI manifest once, and runs each selected environment in parallel. Apply jobs first produce and archive a redacted plan, then request manual approval before applying. Operations request manual approval before execution, while plan jobs run directly and archive redacted plan JSON and validation reports when artifact uploads are enabled. It maps Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically.
+Configure a Jenkins Multibranch Pipeline with [`Jenkinsfile`](./Jenkinsfile) as its pipeline script path. The pipeline checks out the branch, prepares its CI manifest once, and runs each selected environment in parallel. Plan jobs run in the `Plan` stage. Apply jobs run `Plan`, `Approve`, and `Apply` in order, and a failed plan prevents approval. Operations run through `Approve` and `Run operation`. Redacted plan JSON and validation reports are archived when artifact uploads are enabled. It maps Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically.
 
 Choose one execution mode through Jenkins folder properties or the job environment.
 
@@ -1123,11 +1121,11 @@ vars:
       path: examples/gitops-repo/vars/vars.dev.yaml
 ```
 
-For production use, add GitHub Environment protections and secrets per environment. The reusable workflow maps `apply` jobs to the matching GitHub Environment name so approvals and scoped credentials can gate deployment.
+For production use, add GitHub Environment protections and secrets per environment. The reusable workflow completes the unprotected plan phase first, then maps each apply phase to the matching GitHub Environment so approvals and scoped credentials gate deployment after the plan is available.
 
 The opinionated workflow resolves `STACKSMITH_ENV_FILE` from repository variables and falls back to `/dev/null` so CI runs are deterministic and do not implicitly load repository `.env` values.
 
-> ⚠️ **Warning:** Stacksmith's GitOps workflows execute a fresh generation and execution of `terragrunt apply --auto-approve` directly against the latest tip of the target branch, rather than applying a pre-saved static plan binary. If you wish to use exact plan binaries natively, ensure you orchestrate `stacksmith plan --out target.tfplan` across your stacks, and push them to storage prior to leveraging `stacksmith apply --plan target.tfplan`.
+> ⚠️ **Warning:** After the preview plan and approval, Stacksmith's GitOps workflows execute a fresh generation and execution of `terragrunt apply --auto-approve` directly against the latest tip of the target branch, rather than applying a pre-saved static plan binary. If you wish to use exact plan binaries natively, ensure you orchestrate `stacksmith plan --out target.tfplan` across your stacks, and push them to storage prior to leveraging `stacksmith apply --plan target.tfplan`.
 >
 > - **Concurrent Merges:** If another PR is merged after your PR's plan runs but before it is applied, the apply run will execute with the latest configurations of the target branch, which may differ from the approved plan.
 > - **External State Changes:** If resources are modified out-of-band in the cloud provider, the apply step will reflect those updates.
@@ -1805,6 +1803,7 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
 
 ```text
 stacksmith ci execute [-h] --manifest MANIFEST --environment ENVIRONMENT
+                             [--phase {plan,apply,operation}]
                              [--validation-report-output VALIDATION_REPORT_OUTPUT]
 ```
 
@@ -1812,6 +1811,7 @@ stacksmith ci execute [-h] --manifest MANIFEST --environment ENVIRONMENT
 | - | - |
 | `--manifest` | Path to a JSON manifest emitted by stacksmith ci prepare. |
 | `--environment` | Environment row from the manifest to execute. |
+| `--phase` | Lifecycle phase to execute. An apply manifest may run plan or apply; other manifests may only run their declared command. Choices: `plan`, `apply`, `operation`. |
 | `--validation-report-output` | Optional path for plan validation report output. When set, plan JSON report output is written to this file. |
 
 ### `stacksmith ci prepare-from-env`
@@ -1832,6 +1832,7 @@ stacksmith ci prepare-from-env [-h] [--provider {generic,github-actions,jenkins}
 ```text
 stacksmith ci execute-from-env [-h] [--provider {generic,github-actions,jenkins}]
                                       [--manifest-file MANIFEST_FILE] [--environment ENVIRONMENT]
+                                      [--phase {plan,apply,operation}]
                                       [--validation-report-output VALIDATION_REPORT_OUTPUT]
 ```
 
@@ -1840,6 +1841,7 @@ stacksmith ci execute-from-env [-h] [--provider {generic,github-actions,jenkins}
 | `--provider` | CI provider adapter mode for execution defaults. Choices: `generic`, `github-actions`, `jenkins`. |
 | `--manifest-file` | Optional manifest file path override. When omitted, CI_MANIFEST_FILE or STACKSMITH_CI_MANIFEST is used. |
 | `--environment` | Optional environment name override. When omitted, STACKSMITH_ENVIRONMENT or ENVIRONMENT is used. |
+| `--phase` | Optional lifecycle phase override. When omitted, STACKSMITH_CI_PHASE or the manifest command is used. Choices: `plan`, `apply`, `operation`. |
 | `--validation-report-output` | Optional plan validation report output path override. When omitted, STACKSMITH_VALIDATION_REPORT_PATH or provider defaults are used. |
 
 ### `stacksmith ci redact-plan`

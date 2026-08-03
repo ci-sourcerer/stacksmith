@@ -1880,6 +1880,8 @@ def test_ci_execute_from_env_has_adapter_inputs(parser):
             "manifest.json",
             "--environment",
             "dev",
+            "--phase",
+            "plan",
             "--validation-report-output",
             "report.json",
         ]
@@ -1889,6 +1891,7 @@ def test_ci_execute_from_env_has_adapter_inputs(parser):
     assert args.provider == "jenkins"
     assert args.manifest_file == Path("manifest.json")
     assert args.environment == "dev"
+    assert args.phase == "plan"
     assert args.validation_report_output == Path("report.json")
 
 
@@ -2130,7 +2133,7 @@ def test_cmd_ci_execute_from_env_uses_manifest_env(monkeypatch, parser, tmp_path
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(
         CiExecutionManifest(
-            command="plan",
+            command="apply",
             config_ref="platform/stacksmith-config.yaml",
             matrix=[
                 CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")
@@ -2141,15 +2144,17 @@ def test_cmd_ci_execute_from_env_uses_manifest_env(monkeypatch, parser, tmp_path
     )
     calls: dict[str, object] = {}
 
-    def _fake_run_ci_execute(manifest, environment, validation_report_output):
+    def _fake_run_ci_execute(manifest, environment, validation_report_output, phase):
         calls["manifest"] = manifest
         calls["environment"] = environment
         calls["validation_report_output"] = validation_report_output
+        calls["phase"] = phase
         return 0
 
     monkeypatch.setattr(cli_main, "_run_ci_execute", _fake_run_ci_execute)
     monkeypatch.setenv("CI_MANIFEST_FILE", str(manifest_path))
     monkeypatch.setenv("ENVIRONMENT", "dev")
+    monkeypatch.setenv("STACKSMITH_CI_PHASE", "plan")
     args = parser.parse_args(
         [
             "ci",
@@ -2163,6 +2168,7 @@ def test_cmd_ci_execute_from_env_uses_manifest_env(monkeypatch, parser, tmp_path
 
     assert exit_code == 0
     assert calls["environment"] == "dev"
+    assert calls["phase"] == "plan"
     assert calls["validation_report_output"] == Path(
         ".stacksmith-ci/dev/validation-report.json"
     )

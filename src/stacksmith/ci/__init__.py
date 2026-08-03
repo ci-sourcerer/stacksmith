@@ -4,8 +4,10 @@ from .contracts import (
     CiCommand,
     CiExecutionManifest,
     CiExecutionRow,
+    CiPhase,
     build_ci_execution_argv,
     parse_ci_stacksmith_args,
+    resolve_ci_execution_phase,
     validate_ci_policy,
 )
 from .service import (
@@ -19,10 +21,12 @@ __all__ = [
     "CiCommand",
     "CiExecutionManifest",
     "CiExecutionRow",
+    "CiPhase",
     "CiValidationCheckResult",
     "build_ci_execution_argv",
     "parse_ci_stacksmith_args",
     "prepare_ci_execution",
+    "resolve_ci_execution_phase",
     "inspect_environments",
     "validate_ci_inputs",
     "validate_ci_policy",

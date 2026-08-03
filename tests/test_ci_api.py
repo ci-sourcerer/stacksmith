@@ -17,7 +17,7 @@ from stacksmith.ci.contracts import (
     CiExecutionRow,
     build_ci_execution_argv,
 )
-from stacksmith.exceptions import StacksmithConfigError
+from stacksmith.exceptions import StacksmithConfigError, StacksmithError
 
 
 def _create_env_files_layout(tmp_path: Path) -> None:
@@ -353,12 +353,17 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert "booleanParam(name: 'REQUIRE_LOCKFILE'" not in jenkins_pipeline
     assert "booleanParam(name: 'OFFLINE'" not in jenkins_pipeline
     assert "string(name: 'LOCKFILE'" not in jenkins_pipeline
-    plan_stage = jenkins_pipeline.index("stage('Plan Stacksmith changes')")
-    approval_stage = jenkins_pipeline.index("stage('Approve execution')")
-    apply_stage = jenkins_pipeline.index("stage('Run Stacksmith')")
+    plan_stage = jenkins_pipeline.index("stage('Plan')")
+    approval_stage = jenkins_pipeline.index("stage('Approve')")
+    apply_stage = jenkins_pipeline.index("stage('Apply')")
     assert plan_stage < approval_stage < apply_stage
-    assert "setManifestCommand('plan', false)" in jenkins_pipeline
-    assert "setManifestCommand('apply', params.FAIL_ON_CHANGES)" in jenkins_pipeline
+    assert "setManifestCommand" not in jenkins_pipeline
+    assert '"STACKSMITH_CI_PHASE=${command}"' in jenkins_pipeline
+    assert "inputs.command == 'plan' || inputs.command == 'apply'" in actions_workflow
+    assert "needs: [discover, plan]" in actions_workflow
+    assert "phase: plan" in actions_workflow
+    assert "phase: apply" in actions_workflow
+    assert "STACKSMITH_CI_PHASE" in actions_executor
 
 
 def test_ci_plan_execution_only_writes_redacted_plan_json():
@@ -406,3 +411,32 @@ def test_ci_plan_execution_includes_debug_and_lock_options():
     assert "--locked" in argv
     assert "--offline" in argv
     assert argv[argv.index("--lockfile") + 1] == "locks/stacksmith.lock.yaml"
+
+
+def test_ci_apply_manifest_supports_plan_then_apply_phases():
+    manifest = CiExecutionManifest(
+        command="apply",
+        config_ref="platform/stacksmith-config.yaml",
+        fail_on_changes=True,
+        matrix=[CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")],
+    )
+
+    plan_argv = build_ci_execution_argv(manifest, "dev", "plan")
+    apply_argv = build_ci_execution_argv(manifest, "dev", "apply")
+
+    assert plan_argv[0] == "plan"
+    assert "--save-redacted-plan-json" in plan_argv
+    assert "--fail-on-changes" not in plan_argv
+    assert apply_argv[0] == "apply"
+    assert "--auto-approve" in apply_argv
+
+
+def test_ci_manifest_rejects_unapproved_execution_phase():
+    manifest = CiExecutionManifest(
+        command="plan",
+        config_ref="platform/stacksmith-config.yaml",
+        matrix=[CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")],
+    )
+
+    with pytest.raises(StacksmithError, match="cannot execute phase 'apply'"):
+        build_ci_execution_argv(manifest, "dev", "apply")

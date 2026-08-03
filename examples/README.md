@@ -41,7 +41,7 @@ env-files:
 
 This example includes GitHub Actions wrapper workflow templates under `examples/github-actions`. The wrappers call reusable workflows from this repository using `uses`.
 
-- [`github-actions/stacksmith-plan.yml`](github-actions/stacksmith-plan.yml) triggers on pull requests to `main`, pushes to `main`, and manual dispatch.
+- [`github-actions/stacksmith-plan.yml`](github-actions/stacksmith-plan.yml) triggers on pull requests to `main` and manual dispatch.
 - [`github-actions/stacksmith-apply.yml`](github-actions/stacksmith-apply.yml) triggers on pushes to `main` and manual dispatch.
 - [`github-actions/stacksmith-operation.yml`](github-actions/stacksmith-operation.yml) manually runs a stack-local native operation in the selected environments.
 All templates call `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main`. You can call that workflow directly and keep the trigger policy in your repository. These example files do not run here because they are intentionally stored outside `.github/workflows`.
@@ -60,7 +60,7 @@ A reusable Jenkins pipeline is available in `Jenkinsfile`. It is designed to be 
 
 For consuming repositories, set `STACKSMITH_AGENT_LABEL` and use `withEnv` in your Pipeline step to pass the required GitOps variables.
 
-Use `Jenkinsfile` as the Jenkins GitOps entrypoint. It mirrors the GitHub Actions workflow's discovery, execution flags, approval, and artifact behavior using Jenkins-native features.
+Use `Jenkinsfile` as the Jenkins GitOps entrypoint. It mirrors the GitHub Actions workflow's discovery, execution flags, approval, and artifact behavior using Jenkins-native features. Plan requests run a `Plan` stage, while apply requests run `Plan`, `Approve`, and `Apply` in order.
 
 ## Example stack
 

@@ -11,6 +11,11 @@ on:
         description: Deployment environment row to execute from the manifest.
         required: true
         type: string
+      phase:
+        description: Optional lifecycle phase to execute from the manifest.
+        required: false
+        type: string
+        default: ""
       image_version:
         description: Tag for the custom Stacksmith container image.
         required: false
@@ -43,9 +48,9 @@ permissions:
 
 jobs:
   execute:
-    name: stacksmith-${{ fromJson(inputs.ci_manifest).command }}-${{ inputs.environment }}
+    name: stacksmith-${{ inputs.phase || fromJson(inputs.ci_manifest).command }}-${{ inputs.environment }}
     runs-on: ubuntu-latest
-    environment: ${{ fromJson(inputs.ci_manifest).command != 'plan' && inputs.environment || '' }}
+    environment: ${{ (inputs.phase || fromJson(inputs.ci_manifest).command) != 'plan' && inputs.environment || '' }}
     container:
       image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
     defaults:
@@ -60,6 +65,7 @@ jobs:
       - name: Execute Stacksmith manifest
         env:
           STACKSMITH_CI_MANIFEST: ${{ inputs.ci_manifest }}
+          STACKSMITH_CI_PHASE: ${{ inputs.phase }}
           STACKSMITH_ENVIRONMENT: ${{ inputs.environment }}
           STACKSMITH_GIT_TOKEN: ${{ secrets.STACKSMITH_GIT_TOKEN }}
           STACKSMITH_GIT_SSH_KEY_MATERIAL: ${{ secrets.STACKSMITH_GIT_SSH_KEY }}
@@ -73,7 +79,7 @@ jobs:
           stacksmith ci execute-from-env --provider github-actions
 
       - name: Upload plan artifacts
-        if: ${{ (success() || failure()) && inputs.upload_artifacts && fromJson(inputs.ci_manifest).command == 'plan' }}
+        if: ${{ (success() || failure()) && inputs.upload_artifacts && (inputs.phase || fromJson(inputs.ci_manifest).command) == 'plan' }}
         uses: actions/upload-artifact@v7
         with:
           name: stacksmith-plan-${{ inputs.environment }}-${{ github.sha }}
@@ -85,6 +91,7 @@ jobs:
         if: ${{ success() || failure() }}
         env:
           STACKSMITH_CI_MANIFEST: ${{ inputs.ci_manifest }}
+          STACKSMITH_CI_PHASE: ${{ inputs.phase }}
           STACKSMITH_ENVIRONMENT: ${{ inputs.environment }}
         run: |
           python3 - <<'PY' >>"$GITHUB_STEP_SUMMARY"
@@ -92,17 +99,18 @@ jobs:
           import os
 
           manifest = json.loads(os.environ["STACKSMITH_CI_MANIFEST"])
+          phase = os.environ["STACKSMITH_CI_PHASE"] or manifest["command"]
           row = next(
               item for item in manifest["matrix"]
               if item["environment"] == os.environ["STACKSMITH_ENVIRONMENT"]
           )
-          print(f"## Stacksmith {manifest['command'].title()}")
+          print(f"## Stacksmith {phase.title()}")
           print()
           print(f"- Environment: `{row['environment']}`")
           print(f"- Runfile: `{row['runfile']}`")
-          if manifest["command"] == "operation":
+          if phase == "operation":
               print(f"- Operation: `{manifest['operation_name']}`")
-          elif manifest["command"] == "plan":
+          elif phase == "plan":
               print(
                   "- Report: "
                   f"`{manifest['workdir']}/.stacksmith-ci/{row['environment']}/"

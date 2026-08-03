@@ -860,6 +860,15 @@ def configure_ci_execute_parser(parser: argparse.ArgumentParser) -> None:
         help="Environment row from the manifest to execute.",
     )
     parser.add_argument(
+        "--phase",
+        choices=["plan", "apply", "operation"],
+        default="",
+        help=(
+            "Lifecycle phase to execute. An apply manifest may run plan or apply; "
+            "other manifests may only run their declared command."
+        ),
+    )
+    parser.add_argument(
         "--validation-report-output",
         type=path_type,
         default=None,
@@ -932,6 +941,15 @@ def configure_ci_execute_from_env_parser(parser: argparse.ArgumentParser) -> Non
         help=(
             "Optional environment name override. "
             "When omitted, STACKSMITH_ENVIRONMENT or ENVIRONMENT is used."
+        ),
+    )
+    parser.add_argument(
+        "--phase",
+        choices=["plan", "apply", "operation"],
+        default="",
+        help=(
+            "Optional lifecycle phase override. When omitted, "
+            "STACKSMITH_CI_PHASE or the manifest command is used."
         ),
     )
     parser.add_argument(

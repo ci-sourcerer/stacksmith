@@ -1,5 +1,3 @@
-import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
-
 boolean parseBoolean(value) {
     if (!value) {
         return false
@@ -127,13 +125,6 @@ int executeStacksmith() {
     )
 }
 
-void setManifestCommand(String command, boolean failOnChanges) {
-    def manifest = readJSON(file: env.CI_MANIFEST_FILE)
-    manifest.command = command
-    manifest.fail_on_changes = failOnChanges
-    writeJSON(file: env.CI_MANIFEST_FILE, json: manifest, pretty: 2)
-}
-
 void executeStacksmithMatrix(
     String matrixJson,
     String workdir,
@@ -162,6 +153,7 @@ void executeStacksmithMatrix(
 
             withEnv([
                 "ENVIRONMENT=${environment}",
+                "STACKSMITH_CI_PHASE=${command}",
                 "VALIDATION_REPORT_PATH=${artifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
             ]) {
                 int status = credentialBindings
@@ -277,22 +269,18 @@ withStacksmithAgent {
                     echo("Selected environments: ${env.SELECTED_ENVIRONMENTS}")
                 }
 
-                stage('Plan Stacksmith changes') {
-                    if (env.COMMAND == 'apply' && env.SELECTED_ENVIRONMENTS) {
-                        setManifestCommand('plan', false)
+                if (env.SELECTED_ENVIRONMENTS && env.COMMAND in ['plan', 'apply']) {
+                    stage('Plan') {
                         executeStacksmithMatrix(
                             env.SELECTION_MATRIX,
                             params.WORKDIR,
                             'plan'
                         )
-                        setManifestCommand('apply', params.FAIL_ON_CHANGES)
-                    } else {
-                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
                     }
                 }
 
-                stage('Approve execution') {
-                    if (env.COMMAND in ['apply', 'operation'] && env.SELECTED_ENVIRONMENTS) {
+                if (env.SELECTED_ENVIRONMENTS && env.COMMAND in ['apply', 'operation']) {
+                    stage('Approve') {
                         try {
                             input(
                                 message: env.COMMAND == 'operation'
@@ -303,29 +291,39 @@ withStacksmithAgent {
                             currentBuild.result = 'ABORTED'
                             env.DO_NOT_EXECUTE_STACKSMITH = '1'
                         }
-                    } else {
-                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
                     }
                 }
 
-                stage('Run Stacksmith') {
                 if (env.DO_NOT_EXECUTE_STACKSMITH) {
-                        echo('Stacksmith execution aborted by user')
-                        return
-                    }
+                    echo('Stacksmith execution aborted by user')
+                }
 
-                    if (!env.SELECTED_ENVIRONMENTS) {
-                        echo('No selected environments to run')
-                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
-                        currentBuild.result = 'NOT_BUILT'
-                        return
+                if (
+                    env.SELECTED_ENVIRONMENTS
+                    && env.COMMAND == 'apply'
+                    && !env.DO_NOT_EXECUTE_STACKSMITH
+                ) {
+                    stage('Apply') {
+                        executeStacksmithMatrix(
+                            env.SELECTION_MATRIX,
+                            params.WORKDIR,
+                            'apply'
+                        )
                     }
+                }
 
-                    executeStacksmithMatrix(
-                        env.SELECTION_MATRIX,
-                        params.WORKDIR,
-                        env.COMMAND
-                    )
+                if (
+                    env.SELECTED_ENVIRONMENTS
+                    && env.COMMAND == 'operation'
+                    && !env.DO_NOT_EXECUTE_STACKSMITH
+                ) {
+                    stage('Run operation') {
+                        executeStacksmithMatrix(
+                            env.SELECTION_MATRIX,
+                            params.WORKDIR,
+                            'operation'
+                        )
+                    }
                 }
 
             }
