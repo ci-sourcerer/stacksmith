@@ -246,7 +246,7 @@ withStacksmithAgent {
                         "CALLER_SHA=${env.GIT_COMMIT ?: ''}",
                         "CALLER_REF_NAME=${env.BRANCH_NAME ?: ''}",
                         "CALLER_DEFAULT_BRANCH=${env.STACKSMITH_DEFAULT_BRANCH ?: ''}",
-                        "CALLER_IS_PRIMARY_BRANCH=${parseBoolean(env.BRANCH_IS_PRIMARY) ? 'true' : 'false'}",
+                        "CALLER_IS_PRIMARY_BRANCH=${parseBoolean(env.BRANCH_IS_PRIMARY) || env.BRANCH_NAME == env.STACKSMITH_DEFAULT_BRANCH ? 'true' : 'false'}",
                         "SKIP_BRANCH_VALIDATION=${env.NO_VALIDATE_BRANCH_AND_OPERATION ?: 'false'}",
                         "CI_MANIFEST_FILE=${manifestFile}",
                     ]) {
