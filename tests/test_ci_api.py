@@ -358,6 +358,10 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     apply_stage = jenkins_pipeline.index("stage('Apply')")
     assert plan_stage < approval_stage < apply_stage
     assert "setManifestCommand" not in jenkins_pipeline
+    assert "import org.jenkinsci.plugins.pipeline.modeldefinition.Utils" in (
+        jenkins_pipeline
+    )
+    assert jenkins_pipeline.count("Utils.markStageSkippedForConditional") == 4
     assert '"STACKSMITH_CI_PHASE=${command}"' in jenkins_pipeline
     assert "inputs.command == 'plan' || inputs.command == 'apply'" in actions_workflow
     assert "needs: [discover, plan]" in actions_workflow

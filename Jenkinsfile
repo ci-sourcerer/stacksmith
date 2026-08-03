@@ -1,3 +1,5 @@
+import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
+
 boolean parseBoolean(value) {
     if (!value) {
         return false
@@ -269,18 +271,20 @@ withStacksmithAgent {
                     echo("Selected environments: ${env.SELECTED_ENVIRONMENTS}")
                 }
 
-                if (env.SELECTED_ENVIRONMENTS && env.COMMAND in ['plan', 'apply']) {
-                    stage('Plan') {
+                stage('Plan') {
+                    if (env.SELECTED_ENVIRONMENTS && env.COMMAND in ['plan', 'apply']) {
                         executeStacksmithMatrix(
                             env.SELECTION_MATRIX,
                             params.WORKDIR,
                             'plan'
                         )
+                    } else {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
                     }
                 }
 
-                if (env.SELECTED_ENVIRONMENTS && env.COMMAND in ['apply', 'operation']) {
-                    stage('Approve') {
+                stage('Approve') {
+                    if (env.SELECTED_ENVIRONMENTS && env.COMMAND in ['apply', 'operation']) {
                         try {
                             input(
                                 message: env.COMMAND == 'operation'
@@ -291,6 +295,8 @@ withStacksmithAgent {
                             currentBuild.result = 'ABORTED'
                             env.DO_NOT_EXECUTE_STACKSMITH = '1'
                         }
+                    } else {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
                     }
                 }
 
@@ -298,31 +304,35 @@ withStacksmithAgent {
                     echo('Stacksmith execution aborted by user')
                 }
 
-                if (
-                    env.SELECTED_ENVIRONMENTS
-                    && env.COMMAND == 'apply'
-                    && !env.DO_NOT_EXECUTE_STACKSMITH
-                ) {
-                    stage('Apply') {
+                stage('Apply') {
+                    if (
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND == 'apply'
+                        && !env.DO_NOT_EXECUTE_STACKSMITH
+                    ) {
                         executeStacksmithMatrix(
                             env.SELECTION_MATRIX,
                             params.WORKDIR,
                             'apply'
                         )
+                    } else {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
                     }
                 }
 
-                if (
-                    env.SELECTED_ENVIRONMENTS
-                    && env.COMMAND == 'operation'
-                    && !env.DO_NOT_EXECUTE_STACKSMITH
-                ) {
-                    stage('Run operation') {
+                stage('Run operation') {
+                    if (
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND == 'operation'
+                        && !env.DO_NOT_EXECUTE_STACKSMITH
+                    ) {
                         executeStacksmithMatrix(
                             env.SELECTION_MATRIX,
                             params.WORKDIR,
                             'operation'
                         )
+                    } else {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
                     }
                 }
 
