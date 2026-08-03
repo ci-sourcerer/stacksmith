@@ -391,12 +391,69 @@ def _extract_non_empty_lines(output: str) -> list[str]:
     return [line.strip() for line in output.splitlines() if line.strip()]
 
 
+def _known_environment(environment: str, all_envs: list[str]) -> str | None:
+    return (
+        environment
+        if environment not in _NON_ENVIRONMENT_NAMES and environment in all_envs
+        else None
+    )
+
+
+def _changed_path_environment(
+    candidate: str,
+    mode: DiscoveryMode,
+    all_envs: list[str],
+) -> str | None:
+    if candidate.startswith("manifests/environments/"):
+        relative_path = Path(candidate[len("manifests/environments/") :])
+        return (
+            _known_environment(relative_path.parts[0], all_envs)
+            if relative_path.parts
+            else None
+        )
+    if mode == DiscoveryMode.FLAT_FILES:
+        return (
+            _known_environment(
+                candidate.removeprefix("stacksmith.").rsplit(".", 1)[0],
+                all_envs,
+            )
+            if candidate.startswith("stacksmith.")
+            and candidate.endswith((".yaml", ".yml", ".json"))
+            else None
+        )
+    if mode == DiscoveryMode.ENV_FILES:
+        if not candidate.startswith("environments/"):
+            return None
+        relative_path = Path(candidate[len("environments/") :])
+        return (
+            _known_environment(
+                (
+                    relative_path.stem
+                    if len(relative_path.parts) == 1
+                    else relative_path.parts[0]
+                ),
+                all_envs,
+            )
+            if relative_path.parts
+            else None
+        )
+    if not candidate.startswith("environments/"):
+        return None
+    relative_path = Path(candidate[len("environments/") :])
+    return (
+        _known_environment(relative_path.parts[0], all_envs)
+        if relative_path.parts
+        else None
+    )
+
+
 def select_changed_environments(
     changed_paths: list[str],
     mode: DiscoveryMode,
     prefix: str,
     common_prefixes: tuple[str, ...],
     all_envs: list[str],
+    select_all_on_unmapped: bool = False,
 ) -> set[str]:
     """Map changed paths to affected environments.
 
@@ -406,6 +463,7 @@ def select_changed_environments(
         prefix: GitOps root prefix with trailing slash, when set.
         common_prefixes: Prefixes that imply all environments are affected.
         all_envs: Known environments.
+        select_all_on_unmapped: Whether an unrecognized path affects all environments.
 
     Returns:
         Selected environment names.
@@ -419,45 +477,23 @@ def select_changed_environments(
         return set(all_envs)
 
     selected: set[str] = set()
+    unmapped_paths: list[str] = []
     for path in changed_paths:
-        candidate = path[len(prefix) :] if path.startswith(prefix) else path
+        if environment := _changed_path_environment(
+            path[len(prefix) :] if path.startswith(prefix) else path,
+            mode,
+            all_envs,
+        ):
+            selected.add(environment)
+        else:
+            unmapped_paths.append(path)
 
-        if candidate.startswith("manifests/environments/"):
-            relative_path = Path(candidate[len("manifests/environments/") :])
-            if (
-                relative_path.parts
-                and relative_path.parts[0] not in _NON_ENVIRONMENT_NAMES
-            ):
-                selected.add(relative_path.parts[0])
-            continue
-
-        if mode == DiscoveryMode.FLAT_FILES:
-            if not candidate.startswith("stacksmith.") or not candidate.endswith(
-                (".yaml", ".yml", ".json")
-            ):
-                continue
-            env_name = candidate.removeprefix("stacksmith.").rsplit(".", 1)[0]
-            if env_name not in _NON_ENVIRONMENT_NAMES:
-                selected.add(env_name)
-            continue
-
-        if mode == DiscoveryMode.ENV_FILES:
-            if candidate.startswith("environments/"):
-                relative_path = Path(candidate[len("environments/") :])
-                env_name = (
-                    relative_path.stem
-                    if len(relative_path.parts) == 1
-                    else relative_path.parts[0]
-                )
-                if env_name not in _NON_ENVIRONMENT_NAMES:
-                    selected.add(env_name)
-            continue
-
-        if not candidate.startswith("environments/"):
-            continue
-        relative_path = Path(candidate[len("environments/") :])
-        if relative_path.parts:
-            selected.add(relative_path.parts[0])
+    if select_all_on_unmapped and unmapped_paths:
+        LOGGER.info(
+            "Unmapped push changes detected; selecting all environments: %s",
+            unmapped_paths,
+        )
+        return set(all_envs)
 
     LOGGER.debug("Selected environments from changed paths: %s", sorted(selected))
     return selected
@@ -512,6 +548,7 @@ def select_target_environments(
                         ),
                     ),
                     all_envs,
+                    select_all_on_unmapped=event_name == "push",
                 )
             )
         else:

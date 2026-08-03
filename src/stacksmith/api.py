@@ -36,6 +36,7 @@ from .generation import (
     generate_terragrunt_json,
     generate_tf_json,
     operation_module_name,
+    resolve_operation_batch,
     write_terragrunt_json,
     write_tf_json,
 )
@@ -96,7 +97,7 @@ __all__ = [
     "redact_plan_file",
     "run_all_stacks",
     "run_stack_action",
-    "run_stack_operation",
+    "run_stack_operations",
     "validate_ci_inputs",
     "validate_stack",
 ]
@@ -648,7 +649,7 @@ def _generate_single_stack(
     cache_dir: Path | None = None,
     use_local_modules: bool = False,
     merge_mode: MergeConfig = MergeMode.DEEP,
-    operation_names: set[str] | None = None,
+    operation_names: Sequence[str] | None = None,
 ) -> Path:
     LOGGER.debug(
         "Resolved variable keys: {keys}",
@@ -1363,9 +1364,9 @@ def lock_stack(
     }
 
 
-def run_stack_operation(
+def run_stack_operations(
     stack_file: Path | str | Sequence[Path | str],
-    operation_name: str,
+    operation_names: Sequence[str],
     config: list[str] | None = None,
     vars_file: str | Sequence[str] | None = None,
     input_layers: Sequence[InputLayer] | None = None,
@@ -1373,26 +1374,33 @@ def run_stack_operation(
     no_cache: bool = False,
     no_cas: bool = False,
     force_rerun: bool = False,
+    max_parallel_operations: int = 10,
     merge_mode: MergeConfig = MergeMode.DEEP,
 ) -> dict[str, Any]:
-    """Run one approved native operation declared by a stack.
+    """Run a dependency-aware batch of approved native operations.
 
     Args:
         stack_file: Path, URL, or ordered sequence of stack definition files.
-        operation_name: Stack-local operation name to execute.
+        operation_names: Stack-local operation names to execute.
         config: Optional managed config paths or URLs.
         vars_file: Optional vars file paths or URLs.
         input_layers: Optional ordered CLI input layers merged in call order.
         build_dir: Optional directory for generated operation files.
         no_cache: When `True`, clear the Stacksmith remote cache first.
         no_cas: When `True`, disable Terragrunt CAS during this run.
-        force_rerun: When `True`, replace the operation runner resource even if
-            its execution identity is unchanged.
+        force_rerun: When `True`, replace explicitly selected operation resources.
+        max_parallel_operations: Maximum independent operations run concurrently.
         merge_mode: Merge strategy for layered configuration and inputs.
 
     Returns:
-        OpenTofu execution metadata.
+        OpenTofu execution metadata, including dependency-first operation order.
+
+    Raises:
+        StacksmithConfigError: If concurrency is invalid or the operation graph fails.
     """
+    if max_parallel_operations < 1:
+        raise StacksmithConfigError("max_parallel_operations must be at least 1")
+
     cache_dir, _, loaded_config = load_runtime_config(
         config, build_dir, no_cache=no_cache, merge_mode=merge_mode
     )
@@ -1406,6 +1414,7 @@ def run_stack_operation(
     )
     if stack.source_path is None:
         raise RuntimeError("Loaded stack is missing a source path")
+    execution_order = resolve_operation_batch(stack, operation_names)
     output_dir = _generate_single_stack(
         stack,
         loaded_config,
@@ -1414,12 +1423,17 @@ def run_stack_operation(
         silent=True,
         cache_dir=cache_dir,
         merge_mode=merge_mode,
-        operation_names={operation_name},
+        operation_names=execution_order,
     )
     return {
-        "operation": operation_name,
+        "operations": list(operation_names),
+        "execution_order": execution_order,
         "exit_code": run_terragrunt(
-            _operation_terragrunt_args(operation_name, force_rerun),
+            _operation_terragrunt_args(
+                operation_names,
+                force_rerun,
+                max_parallel_operations,
+            ),
             output_dir,
             auto_approve=True,
             config=loaded_config,
@@ -1432,13 +1446,24 @@ def run_stack_operation(
 
 
 def _operation_terragrunt_args(
-    operation_name: str,
+    operation_names: Sequence[str],
     force_rerun: bool,
+    max_parallel_operations: int,
 ) -> list[str]:
-    module_address = f"module.{operation_module_name(operation_name)}"
-    args = ["apply", f"-target={module_address}"]
+    module_addresses = [
+        f"module.{operation_module_name(operation_name)}"
+        for operation_name in operation_names
+    ]
+    args = [
+        "apply",
+        *(f"-target={module_address}" for module_address in module_addresses),
+        f"-parallelism={max_parallel_operations}",
+    ]
     if force_rerun:
-        args.append(f"-replace={module_address}.terraform_data.operation")
+        args.extend(
+            f"-replace={module_address}.terraform_data.operation"
+            for module_address in module_addresses
+        )
     return args
 
 

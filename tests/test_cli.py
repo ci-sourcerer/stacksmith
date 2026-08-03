@@ -50,16 +50,20 @@ def _capture_run_stack_action_call(
     return calls
 
 
-def _capture_run_stack_operation_call(
+def _capture_run_stack_operations_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> dict[str, object]:
     calls: dict[str, object] = {}
 
-    def _fake_run_stack_operation(stack_file, operation_name, **kwargs):
-        calls["run"] = (stack_file, operation_name, kwargs)
-        return {"operation": operation_name, "exit_code": 0}
+    def _fake_run_stack_operations(stack_file, operation_names, **kwargs):
+        calls["run"] = (stack_file, operation_names, kwargs)
+        return {
+            "operations": operation_names,
+            "execution_order": operation_names,
+            "exit_code": 0,
+        }
 
-    monkeypatch.setattr(cli_main, "run_stack_operation", _fake_run_stack_operation)
+    monkeypatch.setattr(cli_main, "run_stack_operations", _fake_run_stack_operations)
     return calls
 
 
@@ -889,7 +893,7 @@ def test_cmd_terragrunt_action_plan_destroy(monkeypatch, parser):
 
 
 def test_cmd_operation_run_passes_runtime_flags(monkeypatch, parser, capsys):
-    calls = _capture_run_stack_operation_call(monkeypatch)
+    calls = _capture_run_stack_operations_call(monkeypatch)
     args = parser.parse_args(
         [
             "operation",
@@ -904,12 +908,16 @@ def test_cmd_operation_run_passes_runtime_flags(monkeypatch, parser, capsys):
     exit_code = cli_main._cmd_operation_run(args)
 
     assert exit_code == 0
-    stack_file, operation_name, kwargs = calls["run"]
+    stack_file, operation_names, kwargs = calls["run"]
     assert stack_file == Path("stack.yaml")
-    assert operation_name == "deploy_app"
+    assert operation_names == ["deploy_app"]
     assert kwargs["no_cas"] is True
     assert kwargs["force_rerun"] is True
-    assert capsys.readouterr().out == ('{"exit_code":0,"operation":"deploy_app"}\n')
+    assert json.loads(capsys.readouterr().out) == {
+        "execution_order": ["deploy_app"],
+        "exit_code": 0,
+        "operations": ["deploy_app"],
+    }
 
 
 def test_operation_force_rerun_reads_environment(monkeypatch):
@@ -920,6 +928,33 @@ def test_operation_force_rerun_reads_environment(monkeypatch):
     )
 
     assert args.force_rerun is True
+
+
+def test_cmd_operation_run_executes_operation_batch(monkeypatch, parser, capsys):
+    calls = _capture_run_stack_operations_call(monkeypatch)
+    args = parser.parse_args(
+        [
+            "operation",
+            "run",
+            "publish, deploy,verify",
+            "--max-parallel-operations",
+            "2",
+            "stack.yaml",
+        ]
+    )
+
+    exit_code = cli_main._cmd_operation_run(args)
+
+    assert exit_code == 0
+    stack_file, operation_names, kwargs = calls["run"]
+    assert stack_file == Path("stack.yaml")
+    assert operation_names == ["publish", "deploy", "verify"]
+    assert kwargs["max_parallel_operations"] == 2
+    assert json.loads(capsys.readouterr().out) == {
+        "execution_order": ["publish", "deploy", "verify"],
+        "exit_code": 0,
+        "operations": ["publish", "deploy", "verify"],
+    }
 
 
 @pytest.mark.parametrize(

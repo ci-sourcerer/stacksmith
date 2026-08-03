@@ -205,11 +205,17 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
     ).add_parser(
         "run",
-        help="Run one approved operation declared by a stack",
+        help="Run approved operations declared by a stack",
     )
     operation_run_parser.add_argument(
-        "operation_name",
-        help="Stack-local operation name",
+        "operation_names",
+        help="Comma-delimited stack-local operation names",
+    )
+    operation_run_parser.add_argument(
+        "--max-parallel-operations",
+        type=int,
+        default=10,
+        help="Maximum independent operations to run concurrently.",
     )
     operation_run_parser.add_argument(
         "--force-rerun",

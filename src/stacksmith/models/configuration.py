@@ -694,6 +694,8 @@ class JenkinsOperationDefinition(BaseModel):
     job_name: str
     username_env: str
     api_token_env: str
+    poll_interval_seconds: float = Field(default=5.0, gt=0)
+    timeout_seconds: int = Field(default=3600, ge=1)
     parameters: dict[str, str] = Field(default_factory=dict)
     inputs: dict[str, OperationInputSpec] = Field(default_factory=dict)
 

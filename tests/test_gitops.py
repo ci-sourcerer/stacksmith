@@ -155,13 +155,44 @@ def test_evaluate_environment_selection_manual_unknown_environment_fails(
         )
 
 
-def test_evaluate_environment_selection_push_no_matches_is_no_op(tmp_path: Path):
+def test_evaluate_environment_selection_push_unmapped_change_selects_all(
+    tmp_path: Path,
+):
     _create_env_files_layout(tmp_path)
 
     selection = evaluate_environment_selection(
         gitops_root=str(tmp_path),
         discovery_mode="env-files",
         event_name="push",
+        changed_paths=["docs/readme.md"],
+    )
+
+    assert selection.selected_environments == ["dev", "prod"]
+    assert [row["environment"] for row in selection.matrix] == ["dev", "prod"]
+
+
+def test_evaluate_environment_selection_push_mixed_change_selects_all(tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+
+    selection = evaluate_environment_selection(
+        gitops_root=str(tmp_path),
+        discovery_mode="env-files",
+        event_name="push",
+        changed_paths=["environments/dev.yaml", "vars/vars.prod.yaml"],
+    )
+
+    assert selection.selected_environments == ["dev", "prod"]
+
+
+def test_evaluate_environment_selection_pull_request_unmapped_change_is_no_op(
+    tmp_path: Path,
+):
+    _create_env_files_layout(tmp_path)
+
+    selection = evaluate_environment_selection(
+        gitops_root=str(tmp_path),
+        discovery_mode="env-files",
+        event_name="pull_request",
         changed_paths=["docs/readme.md"],
     )
 

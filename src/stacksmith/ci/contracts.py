@@ -1,7 +1,8 @@
 import json
+from collections.abc import Sequence
 from typing import Literal, cast
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..enums import ValidationReportFormat
 from ..exceptions import StacksmithConfigError, StacksmithError
@@ -30,7 +31,7 @@ class CiExecutionManifest(BaseModel):
     Attributes:
         version: Manifest schema version.
         command: Stacksmith command to execute.
-        operation_name: Stack-local operation name for native operation runs.
+        operation_names: Stack-local operation names for native operation runs.
         config_ref: Platform-managed Stacksmith config reference.
         workdir: Working directory relative to the checked-out repository.
         env_file: Optional environment file, with `/dev/null` disabling implicit loading.
@@ -41,15 +42,16 @@ class CiExecutionManifest(BaseModel):
         offline: Whether locked remote inputs must resolve without network access.
         lockfile: Optional explicit Stacksmith lockfile path.
         force_rerun: Whether operations must force execution.
+        max_parallel_operations: Maximum independent operations run concurrently.
         validation_report_format: Plan validation report format.
         fail_on_changes: Whether plans fail when changes are detected.
         strict_validation_warnings: Whether plan warnings cause failure.
         matrix: Environment-specific executions.
     """
 
-    version: Literal[1] = 1
+    version: Literal[2] = 2
     command: CiCommand
-    operation_name: str = ""
+    operation_names: list[str] = Field(default_factory=list)
     config_ref: str
     workdir: str = "."
     env_file: str = "/dev/null"
@@ -60,20 +62,33 @@ class CiExecutionManifest(BaseModel):
     offline: bool = False
     lockfile: str = ""
     force_rerun: bool = False
+    max_parallel_operations: int = Field(default=10, ge=1)
     validation_report_format: str = ValidationReportFormat.JSON.value
     fail_on_changes: bool = False
     strict_validation_warnings: bool = False
     matrix: list[CiExecutionRow] = Field(default_factory=list)
 
+    @field_validator("operation_names")
+    @classmethod
+    def _normalize_operation_names(cls, operation_names: list[str]) -> list[str]:
+        normalized_names = [name.strip() for name in operation_names]
+        if any(not name for name in normalized_names):
+            raise ValueError("operation names must be non-empty strings")
+        if len(set(normalized_names)) != len(normalized_names):
+            raise ValueError("operation names must be unique")
+        return normalized_names
+
     @model_validator(mode="after")
     def _validate_manifest(self) -> CiExecutionManifest:
         if not self.config_ref.strip():
             raise ValueError("config_ref must be a non-empty string")
-        if self.command == "operation" and not self.operation_name.strip():
-            raise ValueError("operation_name is required when command is 'operation'")
-        if self.command != "operation" and self.operation_name:
+        if self.command == "operation" and not self.operation_names:
             raise ValueError(
-                "operation_name is only supported when command is 'operation'"
+                "at least one operation is required when command is 'operation'"
+            )
+        if self.command != "operation" and self.operation_names:
+            raise ValueError(
+                "operation names are only supported when command is 'operation'"
             )
         if self.command != "operation" and self.offline and not self.locked:
             raise ValueError("offline CI execution requires locked execution")
@@ -137,7 +152,7 @@ def parse_ci_stacksmith_args(value: str) -> list[str]:
 def validate_ci_policy(
     *,
     command: str,
-    operation_name: str,
+    operation_names: Sequence[str],
     event_name: str,
     ref_name: str,
     base_ref: str,
@@ -149,7 +164,7 @@ def validate_ci_policy(
 
     Args:
         command: Requested Stacksmith command.
-        operation_name: Requested stack-local operation name.
+        operation_names: Requested stack-local operation names.
         event_name: Normalized provider event name.
         ref_name: Source branch name for non-pull-request events.
         base_ref: Pull-request target branch name.
@@ -164,13 +179,13 @@ def validate_ci_policy(
         raise StacksmithConfigError(
             f"Invalid command '{command}'. Expected 'plan', 'apply', or 'operation'."
         )
-    if command == "operation" and not operation_name.strip():
+    if command == "operation" and not operation_names:
         raise StacksmithConfigError(
-            "operation_name is required when command is 'operation'."
+            "At least one operation is required when command is 'operation'."
         )
-    if command != "operation" and operation_name:
+    if command != "operation" and operation_names:
         raise StacksmithConfigError(
-            "operation_name is only supported when command is 'operation'."
+            "Operation names are only supported when command is 'operation'."
         )
     if skip_branch_validation:
         return
@@ -308,7 +323,9 @@ def build_ci_execution_argv(
     return [
         "operation",
         "run",
-        manifest.operation_name,
+        ",".join(manifest.operation_names),
+        "--max-parallel-operations",
+        str(manifest.max_parallel_operations),
         *common_args,
         *(["--force-rerun"] if manifest.force_rerun else []),
     ]

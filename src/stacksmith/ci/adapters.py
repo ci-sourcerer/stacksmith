@@ -32,7 +32,7 @@ def prepare_ci_manifest_from_env() -> CiExecutionManifest:
     """
     return prepare_ci_execution(
         command=os.getenv("INPUT_COMMAND", ""),
-        operation_name=os.getenv("INPUT_OPERATION_NAME", ""),
+        operation_names=os.getenv("INPUT_OPERATION_NAMES", ""),
         config_ref=os.getenv("INPUT_CONFIG_REF", ""),
         workdir=os.getenv("INPUT_WORKDIR", "."),
         env_file=os.getenv("INPUT_ENV_FILE", "/dev/null"),
@@ -43,6 +43,7 @@ def prepare_ci_manifest_from_env() -> CiExecutionManifest:
         offline=parse_bool(os.getenv("INPUT_OFFLINE")),
         lockfile=os.getenv("INPUT_LOCKFILE", ""),
         force_rerun=parse_bool(os.getenv("INPUT_FORCE_RERUN")),
+        max_parallel_operations=int(os.getenv("INPUT_MAX_PARALLEL_OPERATIONS", "10")),
         validation_report_format=os.getenv("INPUT_VALIDATION_REPORT_FORMAT", "json"),
         fail_on_changes=parse_bool(os.getenv("INPUT_FAIL_ON_CHANGES")),
         strict_validation_warnings=parse_bool(

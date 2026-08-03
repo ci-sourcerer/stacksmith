@@ -1,6 +1,6 @@
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -21,7 +21,7 @@ from ..module_mapping import resolve_module_mapping
 from ..stack_outputs import build_stack_output_blocks
 from ..utils import derive_stack_state_key, get_current_git_repository
 from ..vendor import get_vendor_dir, resolve_module_source
-from .operations import build_operation_module_spec
+from .operations import build_operation_module_spec, resolve_operation_batch
 from .properties import PropertyRenderer
 from .providers import (
     build_provider_blocks,
@@ -77,20 +77,27 @@ def _write_operation_runner_assets(output_dir: Path, tf_json: dict[str, Any]) ->
 def _generate_operation_blocks(
     stack: StackDefinition,
     config: ToolConfig,
-    operation_names: set[str] | None = None,
+    operation_names: Sequence[str] | None = None,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
     vendor_dir: Path | None = None,
 ) -> dict[str, Any]:
     modules = {}
-    for name, invocation in stack.operations.items():
-        definition = config.operations.get(invocation.use)
-        if definition is None or (
-            operation_names is None and definition.trigger != "after_apply"
-        ):
-            continue
-        if operation_names is not None and name not in operation_names:
-            continue
+    selected_names = (
+        [
+            name
+            for name, invocation in stack.operations.items()
+            if (definition := config.operations.get(invocation.use)) is not None
+            and definition.trigger == "after_apply"
+        ]
+        if operation_names is None
+        else list(operation_names)
+    )
+    if not selected_names:
+        return modules
+
+    for name in resolve_operation_batch(stack, selected_names):
+        invocation = stack.operations[name]
         dependencies = [
             f"${{module.{component_name}}}" for component_name in stack.components
         ]
@@ -335,7 +342,7 @@ def generate_tf_json(
     vendor_dir: Path | None = None,
     root: Path | None = None,
     formatter_options: Mapping[str, Mapping[str, Any]] | None = None,
-    operation_names: set[str] | None = None,
+    operation_names: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Generate the complete `.tf.json` structure for a stack.
 
@@ -423,7 +430,7 @@ def write_tf_json(
     vendor_dir: Path | None = None,
     root: Path | None = None,
     formatter_options: Mapping[str, Mapping[str, Any]] | None = None,
-    operation_names: set[str] | None = None,
+    operation_names: Sequence[str] | None = None,
 ) -> Path:
     """Generate and write `stacksmith.tf.json` to the output directory.
 

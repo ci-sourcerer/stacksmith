@@ -7,11 +7,16 @@ on:
         description: Stacksmith command to run. Supported values are plan, apply, and operation.
         required: true
         type: string
-      operation_name:
-        description: Stack-local native operation name. Required when command is operation.
+      operation_names:
+        description: Comma-delimited stack-local native operation names. Required when command is operation.
         required: false
         type: string
         default: ""
+      max_parallel_operations:
+        description: Maximum independent native operations to run concurrently.
+        required: false
+        type: number
+        default: 10
       environments:
         description: Comma-separated environment names. Leave empty for automatic selection.
         required: false
@@ -69,7 +74,8 @@ jobs:
           INPUT_DISCOVERY_MODE: ${{ inputs.discovery_mode }}
           INPUT_GITOPS_ROOT: ${{ inputs.gitops_root }}
           INPUT_COMMAND: ${{ inputs.command }}
-          INPUT_OPERATION_NAME: ${{ inputs.operation_name }}
+          INPUT_OPERATION_NAMES: ${{ inputs.operation_names }}
+          INPUT_MAX_PARALLEL_OPERATIONS: ${{ inputs.max_parallel_operations }}
           INPUT_CONFIG_REF: ${{ fromJson(toJson(vars)).STACKSMITH_CONFIG_REF || '' }}
           INPUT_WORKDIR: ${{ inputs.workdir }}
           INPUT_ENV_FILE: ${{ fromJson(toJson(vars)).STACKSMITH_ENV_FILE || '/dev/null' }}

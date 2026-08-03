@@ -1,5 +1,6 @@
 import hashlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,84 @@ from ..models import (
     StackDefinition,
     ToolConfig,
 )
+
+
+def _visit_operation_dependency(
+    stack: StackDefinition,
+    operation_name: str,
+    visiting: list[str],
+    visited: set[str],
+    execution_order: list[str],
+) -> None:
+    if operation_name in visited:
+        return
+    if operation_name in visiting:
+        cycle_start = visiting.index(operation_name)
+        raise StacksmithConfigError(
+            "Operation dependency cycle detected: "
+            f"{' -> '.join([*visiting[cycle_start:], operation_name])}"
+        )
+    if operation_name not in stack.operations:
+        if visiting:
+            raise StacksmithConfigError(
+                f"Operation '{visiting[-1]}' depends on unknown operation "
+                f"'{operation_name}'"
+            )
+        raise StacksmithConfigError(
+            f"Stack '{stack.name}' does not define operation '{operation_name}'"
+        )
+
+    visiting.append(operation_name)
+    for dependency in stack.operations[operation_name].depends_on:
+        _visit_operation_dependency(
+            stack,
+            dependency,
+            visiting,
+            visited,
+            execution_order,
+        )
+    visiting.pop()
+    visited.add(operation_name)
+    execution_order.append(operation_name)
+
+
+def resolve_operation_batch(
+    stack: StackDefinition,
+    operation_names: Sequence[str],
+) -> list[str]:
+    """Resolve an operation selection into dependency-first execution order.
+
+    Args:
+        stack: Stack containing the selected operation invocations.
+        operation_names: Stack-local operation names explicitly requested.
+
+    Returns:
+        Selected operations and their transitive dependencies in topological order.
+
+    Raises:
+        StacksmithConfigError: If the selection is empty, unknown, or cyclic.
+    """
+    if not operation_names or isinstance(operation_names, str):
+        raise StacksmithConfigError("At least one operation name is required")
+    if any(
+        not isinstance(operation_name, str) or not operation_name.strip()
+        for operation_name in operation_names
+    ):
+        raise StacksmithConfigError("Operation names must be non-empty strings")
+    if len(set(operation_names)) != len(operation_names):
+        raise StacksmithConfigError("Operation names must be unique")
+
+    execution_order: list[str] = []
+    visited: set[str] = set()
+    for operation_name in operation_names:
+        _visit_operation_dependency(
+            stack,
+            operation_name,
+            [],
+            visited,
+            execution_order,
+        )
+    return execution_order
 
 
 def _validate_invocation(
@@ -135,6 +214,8 @@ def build_operation_module_spec(
                 "job_name": definition.job_name,
                 "username_env": definition.username_env,
                 "api_token_env": definition.api_token_env,
+                "poll_interval_seconds": definition.poll_interval_seconds,
+                "timeout_seconds": definition.timeout_seconds,
                 "parameters": {
                     name: str(values[input_name])
                     for name, input_name in definition.parameters.items()

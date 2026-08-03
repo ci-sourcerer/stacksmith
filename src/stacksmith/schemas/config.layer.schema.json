@@ -552,6 +552,18 @@
               "type": "string",
               "minLength": 1
             },
+            "poll_interval_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 5.0,
+              "description": "Seconds between Jenkins queue and build status checks."
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 3600,
+              "description": "Maximum seconds to wait for the Jenkins build to finish."
+            },
             "parameters": {
               "type": "object",
               "additionalProperties": {

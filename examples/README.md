@@ -42,11 +42,14 @@ env-files:
 This example includes GitHub Actions wrapper workflow templates under `examples/github-actions`. The wrappers call reusable workflows from this repository using `uses`.
 
 - [`github-actions/stacksmith-plan.yml`](github-actions/stacksmith-plan.yml) triggers on pull requests to `main` and manual dispatch.
-- [`github-actions/stacksmith-apply.yml`](github-actions/stacksmith-apply.yml) triggers on pushes to `main` and manual dispatch.
+- [`github-actions/stacksmith-apply.yml`](github-actions/stacksmith-apply.yml) observes every push, reconciles pushes to the repository's default branch, and supports manual dispatch.
 - [`github-actions/stacksmith-operation.yml`](github-actions/stacksmith-operation.yml) manually runs a stack-local native operation in the selected environments.
+
 All templates call `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main`. You can call that workflow directly and keep the trigger policy in your repository. These example files do not run here because they are intentionally stored outside `.github/workflows`.
 
-When adapting the templates, update their defaults and choose path filters that match your discovery layout.
+The apply wrapper intentionally has no `paths` filter. This prevents a new manifest layout, variable source, lockfile, or other declarative input from silently failing to start default-branch reconciliation. Stacksmith still uses changed-path discovery after the workflow starts to target affected environments. If a push contains any path that cannot be mapped safely, Stacksmith reconciles every environment.
+
+When adapting the plan template, update its defaults and choose path filters that match your discovery layout.
 
 - For `folders`, include `**/stacksmith.yaml` and `**/manifests/environments/**`.
 - For `flat-files`, include `**/stacksmith.*.yaml`, `**/stacksmith.*.yml`, and `**/stacksmith.*.json`.

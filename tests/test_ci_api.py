@@ -146,7 +146,7 @@ def test_inspect_environments_manual_unknown_environment_fails(tmp_path: Path):
         )
 
 
-def test_inspect_environments_push_no_matches_returns_empty_selection(tmp_path: Path):
+def test_inspect_environments_push_unmapped_change_selects_all(tmp_path: Path):
     _create_env_files_layout(tmp_path)
 
     payload = inspect_environments(
@@ -156,8 +156,8 @@ def test_inspect_environments_push_no_matches_returns_empty_selection(tmp_path: 
         changed_paths=["docs/readme.md"],
     )
 
-    assert payload["selected_environments"] == []
-    assert payload["matrix"] == []
+    assert payload["selected_environments"] == ["dev", "prod"]
+    assert [row["environment"] for row in payload["matrix"]] == ["dev", "prod"]
 
 
 def test_prepare_ci_execution_returns_provider_neutral_manifest(tmp_path: Path):
@@ -181,7 +181,7 @@ def test_prepare_ci_execution_returns_provider_neutral_manifest(tmp_path: Path):
         fail_on_changes=True,
     )
 
-    assert manifest.version == 1
+    assert manifest.version == 2
     assert manifest.stacksmith_args == ["--tag", "web"]
     assert manifest.debug is True
     assert manifest.no_cas is True
@@ -195,6 +195,75 @@ def test_prepare_ci_execution_returns_provider_neutral_manifest(tmp_path: Path):
             "environment_runfile": f"{tmp_path.as_posix()}/environments/dev.yaml",
         }
     ]
+
+
+def test_prepare_ci_execution_builds_version_two_operation_batch(tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+
+    manifest = prepare_ci_execution(
+        command="operation",
+        operation_names="publish, deploy,verify",
+        config_ref=str(_REMOTE_BACKEND_CONFIG),
+        gitops_root=str(tmp_path),
+        discovery_mode="env-files",
+        environments="dev",
+        max_parallel_operations=2,
+        skip_branch_validation=True,
+    )
+
+    assert manifest.version == 2
+    assert manifest.operation_names == ["publish", "deploy", "verify"]
+    assert manifest.max_parallel_operations == 2
+    assert build_ci_execution_argv(manifest, "dev")[:7] == [
+        "operation",
+        "run",
+        "publish,deploy,verify",
+        "--max-parallel-operations",
+        "2",
+        "--config",
+        str(_REMOTE_BACKEND_CONFIG),
+    ]
+
+
+def test_ci_manifest_accepts_single_operation():
+    manifest = CiExecutionManifest(
+        command="operation",
+        operation_names=["deploy"],
+        config_ref="platform/stacksmith-config.yaml",
+        matrix=[CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")],
+    )
+
+    assert manifest.version == 2
+    assert manifest.operation_names == ["deploy"]
+    assert build_ci_execution_argv(manifest, "dev")[:5] == [
+        "operation",
+        "run",
+        "deploy",
+        "--max-parallel-operations",
+        "10",
+    ]
+
+
+@pytest.mark.parametrize(
+    "operation_names",
+    ["deploy,deploy", "deploy,", ",deploy"],
+)
+def test_prepare_ci_execution_rejects_invalid_operation_batch(
+    operation_names: str,
+    tmp_path: Path,
+):
+    _create_env_files_layout(tmp_path)
+
+    with pytest.raises(StacksmithConfigError, match="Operation names"):
+        prepare_ci_execution(
+            command="operation",
+            operation_names=operation_names,
+            config_ref=str(_REMOTE_BACKEND_CONFIG),
+            gitops_root=str(tmp_path),
+            discovery_mode="env-files",
+            environments="dev",
+            skip_branch_validation=True,
+        )
 
 
 def test_prepare_ci_execution_rejects_local_backend(tmp_path: Path):
@@ -344,6 +413,25 @@ def test_prepare_ci_manifest_from_env_reads_debug_and_lock_settings(
     assert manifest.lockfile == "locks/stacksmith.lock.yaml"
 
 
+def test_prepare_ci_manifest_from_env_reads_operation_batch(
+    monkeypatch, tmp_path: Path
+):
+    _create_env_files_layout(tmp_path)
+    monkeypatch.setenv("INPUT_COMMAND", "operation")
+    monkeypatch.setenv("INPUT_OPERATION_NAMES", "publish, deploy")
+    monkeypatch.setenv("INPUT_MAX_PARALLEL_OPERATIONS", "4")
+    monkeypatch.setenv("INPUT_CONFIG_REF", str(_REMOTE_BACKEND_CONFIG))
+    monkeypatch.setenv("INPUT_GITOPS_ROOT", str(tmp_path))
+    monkeypatch.setenv("INPUT_DISCOVERY_MODE", "env-files")
+    monkeypatch.setenv("SKIP_BRANCH_VALIDATION", "true")
+
+    manifest = prepare_ci_manifest_from_env()
+
+    assert manifest.version == 2
+    assert manifest.operation_names == ["publish", "deploy"]
+    assert manifest.max_parallel_operations == 4
+
+
 def test_prepare_ci_execution_applies_shared_pull_request_policy(tmp_path: Path):
     _create_env_files_layout(tmp_path)
 
@@ -392,6 +480,9 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
         repository_root / ".github/workflows/stacksmith-gitops-reusable.yml"
     ).read_text()
     jenkins_pipeline = (repository_root / "Jenkinsfile").read_text()
+    apply_workflow = (
+        repository_root / "examples/github-actions/stacksmith-apply.yml"
+    ).read_text()
 
     assert "stacksmith ci prepare-from-env" in actions_workflow
     assert "stacksmith ci execute-from-env" in actions_executor
@@ -399,6 +490,10 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert "stacksmith ci execute-from-env" in jenkins_pipeline
     assert "INPUT_DEBUG" in actions_workflow
     assert "INPUT_DEBUG" in jenkins_pipeline
+    assert "operation_names_json" not in actions_workflow
+    assert "INPUT_OPERATION_NAME:" not in actions_workflow
+    assert "OPERATION_NAMES_JSON" not in jenkins_pipeline
+    assert "string(name: 'OPERATION_NAME'" not in jenkins_pipeline
     assert "      config_ref:" not in actions_workflow
     assert "      locked:" not in actions_workflow
     assert "      offline:" not in actions_workflow
@@ -421,6 +516,12 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
         jenkins_pipeline
     )
     assert jenkins_pipeline.count("Utils.markStageSkippedForConditional") == 4
+    push_trigger = apply_workflow.split("  push:", 1)[1].split(
+        "  workflow_dispatch:", 1
+    )[0]
+    assert "paths:" not in push_trigger
+    assert "branches:" not in push_trigger
+    assert "github.event.repository.default_branch" in apply_workflow
     assert '"STACKSMITH_CI_PHASE=${command}"' in jenkins_pipeline
     assert '--phase "$STACKSMITH_CI_PHASE"' in jenkins_pipeline
     assert "inputs.command == 'plan' || inputs.command == 'apply'" in actions_workflow

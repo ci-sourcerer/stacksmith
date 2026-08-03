@@ -1,23 +1,7 @@
 name: stacksmith-apply
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "**/stacksmith.yaml"
-      - "**/stacksmith.*.yaml"
-      - "**/stacksmith.*.yml"
-      - "**/stacksmith.*.json"
-      - "**/*.stack.yaml"
-      - "**/*.stack.yml"
-      - "**/environments/*.yaml"
-      - "**/environments/*.yml"
-      - "**/environments/*.json"
-      - "**/manifests/common/**"
-      - "**/manifests/environments/**"
-      - .github/workflows/stacksmith-plan.yml
-      - .github/workflows/stacksmith-apply.yml
+  push: {}
   workflow_dispatch:
     inputs:
       environments:
@@ -42,6 +26,7 @@ permissions:
 
 jobs:
   apply:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch }}
     uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main
     with:
       command: apply

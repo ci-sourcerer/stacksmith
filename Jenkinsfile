@@ -199,7 +199,8 @@ withStacksmithAgent {
             properties([
                 parameters([
                     string(name: 'COMMAND', defaultValue: 'plan', description: 'Stacksmith command: plan, apply, or operation'),
-                    string(name: 'OPERATION_NAME', description: 'stack-local operation name; required when COMMAND is operation'),
+                    string(name: 'OPERATION_NAMES', description: 'comma-delimited stack-local operation names'),
+                    string(name: 'MAX_PARALLEL_OPERATIONS', defaultValue: '10', description: 'maximum independent operations to run concurrently'),
                     string(name: 'ENVIRONMENTS', description: 'comma-separated environments to target manually'),
                     string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
                     booleanParam(name: 'DEBUG', defaultValue: false, description: 'enable debug logs and print configured modules and policies'),
@@ -211,7 +212,7 @@ withStacksmithAgent {
             checkout(scm)
 
             env.COMMAND = (params.COMMAND ?: 'plan').toString().trim().toLowerCase()
-            env.OPERATION_NAME = (params.OPERATION_NAME ?: '').toString().trim()
+            env.OPERATION_NAMES = (params.OPERATION_NAMES ?: '').toString().trim()
 
             withFolderProperties {
 
@@ -219,7 +220,8 @@ withStacksmithAgent {
                     def manifestFile = '.stacksmith-ci/ci-execution-manifest.json'
                     def manifestOutput = withEnv([
                         "INPUT_COMMAND=${env.COMMAND}",
-                        "INPUT_OPERATION_NAME=${env.OPERATION_NAME}",
+                        "INPUT_OPERATION_NAMES=${env.OPERATION_NAMES}",
+                        "INPUT_MAX_PARALLEL_OPERATIONS=${params.MAX_PARALLEL_OPERATIONS}",
                         "INPUT_CONFIG_REF=${env.STACKSMITH_CONFIG_REF}",
                         "INPUT_WORKDIR=${params.WORKDIR}",
                         "INPUT_ENV_FILE=${env.STACKSMITH_ENV_FILE ?: '/dev/null'}",
@@ -263,6 +265,7 @@ withStacksmithAgent {
                     env.SELECTED_ENVIRONMENTS = matrix.collect { it.environment }.join(',')
                     env.SELECTION_MATRIX = writeJSON(json: matrix, returnText: true)
                     env.CI_MANIFEST_FILE = "${env.WORKSPACE}/${manifestFile}"
+                    env.SELECTED_OPERATIONS = manifest.operation_names.join(', ')
 
                     if (!env.SELECTED_ENVIRONMENTS) {
                         echo "No environments selected; skipping ${params.COMMAND}."
@@ -290,7 +293,7 @@ withStacksmithAgent {
                         try {
                             input(
                                 message: env.COMMAND == 'operation'
-                                    ? "Run Stacksmith operation '${env.OPERATION_NAME}' in ${env.SELECTED_ENVIRONMENTS}?"
+                                    ? "Run Stacksmith operations '${env.SELECTED_OPERATIONS}' in ${env.SELECTED_ENVIRONMENTS}?"
                                     : "Apply Stacksmith changes to ${env.SELECTED_ENVIRONMENTS}?"
                             )
                         } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {

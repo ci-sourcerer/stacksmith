@@ -111,7 +111,11 @@ jobs:
           print(f"- Environment: `{row['environment']}`")
           print(f"- Runfile: `{row['runfile']}`")
           if phase == "operation":
-              print(f"- Operation: `{manifest['operation_name']}`")
+              print(f"- Operations: `{', '.join(manifest['operation_names'])}`")
+              print(
+                  "- Maximum parallel operations: "
+                  f"`{manifest.get('max_parallel_operations', 10)}`"
+              )
           elif phase == "plan":
               print(
                   "- Report: "

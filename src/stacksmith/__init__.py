@@ -7,6 +7,7 @@ from .api import (
     redact_plan_file,
     run_all_stacks,
     run_stack_action,
+    run_stack_operations,
     validate_stack,
 )
 from .exceptions import (
@@ -60,6 +61,7 @@ __all__ = [
     "request_operation_rerun",
     "run_all_stacks",
     "run_stack_action",
+    "run_stack_operations",
     "set_operation_inputs",
     "update_component_properties",
     "update_operation_rerun_token",

@@ -730,9 +730,9 @@ def configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
         help="Stacksmith command to execute for each selected environment.",
     )
     parser.add_argument(
-        "--operation-name",
+        "--operation-names",
         default="",
-        help="Stack-local operation name required when command is operation.",
+        help="Comma-delimited stack-local operation names for operation execution.",
     )
     parser.add_argument(
         "--config-ref",
@@ -791,6 +791,12 @@ def configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         default=False,
         help="Force native operation execution even when its identity is unchanged.",
+    )
+    parser.add_argument(
+        "--max-parallel-operations",
+        type=int,
+        default=10,
+        help="Maximum independent native operations to run concurrently.",
     )
     parser.add_argument(
         "--validation-report-format",

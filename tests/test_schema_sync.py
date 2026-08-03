@@ -15,6 +15,8 @@ from stacksmith.models import (
     ComponentPropertyTestCase,
     DefaultModuleMapping,
     FixtureSpec,
+    JenkinsOperationDefinition,
+    LocalOperationDefinition,
     MergeRule,
     ModuleMapping,
     ModuleOutputSpec,
@@ -271,6 +273,13 @@ def test_tool_config_fields_match_config_schema():
         "required",
         "secret",
     }
+    operation_definitions = schema["$defs"]["operationDefinition"]["oneOf"]
+    assert _field_names(LocalOperationDefinition) == set(
+        operation_definitions[0]["properties"]
+    )
+    assert _field_names(JenkinsOperationDefinition) == set(
+        operation_definitions[1]["properties"]
+    )
 
     assert _field_names(PlanValidation) == {"description", "enabled", "rule"}
     assert set(schema["$defs"]["planValidation"]["properties"]) == {

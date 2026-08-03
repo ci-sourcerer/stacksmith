@@ -45,7 +45,7 @@ from ..api import (
     redact_plan_file,
     run_all_stacks,
     run_stack_action,
-    run_stack_operation,
+    run_stack_operations,
     validate_ci_inputs,
     validate_stack,
 )
@@ -74,6 +74,7 @@ from ..enums import (
 from ..exceptions import StacksmithConfigError, StacksmithError
 from ..formatters import compact_json
 from ..graph import render_execution_preview_dot, render_execution_preview_mermaid
+from ..input_parsing import parse_operation_names
 from ..inspector import format_json, format_table
 from ..utils import load_env_files
 from .args import (
@@ -650,11 +651,11 @@ def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
 
 
 def _cmd_operation_run(args: argparse.Namespace) -> int:
-    """Run one approved native operation from the selected stack."""
+    """Run approved native operations from the selected stack."""
     _apply_runfile(args)
-    result = run_stack_operation(
+    result = run_stack_operations(
         _stack_arg(args),
-        args.operation_name,
+        parse_operation_names(args.operation_names),
         config=args.config,
         vars_file=_vars_arg(args),
         input_layers=_ordered_input_layers(args),
@@ -662,6 +663,7 @@ def _cmd_operation_run(args: argparse.Namespace) -> int:
         no_cache=args.no_cache,
         no_cas=args.no_cas,
         force_rerun=args.force_rerun,
+        max_parallel_operations=args.max_parallel_operations,
         merge_mode=_merge_mode_arg(args),
     )
     print(compact_json(result, sort_keys=True))
@@ -961,7 +963,7 @@ def _cmd_ci_validate(args: argparse.Namespace) -> int:
 def _cmd_ci_prepare(args: argparse.Namespace) -> int:
     manifest = prepare_ci_execution(
         command=args.ci_execution_command,
-        operation_name=args.operation_name,
+        operation_names=args.operation_names,
         config_ref=args.config_ref,
         workdir=args.workdir,
         env_file=args.env_file,
@@ -972,6 +974,7 @@ def _cmd_ci_prepare(args: argparse.Namespace) -> int:
         offline=args.offline,
         lockfile=args.lockfile,
         force_rerun=args.force_rerun,
+        max_parallel_operations=args.max_parallel_operations,
         validation_report_format=args.validation_report_format,
         fail_on_changes=args.fail_on_changes,
         strict_validation_warnings=args.strict_validation_warnings,
