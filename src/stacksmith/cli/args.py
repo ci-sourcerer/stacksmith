@@ -724,6 +724,7 @@ def configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--command",
+        dest="ci_execution_command",
         required=True,
         choices=["plan", "apply", "operation"],
         help="Stacksmith command to execute for each selected environment.",

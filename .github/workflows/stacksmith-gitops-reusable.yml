@@ -65,7 +65,7 @@ jobs:
       - name: Execute Stacksmith manifest
         env:
           STACKSMITH_CI_MANIFEST: ${{ inputs.ci_manifest }}
-          STACKSMITH_CI_PHASE: ${{ inputs.phase }}
+          STACKSMITH_CI_PHASE: ${{ inputs.phase || fromJson(inputs.ci_manifest).command }}
           STACKSMITH_ENVIRONMENT: ${{ inputs.environment }}
           STACKSMITH_GIT_TOKEN: ${{ secrets.STACKSMITH_GIT_TOKEN }}
           STACKSMITH_GIT_SSH_KEY_MATERIAL: ${{ secrets.STACKSMITH_GIT_SSH_KEY }}
@@ -76,7 +76,9 @@ jobs:
           TG_IAM_ASSUME_ROLE: ${{ vars.TG_IAM_ASSUME_ROLE || '' }}
         run: |
           set -euo pipefail
-          stacksmith ci execute-from-env --provider github-actions
+          stacksmith ci execute-from-env \
+              --provider github-actions \
+              --phase "$STACKSMITH_CI_PHASE"
 
       - name: Upload plan artifacts
         if: ${{ (success() || failure()) && inputs.upload_artifacts && (inputs.phase || fromJson(inputs.ci_manifest).command) == 'plan' }}

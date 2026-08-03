@@ -4,8 +4,13 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from ..enums import ValidationReportFormat
+from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME
+from ..enums import MergeMode, ValidationReportFormat
+from ..exceptions import StacksmithConfigError
 from ..gitops import evaluate_environment_selection
+from ..loading import load_config, load_runfiles
+from ..models import MergeConfig, MergePolicy, RunFile
+from ..remote import is_remote_url, resolve_references
 from .contracts import (
     CiExecutionManifest,
     CiExecutionRow,
@@ -38,6 +43,75 @@ def _ci_report_summary(results: Sequence[CiValidationCheckResult]) -> dict[str, 
 
 def _file_exists(path: str | None) -> bool:
     return bool(path and Path(path).expanduser().exists())
+
+
+def _ci_config_reference(config_ref: str, workdir: str) -> str | Path:
+    config_path = Path(config_ref).expanduser()
+    if is_remote_url(config_ref) or config_path.is_absolute():
+        return config_ref
+    return Path(workdir).expanduser() / config_path
+
+
+def _effective_ci_backend_type(
+    manifest: CiExecutionManifest, row: CiExecutionRow
+) -> str:
+    runfile = load_runfiles(
+        [
+            Path(row.runfile).expanduser(),
+            *(
+                [Path(row.environment_runfile).expanduser()]
+                if row.environment_runfile
+                else []
+            ),
+        ]
+    )
+    return (
+        load_config(
+            resolve_references(
+                [
+                    *runfile.configs,
+                    _ci_config_reference(manifest.config_ref, manifest.workdir),
+                ],
+                Path(manifest.workdir).expanduser()
+                / STACKSMITH_DIR_NAME
+                / CACHE_DIR_NAME,
+            ),
+            merge_mode=_ci_merge_config(manifest.stacksmith_args, runfile),
+        )
+        .backend.type.strip()
+        .lower()
+    )
+
+
+def _ci_merge_config(arguments: Sequence[str], runfile: RunFile) -> MergeConfig:
+    explicit_mode = None
+    for index, argument in enumerate(arguments):
+        if argument == "--merge-mode":
+            if index + 1 >= len(arguments):
+                raise StacksmithConfigError(
+                    "stacksmith_args_json is missing a value for --merge-mode"
+                )
+            explicit_mode = MergeMode(arguments[index + 1])
+        elif argument.startswith("--merge-mode="):
+            explicit_mode = MergeMode(argument.partition("=")[2])
+    if explicit_mode is not None:
+        return explicit_mode
+    if runfile.merge_rules:
+        return MergePolicy(
+            default=runfile.merge_mode or MergeMode.DEEP,
+            rules=runfile.merge_rules,
+        )
+    return runfile.merge_mode or MergeMode.DEEP
+
+
+def _validate_ci_backends(manifest: CiExecutionManifest) -> None:
+    for row in manifest.matrix:
+        if _effective_ci_backend_type(manifest, row) == "local":
+            raise StacksmithConfigError(
+                f"CI prepare rejected environment '{row.environment}': "
+                "the local backend is not supported. "
+                "Configure a remote backend for CI."
+            )
 
 
 def inspect_environments(
@@ -173,7 +247,7 @@ def prepare_ci_execution(
         before=before,
         after=after,
     )
-    return CiExecutionManifest(
+    manifest = CiExecutionManifest(
         command=command,
         operation_name=operation_name,
         config_ref=config_ref,
@@ -191,6 +265,8 @@ def prepare_ci_execution(
         strict_validation_warnings=strict_validation_warnings,
         matrix=[CiExecutionRow.model_validate(row) for row in selection["matrix"]],
     )
+    _validate_ci_backends(manifest)
+    return manifest
 
 
 def validate_ci_inputs(

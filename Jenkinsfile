@@ -121,7 +121,9 @@ int executeStacksmith() {
     return sh(
         script: '''#!/usr/bin/env bash
             set -euo pipefail
-            stacksmith ci execute-from-env --provider jenkins
+            stacksmith ci execute-from-env \
+                --provider jenkins \
+                --phase "$STACKSMITH_CI_PHASE"
         ''',
         returnStatus: true
     )

@@ -19,6 +19,10 @@ from stacksmith.ci.contracts import (
 )
 from stacksmith.exceptions import StacksmithConfigError, StacksmithError
 
+_FIXTURES = Path(__file__).parent / "fixtures"
+_REMOTE_BACKEND_CONFIG = _FIXTURES / "sample_config.yaml"
+_LOCAL_BACKEND_CONFIG = _FIXTURES / "sample_config_local.yaml"
+
 
 def _create_env_files_layout(tmp_path: Path) -> None:
     (tmp_path / "common").mkdir()
@@ -161,7 +165,7 @@ def test_prepare_ci_execution_returns_provider_neutral_manifest(tmp_path: Path):
 
     manifest = prepare_ci_execution(
         command="plan",
-        config_ref="platform/stacksmith-config.yaml",
+        config_ref=str(_REMOTE_BACKEND_CONFIG),
         gitops_root=str(tmp_path),
         discovery_mode="env-files",
         event_name="push",
@@ -193,6 +197,42 @@ def test_prepare_ci_execution_returns_provider_neutral_manifest(tmp_path: Path):
     ]
 
 
+def test_prepare_ci_execution_rejects_local_backend(tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+
+    with pytest.raises(
+        StacksmithConfigError,
+        match="CI prepare rejected environment 'dev': the local backend",
+    ):
+        prepare_ci_execution(
+            command="plan",
+            config_ref=str(_LOCAL_BACKEND_CONFIG),
+            gitops_root=str(tmp_path),
+            discovery_mode="env-files",
+            environments="dev",
+            skip_branch_validation=True,
+        )
+
+
+def test_prepare_ci_execution_rejects_local_backend_from_runfile(tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+    (tmp_path / "common" / "stacksmith.yaml").write_text(
+        f"configs:\n  - source: local\n    data:\n      path: {_LOCAL_BACKEND_CONFIG}\n"
+    )
+    config_overlay = tmp_path / "platform-overlay.yaml"
+    config_overlay.write_text("description: Platform overlay.\n")
+
+    with pytest.raises(StacksmithConfigError, match="local backend is not supported"):
+        prepare_ci_execution(
+            command="plan",
+            config_ref=str(config_overlay),
+            gitops_root=str(tmp_path),
+            discovery_mode="env-files",
+            environments="dev",
+            skip_branch_validation=True,
+        )
+
+
 def test_manifest_output_json_is_compact():
     manifest = CiExecutionManifest(
         command="plan",
@@ -222,6 +262,25 @@ def test_prepare_ci_execution_rejects_managed_config_override(tmp_path: Path):
             gitops_root=str(tmp_path),
             discovery_mode="env-files",
             stacksmith_args_json='["--config", "other.yaml"]',
+        )
+
+
+@pytest.mark.parametrize(
+    "stacksmith_args_json",
+    ['["--runfile", "other.yaml"]', '["--runfile=other.yaml"]'],
+)
+def test_prepare_ci_execution_rejects_managed_runfile_override(
+    stacksmith_args_json: str, tmp_path: Path
+):
+    _create_env_files_layout(tmp_path)
+
+    with pytest.raises(StacksmithConfigError, match="CI-managed runfiles"):
+        prepare_ci_execution(
+            command="plan",
+            config_ref=str(_REMOTE_BACKEND_CONFIG),
+            gitops_root=str(tmp_path),
+            discovery_mode="env-files",
+            stacksmith_args_json=stacksmith_args_json,
         )
 
 
@@ -268,7 +327,7 @@ def test_prepare_ci_manifest_from_env_reads_debug_and_lock_settings(
 ):
     _create_env_files_layout(tmp_path)
     monkeypatch.setenv("INPUT_COMMAND", "plan")
-    monkeypatch.setenv("INPUT_CONFIG_REF", "platform/stacksmith-config.yaml")
+    monkeypatch.setenv("INPUT_CONFIG_REF", str(_REMOTE_BACKEND_CONFIG))
     monkeypatch.setenv("INPUT_GITOPS_ROOT", str(tmp_path))
     monkeypatch.setenv("INPUT_DISCOVERY_MODE", "env-files")
     monkeypatch.setenv("INPUT_DEBUG", "true")
@@ -306,7 +365,7 @@ def test_prepare_ci_execution_has_identical_provider_normalized_output(
     _create_env_files_layout(tmp_path)
     common_inputs = {
         "command": "plan",
-        "config_ref": "platform/stacksmith-config.yaml",
+        "config_ref": str(_REMOTE_BACKEND_CONFIG),
         "gitops_root": str(tmp_path),
         "discovery_mode": "env-files",
         "event_name": "push",
@@ -363,11 +422,13 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     )
     assert jenkins_pipeline.count("Utils.markStageSkippedForConditional") == 4
     assert '"STACKSMITH_CI_PHASE=${command}"' in jenkins_pipeline
+    assert '--phase "$STACKSMITH_CI_PHASE"' in jenkins_pipeline
     assert "inputs.command == 'plan' || inputs.command == 'apply'" in actions_workflow
     assert "needs: [discover, plan]" in actions_workflow
     assert "phase: plan" in actions_workflow
     assert "phase: apply" in actions_workflow
-    assert "STACKSMITH_CI_PHASE" in actions_executor
+    assert "inputs.phase || fromJson(inputs.ci_manifest).command" in actions_executor
+    assert '--phase "$STACKSMITH_CI_PHASE"' in actions_executor
 
 
 def test_ci_plan_execution_only_writes_redacted_plan_json():

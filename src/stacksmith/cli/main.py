@@ -961,7 +961,7 @@ def _cmd_ci_validate(args: argparse.Namespace) -> int:
 
 def _cmd_ci_prepare(args: argparse.Namespace) -> int:
     manifest = prepare_ci_execution(
-        command=args.command,
+        command=args.ci_execution_command,
         operation_name=args.operation_name,
         config_ref=args.config_ref,
         workdir=args.workdir,

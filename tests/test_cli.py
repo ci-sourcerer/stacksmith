@@ -1979,6 +1979,9 @@ def test_cmd_ci_prepare_emits_manifest(monkeypatch, parser, capsys):
         ]
     )
 
+    assert args.command == "ci"
+    assert args.ci_execution_command == "plan"
+
     exit_code = cli_main._cmd_ci_prepare(args)
 
     assert exit_code == 0

@@ -34,13 +34,6 @@ stacksmith apply \
 
 The local backend writes state under `.stacksmith-state`. OpenTofu downloads the HashiCorp terraform builtin provider, but no cloud credentials are required.
 
-## Local workflow testing with `act`
+## CI backend policy
 
-Use the shared helper script to test the reusable GitHub Actions workflow locally.
-
-```sh
-examples/scripts/run-act-workflow.sh gitops-simple-repo plan dev
-examples/scripts/run-act-workflow.sh gitops-simple-repo apply dev
-```
-
-The script uses the same workflow inputs as the reusable job. This example does not require AWS credentials.
+This credential-free example is intended for local Stacksmith commands. `stacksmith ci prepare`, including the GitHub Actions and Jenkins entrypoints, rejects its local backend. Configure a remote backend before using this repository layout in CI so state is durable and shared between plan and apply jobs.

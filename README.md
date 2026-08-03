@@ -863,6 +863,8 @@ The GitHub templates under `examples/` do not execute in this repository because
 
 The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins wrapper uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. A plan request executes only the `plan` phase. An apply request executes `plan`, waits for provider approval, and then executes `apply`; native operations wait for approval and execute the `operation` phase. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
 
+`stacksmith ci prepare` resolves the effective layered configuration for every selected environment and rejects `backend.type: local`. CI runs must use a remote backend so state is durable and shared between plan and apply jobs.
+
 The CI selector is named `command` in GitHub Actions and `COMMAND` in Jenkins. Callers using the former `operation` or `OPERATION` selector must update to the new name.
 
 - GitHub Actions `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.

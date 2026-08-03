@@ -112,13 +112,18 @@ def parse_ci_stacksmith_args(value: str) -> list[str]:
             "stacksmith_args_json entries cannot contain NUL bytes"
         )
     if any(
-        argument in {"--config", "-c"}
-        or argument.startswith("--config=")
-        or argument.startswith("-c=")
+        argument in {"--config", "-c"} or argument.startswith(("--config=", "-c="))
         for argument in arguments
     ):
         raise StacksmithConfigError(
             "stacksmith_args_json cannot override the platform-managed config"
+        )
+    if any(
+        argument == "--runfile" or argument.startswith("--runfile=")
+        for argument in arguments
+    ):
+        raise StacksmithConfigError(
+            "stacksmith_args_json cannot override the CI-managed runfiles"
         )
     if any(
         argument in {"--locked", "--offline", "--lockfile"}
