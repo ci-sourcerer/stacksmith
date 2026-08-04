@@ -1137,10 +1137,10 @@ The basic form supplies a credential ID and accepts the default variable naming:
 
 ```json
 {
-  "git_token": { "credentialId": "my-git-token" },
-  "git_ssh_key": { "credentialId": "my-git-ssh" },
-  "http_token": { "credentialId": "my-http-token" },
-  "http_basic": { "credentialId": "my-http-basic" }
+  "git_token": {"credentialId": "my-git-token"},
+  "git_ssh_key": {"credentialId": "my-git-ssh"},
+  "http_token": {"credentialId": "my-http-token"},
+  "http_basic": {"credentialId": "my-http-basic"}
 }
 ```
 
