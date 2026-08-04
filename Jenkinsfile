@@ -198,7 +198,7 @@ withStacksmithAgent {
         ansiColor('xterm') {
             properties([
                 parameters([
-                    string(name: 'COMMAND', defaultValue: 'plan', description: 'Stacksmith command: plan, apply, or operation'),
+                    choice(name: 'COMMAND', choices: ['plan', 'apply', 'operation', 'destroy', 'plan-destroy'], defaultValue: 'plan', description: 'Stacksmith command'),
                     string(name: 'OPERATION_NAMES', description: 'comma-delimited stack-local operation names'),
                     string(name: 'ENVIRONMENTS', description: 'comma-separated environments to target manually'),
                     string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),

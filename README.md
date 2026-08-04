@@ -2,7 +2,7 @@
 
 **HEADS UP:** This project is absolutely a work in progress, there is no warranty, I have no idea what I am doing, etc. The current state is a proof-of-concept and its git history may be wiped at any moment. Use at your own risk/feel free to ask what's going on. Also, the license is no joke. This project is open source and how I contribute to it is going to stay that way.
 
-**Definitely untested things:** CI stuff.
+**Definitely untested things:** CI stuff, especially destroy-related items.
 
 ## Overview
 
