@@ -116,17 +116,33 @@ def _effective_ci_backend_type(
             ),
         ]
     )
+    workdir_path = (
+        Path(manifest.workdir).expanduser() / STACKSMITH_DIR_NAME / CACHE_DIR_NAME
+    )
+
+    # Resolve all config references and deduplicate by absolute path
+    ci_config_refs = _ci_config_references(manifest.config_ref, manifest.workdir)
+    all_config_refs = [*runfile.configs, *ci_config_refs]
+    resolved_refs = resolve_references(all_config_refs, workdir_path)
+
+    # Deduplicate by absolute path
+    seen = set()
+    deduplicated_refs = []
+    for ref in resolved_refs:
+        key = str(Path(ref).resolve()) if isinstance(ref, (str, Path)) else str(ref)
+        if key not in seen:
+            seen.add(key)
+            deduplicated_refs.append(ref)
+        else:
+            LOGGER.warning(
+                "Config %r is duplicated (also found as %r) and will be ignored",
+                ref,
+                key,
+            )
+
     return (
         load_config(
-            resolve_references(
-                [
-                    *runfile.configs,
-                    *_ci_config_references(manifest.config_ref, manifest.workdir),
-                ],
-                Path(manifest.workdir).expanduser()
-                / STACKSMITH_DIR_NAME
-                / CACHE_DIR_NAME,
-            ),
+            deduplicated_refs,
             merge_mode=_ci_merge_config(manifest.stacksmith_args, runfile),
         )
         .backend.type.strip()
