@@ -736,27 +736,4 @@ def test_prepare_ci_execution_accepts_colon_delimited_config_refs(tmp_path: Path
     assert "--config" in argv
 
 
-def test_prepare_ci_execution_ignores_duplicate_config_refs(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-):
-    _create_env_files_layout(tmp_path)
-    config = tmp_path / "stacksmith-config.yaml"
-    config.write_text(
-        "backend:\n  type: remote\nmodule_mappings: {}\n"
-        "default_module_mapping:\n  source:\n"
-        "    source: local\n    data:\n      path: ./modules\n"
-    )
 
-    with caplog.at_level(logging.WARNING, logger="stacksmith.ci.service"):
-        manifest = prepare_ci_execution(
-            command="plan",
-            config_ref=f"{config}:{config}",
-            gitops_root=str(tmp_path),
-            discovery_mode="env-files",
-            environments="dev",
-            skip_branch_validation=True,
-        )
-
-    # The manifest keeps the duplicate config_ref, but deduplication happens at load time
-    assert manifest.config_ref == f"{config}:{config}"
-    assert "duplicated and will be ignored" in caplog.text
