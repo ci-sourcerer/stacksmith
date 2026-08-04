@@ -1131,52 +1131,53 @@ Configure these values as Jenkins folder properties or job environment variables
 - `STACKSMITH_DEFAULT_BRANCH` or `BRANCH_IS_PRIMARY`: Branch-policy context when Jenkins does not provide it.
 - `TG_AUTH_PROVIDER_CMD` and `TG_IAM_ASSUME_ROLE`: Optional Terragrunt authentication settings.
 
-Bind remote-source credentials through `STACKSMITH_CREDENTIALS_JSON`. Each entry supplies a Jenkins credential ID and configuration for a supported auth type. Supported credential types include `git_token`, `git_ssh_key`, `http_token`, `http_basic`, `usernamePassword`, `sshUserPrivateKey`, and `string`.
+Bind remote-source credentials through `STACKSMITH_CREDENTIALS_JSON`. Provide a JSON array of credential objects, each with a Jenkins credential ID, required type, and optional variable name overrides.
 
-The basic form supplies a credential ID and accepts the default variable naming:
+**Basic form** (uses automatic variable naming from credential ID):
 
 ```json
-{
-  "git_token": {"credentialId": "my-git-token"},
-  "git_ssh_key": {"credentialId": "my-git-ssh"},
-  "http_token": {"credentialId": "my-http-token"},
-  "http_basic": {"credentialId": "my-http-basic"}
-}
+[
+  {"credentialId": "my-git-token", "type": "string"},
+  {"credentialId": "my-http-basic", "type": "usernamePassword"}
+]
 ```
 
-For fine-grained control over variable names and credential type mapping, use the extended form:
+This generates environment variables: `STACKSMITH_MY_GIT_TOKEN` and `STACKSMITH_MY_HTTP_BASIC` (credentialId uppercased with dashes replaced by underscores).
+
+**With explicit variable names** (full control):
 
 ```json
-{
-  "git_ssh_key": {
+[
+  {
     "credentialId": "my-git-ssh",
     "type": "sshUserPrivateKey",
     "keyFileVariable": "MY_SSH_KEY",
     "usernameVariable": "MY_SSH_USER"
   },
-  "http_basic": {
+  {
     "credentialId": "my-http-basic",
     "type": "usernamePassword",
     "usernameVariable": "CUSTOM_HTTP_USER",
     "passwordVariable": "CUSTOM_HTTP_PASS"
   },
-  "custom_token": {
+  {
     "credentialId": "my-token",
     "type": "string",
     "variable": "MY_CUSTOM_TOKEN"
   }
-}
+]
 ```
 
-Each credential entry supports the following.
+Each credential object supports the following.
 
-- `credentialId` or `id`: Jenkins credential ID (required)
-- `type`: Optional credential type override. Defaults to the key name if not specified. Supports both custom names (`git_token`, `http_basic`, `git_ssh_key`) and Jenkins native names (`usernamePassword`, `sshUserPrivateKey`, `string`, `secret_text`)
-- `variable`: Override the environment variable name for string/token credentials
-- `usernameVariable`, `passwordVariable`: Override variable names for username/password credentials (default: `STACKSMITH_<TYPE>_USERNAME` and `STACKSMITH_<TYPE>_PASSWORD`)
-- `keyFileVariable`: Override the variable name for SSH key path (default: `STACKSMITH_<TYPE>_KEY`)
-
-When no custom variables are specified, the default naming convention is `STACKSMITH_<TYPE>` for tokens, `STACKSMITH_<TYPE>_USERNAME` and `STACKSMITH_<TYPE>_PASSWORD` for basic auth, and `STACKSMITH_<TYPE>_KEY` and `STACKSMITH_<TYPE>_USERNAME` for SSH keys.
+- `credentialId` (required): Jenkins credential ID to bind
+- `type` (required): Credential type. Supported types:
+  - `string`, `secret_text`, `git_token`, `http_token`: Token/secret credentials
+  - `usernamePassword`, `http_basic`: Username and password credentials
+  - `sshUserPrivateKey`, `git_ssh_key`: SSH key credentials
+- `variable` (optional): Environment variable name for token/string credentials (default: `STACKSMITH_<CREDENTIALID_UPPERCASE>` with dashes replaced by underscores)
+- `usernameVariable`, `passwordVariable` (optional): Variable names for username/password credentials (defaults: `STACKSMITH_<CREDENTIALID_UPPERCASE>_USERNAME`, `STACKSMITH_<CREDENTIALID_UPPERCASE>_PASSWORD`)
+- `keyFileVariable` (optional): Variable name for SSH key path (default: `STACKSMITH_<CREDENTIALID_UPPERCASE>_KEY`)
 
 This example now also shows app deployment and native operation patterns alongside infrastructure stacks. The shared config can expose approved Terraform component types such as `helm_app` and `k8s_app`, plus approved operations for local commands and Jenkins builds.
 

@@ -73,46 +73,52 @@ void withStacksmithKubernetesAgent(Closure body) {
 }
 
 String credentialVariable(Map<String, Object> entry, String credentialType, String suffix = '') {
-    String explicitName = [entry.variable, entry.name, entry.variableName]
-        .find { it?.toString()?.trim() }
+    String explicitName = entry.variable?.toString()?.trim()
     if (explicitName) {
-        return explicitName.toString().trim()
+        return explicitName
     }
+
+    // Derive from credentialId: "my-secret" becomes STACKSMITH_MY_SECRET
+    String credentialId = entry.credentialId?.toString()?.trim()
+    if (credentialId) {
+        String idBased = credentialId.toUpperCase().replaceAll('-', '_')
+        return "STACKSMITH_${idBased}${suffix}"
+    }
+
+    // Fallback to type-based naming (should not normally occur)
     return "STACKSMITH_${credentialType.toUpperCase()}${suffix}"
 }
 
-List<Map<String, Object>> buildCredentialBindings(Map<String, Map<String, Object>> credentials) {
+List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> credentials) {
     List<Map<String, Object>> bindings = []
 
-    for (String credentialType : credentials.keySet()) {
-        def entry = credentials[credentialType]
+    for (def entry : credentials) {
         if (!(entry instanceof Map)) {
             continue
         }
 
-        String id = entry.credentialId ?: entry.id
-        id = id?.toString()?.trim()
+        String id = entry.credentialId?.toString()?.trim()
         if (!id) {
             continue
         }
 
-        String type = entry.type?.toString()?.trim() ?: credentialType
+        String type = entry.type?.toString()?.trim() ?: 'string'
 
         switch (type) {
             case 'usernamePassword':
             case 'http_basic':
                 bindings << usernamePassword(
                     credentialsId: id,
-                    usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, credentialType, '_USERNAME'),
-                    passwordVariable: entry.passwordVariable?.toString()?.trim() ?: credentialVariable(entry, credentialType, '_PASSWORD')
+                    usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME'),
+                    passwordVariable: entry.passwordVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_PASSWORD')
                 )
                 break
             case 'sshUserPrivateKey':
             case 'git_ssh_key':
                 bindings << sshUserPrivateKey(
                     credentialsId: id,
-                    keyFileVariable: entry.keyFileVariable?.toString()?.trim() ?: credentialVariable(entry, credentialType, '_KEY'),
-                    usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, credentialType, '_USERNAME')
+                    keyFileVariable: entry.keyFileVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_KEY'),
+                    usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME')
                 )
                 break
             case 'string':
@@ -122,7 +128,7 @@ List<Map<String, Object>> buildCredentialBindings(Map<String, Map<String, Object
             default:
                 bindings << string(
                     credentialsId: id,
-                    variable: credentialVariable(entry, credentialType)
+                    variable: credentialVariable(entry, type)
                 )
                 break
         }
@@ -157,17 +163,22 @@ void executeStacksmithMatrix(
         def archiveArtifactDir = artifactDir.replaceFirst('^\\./', '')
 
         branches[environment] = {
-            Map<String, Object> parsedCredentials = [:]
+            List<Map<String, Object>> credentialsList = []
             def credentialsJson = (env.STACKSMITH_CREDENTIALS_JSON ?: '').toString().trim()
             if (credentialsJson) {
                 try {
-                    parsedCredentials = readJSON(text: credentialsJson, returnPojo: true)
+                    def parsed = readJSON(text: credentialsJson, returnPojo: true)
+                    if (parsed instanceof List) {
+                        credentialsList = parsed
+                    } else if (parsed instanceof Map) {
+                        error("STACKSMITH_CREDENTIALS_JSON must be an array of credential objects, not a map")
+                    }
                 } catch (Exception e) {
                     error("Invalid STACKSMITH_CREDENTIALS_JSON: ${e.message}")
                 }
             }
 
-            List<Map<String, Object>> credentialBindings = buildCredentialBindings(parsedCredentials)
+            List<Map<String, Object>> credentialBindings = buildCredentialBindings(credentialsList)
 
             withEnv([
                 "ENVIRONMENT=${environment}",
