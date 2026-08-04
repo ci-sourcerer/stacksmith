@@ -272,7 +272,35 @@ def _apply_runfile(args: argparse.Namespace) -> argparse.Namespace:
         args.merge_mode = runfile.merge_mode.value
     args.merge_rules = [] if cli_merge_mode is not None else runfile.merge_rules
 
-    args.config = [*runfile.configs, *(getattr(args, "config", None) or [])] or None
+    # Combine configs and deduplicate string paths by absolute path
+    combined_configs = [*runfile.configs, *(getattr(args, "config", None) or [])]
+    if combined_configs:
+        seen = set()
+        deduplicated_configs = []
+        for config in combined_configs:
+            # Only deduplicate string paths; keep complex reference objects as-is
+            if isinstance(config, str):
+                config_path = Path(config).expanduser()
+                key = (
+                    str(config_path.resolve())
+                    if config_path.exists() or config_path.is_absolute()
+                    else config
+                )
+                if key not in seen:
+                    seen.add(key)
+                    deduplicated_configs.append(config)
+                else:
+                    LOGGER.warning(
+                        "Config %r is duplicated (also found as %r) and will be ignored",
+                        config,
+                        key,
+                    )
+            else:
+                # Non-string configs (reference objects) are not deduplicated
+                deduplicated_configs.append(config)
+        args.config = deduplicated_configs or None
+    else:
+        args.config = None
 
     run_layers = [("vars", item) for item in runfile.vars]
     if run_layers:

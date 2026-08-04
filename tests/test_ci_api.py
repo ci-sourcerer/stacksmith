@@ -757,6 +757,6 @@ def test_prepare_ci_execution_ignores_duplicate_config_refs(
             skip_branch_validation=True,
         )
 
-    # The manifest should have the duplicate removed after deduplication
-    assert manifest.config_ref == str(config)
+    # The manifest keeps the duplicate config_ref, but deduplication happens at load time
+    assert manifest.config_ref == f"{config}:{config}"
     assert "duplicated and will be ignored" in caplog.text

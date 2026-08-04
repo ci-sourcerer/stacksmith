@@ -150,64 +150,6 @@ def _effective_ci_backend_type(
     )
 
 
-def _dedup_ci_config_ref_with_runfiles(
-    config_ref: str, workdir: str, matrix_rows: Sequence[CiExecutionRow]
-) -> str:
-    """Deduplicate CI config_ref across all environment runfiles.
-
-    Args:
-        config_ref: Colon-delimited CI config references.
-        workdir: Working directory for path resolution.
-        matrix_rows: List of environment execution rows.
-
-    Returns:
-        Deduplicated colon-delimited config references.
-    """
-    if not config_ref.strip():
-        return config_ref
-
-    workdir_path = Path(workdir).expanduser() / STACKSMITH_DIR_NAME / CACHE_DIR_NAME
-
-    # Deduplicate across the first row's runfiles (same for all environments)
-    if not matrix_rows:
-        return config_ref
-
-    runfile = load_runfiles(
-        [
-            Path(matrix_rows[0].runfile).expanduser(),
-            *(
-                [Path(matrix_rows[0].environment_runfile).expanduser()]
-                if matrix_rows[0].environment_runfile
-                else []
-            ),
-        ]
-    )
-
-    # Resolve all references and deduplicate
-    ci_config_refs = _ci_config_references(config_ref, workdir)
-    all_config_refs = [*runfile.configs, *ci_config_refs]
-    resolved_refs = resolve_references(all_config_refs, workdir_path)
-
-    # Deduplicate by absolute path
-    seen = set()
-    deduplicated_refs = []
-    for ref in resolved_refs:
-        key = str(Path(ref).resolve()) if isinstance(ref, (str, Path)) else str(ref)
-        if key not in seen:
-            seen.add(key)
-            deduplicated_refs.append(ref)
-        else:
-            LOGGER.warning(
-                "Config %r is duplicated (also found as %r) and will be ignored",
-                ref,
-                key,
-            )
-
-    # Return as colon-delimited string, extracting just the CI-provided refs
-    ci_only_refs = deduplicated_refs[len(runfile.configs) :]
-    return ":".join(str(ref) for ref in ci_only_refs)
-
-
 def _ci_merge_config(arguments: Sequence[str], runfile: RunFile) -> MergeConfig:
     explicit_mode = None
     for index, argument in enumerate(arguments):
@@ -378,17 +320,10 @@ def prepare_ci_execution(
         before=before,
         after=after,
     )
-    matrix_rows = [CiExecutionRow.model_validate(row) for row in selection["matrix"]]
-
-    # Deduplicate config_ref against runfile configs
-    deduplicated_config_ref = _dedup_ci_config_ref_with_runfiles(
-        config_ref, workdir, matrix_rows
-    )
-
     manifest = CiExecutionManifest(
         command=command,
         operation_names=selected_operation_names,
-        config_ref=deduplicated_config_ref,
+        config_ref=config_ref,
         workdir=workdir,
         env_file=env_file,
         stacksmith_args=parse_ci_stacksmith_args(stacksmith_args_json),
@@ -404,7 +339,7 @@ def prepare_ci_execution(
         validation_report_format=validation_report_format,
         fail_on_changes=fail_on_changes,
         strict_validation_warnings=strict_validation_warnings,
-        matrix=matrix_rows,
+        matrix=[CiExecutionRow.model_validate(row) for row in selection["matrix"]],
     )
     _validate_ci_backends(manifest)
     return manifest
