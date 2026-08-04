@@ -276,46 +276,49 @@ withStacksmithAgent {
                 }
 
                 stage('Plan') {
-                    if (env.SELECTED_ENVIRONMENTS && env.COMMAND in ['plan', 'apply']) {
-                        executeStacksmithMatrix(
-                            env.SELECTION_MATRIX,
-                            params.WORKDIR,
-                            'plan'
-                        )
-                    } else {
+                    if (!(env.SELECTED_ENVIRONMENTS && env.COMMAND in ['plan', 'apply'])) {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
                     }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        params.WORKDIR,
+                        'plan'
+                    )
                 }
 
                 stage('Plan operation') {
-                    if (
+                    if (!(
                         env.SELECTED_ENVIRONMENTS
                         && env.COMMAND in ['plan', 'operation']
-                    ) {
-                        executeStacksmithMatrix(
-                            env.SELECTION_MATRIX,
-                            params.WORKDIR,
-                            'operation-plan'
-                        )
-                    } else {
+                    )) {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
                     }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        params.WORKDIR,
+                        'operation-plan'
+                    )
                 }
 
                 stage('Approve') {
-                    if (env.SELECTED_ENVIRONMENTS && env.COMMAND in ['apply', 'operation']) {
-                        try {
-                            input(
-                                message: env.COMMAND == 'operation'
-                                    ? "Run Stacksmith operations '${env.SELECTED_OPERATIONS}' in ${env.SELECTED_ENVIRONMENTS}?"
-                                    : "Apply Stacksmith changes to ${env.SELECTED_ENVIRONMENTS}?"
-                            )
-                        } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
-                            currentBuild.result = 'ABORTED'
-                            env.DO_NOT_EXECUTE_STACKSMITH = '1'
-                        }
-                    } else {
+                    if (!(env.SELECTED_ENVIRONMENTS && env.COMMAND in ['apply', 'operation'])) {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
+
+                    try {
+                        input(
+                            message: env.COMMAND == 'operation'
+                                ? "Run Stacksmith operations '${env.SELECTED_OPERATIONS}' in ${env.SELECTED_ENVIRONMENTS}?"
+                                : "Apply Stacksmith changes to ${env.SELECTED_ENVIRONMENTS}?"
+                        )
+                    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+                        currentBuild.result = 'ABORTED'
+                        env.DO_NOT_EXECUTE_STACKSMITH = '1'
                     }
                 }
 
@@ -324,35 +327,37 @@ withStacksmithAgent {
                 }
 
                 stage('Apply') {
-                    if (
+                    if (!(
                         env.SELECTED_ENVIRONMENTS
                         && env.COMMAND == 'apply'
                         && !env.DO_NOT_EXECUTE_STACKSMITH
-                    ) {
-                        executeStacksmithMatrix(
-                            env.SELECTION_MATRIX,
-                            params.WORKDIR,
-                            'apply'
-                        )
-                    } else {
+                    )) {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
                     }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        params.WORKDIR,
+                        'apply'
+                    )
                 }
 
                 stage('Run operation') {
-                    if (
+                    if (!(
                         env.SELECTED_ENVIRONMENTS
                         && env.COMMAND == 'operation'
                         && !env.DO_NOT_EXECUTE_STACKSMITH
-                    ) {
-                        executeStacksmithMatrix(
-                            env.SELECTION_MATRIX,
-                            params.WORKDIR,
-                            'operation'
-                        )
-                    } else {
+                    )) {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
                     }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        params.WORKDIR,
+                        'operation'
+                    )
                 }
 
             }
