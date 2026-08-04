@@ -793,12 +793,6 @@ def configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
         help="Force native operation execution even when its identity is unchanged.",
     )
     parser.add_argument(
-        "--max-parallel-operations",
-        type=int,
-        default=10,
-        help="Maximum independent native operations to run concurrently.",
-    )
-    parser.add_argument(
         "--validation-report-format",
         default=ValidationReportFormat.JSON.value,
         choices=[format_name.value for format_name in ValidationReportFormat],
@@ -868,11 +862,11 @@ def configure_ci_execute_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--phase",
-        choices=["plan", "apply", "operation"],
+        choices=["plan", "apply", "operation-plan", "operation"],
         default="",
         help=(
-            "Lifecycle phase to execute. An apply manifest may run plan or apply; "
-            "other manifests may only run their declared command."
+            "Lifecycle phase to execute. Apply and operation manifests support "
+            "their corresponding dry-run and execution phases."
         ),
     )
     parser.add_argument(
@@ -952,7 +946,7 @@ def configure_ci_execute_from_env_parser(parser: argparse.ArgumentParser) -> Non
     )
     parser.add_argument(
         "--phase",
-        choices=["plan", "apply", "operation"],
+        choices=["plan", "apply", "operation-plan", "operation"],
         default="",
         help=(
             "Optional lifecycle phase override. When omitted, "

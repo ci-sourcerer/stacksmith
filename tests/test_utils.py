@@ -2,6 +2,9 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
+from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.utils import (
     env_truthy,
     env_vars,
@@ -10,6 +13,7 @@ from stacksmith.utils import (
     load_env_files,
     parse_bool,
     stacksmith_env,
+    stacksmith_env_int,
     stacksmith_env_list,
 )
 
@@ -60,6 +64,19 @@ def test_stacksmith_env_returns_default_when_missing():
     if "STACKSMITH_CONFIG" in os.environ:
         del os.environ["STACKSMITH_CONFIG"]
     assert stacksmith_env("CONFIG", default="default.yaml") == "default.yaml"
+
+
+def test_stacksmith_env_int_validates_configured_value(monkeypatch):
+    monkeypatch.setenv("STACKSMITH_MAX_PARALLEL_OPERATIONS", "4")
+    assert stacksmith_env_int("MAX_PARALLEL_OPERATIONS", 10, minimum=1) == 4
+
+    monkeypatch.setenv("STACKSMITH_MAX_PARALLEL_OPERATIONS", "0")
+    with pytest.raises(StacksmithConfigError, match="must be at least 1"):
+        stacksmith_env_int("MAX_PARALLEL_OPERATIONS", 10, minimum=1)
+
+    monkeypatch.setenv("STACKSMITH_MAX_PARALLEL_OPERATIONS", "many")
+    with pytest.raises(StacksmithConfigError, match="must be an integer"):
+        stacksmith_env_int("MAX_PARALLEL_OPERATIONS", 10, minimum=1)
 
 
 def test_env_truthy_with_prefix(monkeypatch):

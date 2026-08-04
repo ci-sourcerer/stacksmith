@@ -12,11 +12,6 @@ on:
         required: false
         type: string
         default: ""
-      max_parallel_operations:
-        description: Maximum independent native operations to run concurrently.
-        required: false
-        type: number
-        default: 10
       environments:
         description: Comma-separated environment names. Leave empty for automatic selection.
         required: false
@@ -75,7 +70,7 @@ jobs:
           INPUT_GITOPS_ROOT: ${{ inputs.gitops_root }}
           INPUT_COMMAND: ${{ inputs.command }}
           INPUT_OPERATION_NAMES: ${{ inputs.operation_names }}
-          INPUT_MAX_PARALLEL_OPERATIONS: ${{ inputs.max_parallel_operations }}
+          STACKSMITH_MAX_PARALLEL_OPERATIONS: ${{ fromJson(toJson(vars)).STACKSMITH_MAX_PARALLEL_OPERATIONS || '10' }}
           INPUT_CONFIG_REF: ${{ fromJson(toJson(vars)).STACKSMITH_CONFIG_REF || '' }}
           INPUT_WORKDIR: ${{ inputs.workdir }}
           INPUT_ENV_FILE: ${{ fromJson(toJson(vars)).STACKSMITH_ENV_FILE || '/dev/null' }}
@@ -133,9 +128,25 @@ jobs:
       image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
     secrets: inherit
 
+  operation-plan:
+    name: operation-plan
+    needs: discover
+    if: ${{ inputs.command == 'operation' && needs.discover.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/stacksmith-gitops-reusable.yml
+    with:
+      ci_manifest: ${{ needs.discover.outputs.manifest }}
+      environment: ${{ matrix.environment }}
+      phase: operation-plan
+      image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+    secrets: inherit
+
   operation:
     name: operation
-    needs: discover
+    needs: [discover, operation-plan]
     if: ${{ inputs.command == 'operation' && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false

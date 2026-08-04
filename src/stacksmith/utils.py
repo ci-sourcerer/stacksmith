@@ -120,6 +120,43 @@ def stacksmith_env(
     return os.getenv(name if name.startswith(prefix) else f"{prefix}{name}", default)
 
 
+def stacksmith_env_int(
+    name: str,
+    default: int,
+    *,
+    minimum: int | None = None,
+    prefix: str = "STACKSMITH_",
+) -> int:
+    """Return a validated integer from a Stacksmith environment variable.
+
+    Args:
+        name: Name of the setting without the prefix or with the prefix already.
+        default: Value returned when the environment variable is unset.
+        minimum: Optional inclusive minimum accepted value.
+        prefix: Prefix to apply when resolving the environment variable name.
+
+    Returns:
+        The parsed integer or `default` when the variable is unset.
+
+    Raises:
+        StacksmithConfigError: If the configured value is not a valid integer or is
+            less than `minimum`.
+    """
+    variable_name = name if name.startswith(prefix) else f"{prefix}{name}"
+    raw_value = os.getenv(variable_name)
+    try:
+        value = default if raw_value is None else int(raw_value)
+    except ValueError as exc:
+        raise StacksmithConfigError(
+            f"{variable_name} must be an integer, got '{raw_value}'"
+        ) from exc
+    if minimum is not None and value < minimum:
+        raise StacksmithConfigError(
+            f"{variable_name} must be at least {minimum}, got {value}"
+        )
+    return value
+
+
 def stacksmith_env_list(
     name: str, default: list[str] | None = None, prefix: str = "STACKSMITH_"
 ) -> list[str] | None:

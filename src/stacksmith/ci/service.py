@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from stacksmith.utils import parse_bool
+from stacksmith.utils import parse_bool, stacksmith_env_int
 
 from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME
 from ..enums import MergeMode, ValidationReportFormat
@@ -181,7 +181,6 @@ def prepare_ci_execution(
     offline: bool = False,
     lockfile: str = "",
     force_rerun: bool = False,
-    max_parallel_operations: int = 10,
     validation_report_format: str = ValidationReportFormat.JSON.value,
     fail_on_changes: bool = False,
     strict_validation_warnings: bool = False,
@@ -213,7 +212,6 @@ def prepare_ci_execution(
         offline: Whether locked remote inputs must resolve without network access.
         lockfile: Optional explicit Stacksmith lockfile path.
         force_rerun: Whether operations must force execution.
-        max_parallel_operations: Maximum independent operations run concurrently.
         validation_report_format: Plan validation report format.
         fail_on_changes: Whether plans fail when changes are detected.
         strict_validation_warnings: Whether plan validation warnings fail a plan.
@@ -272,7 +270,9 @@ def prepare_ci_execution(
         offline=offline,
         lockfile=lockfile,
         force_rerun=force_rerun,
-        max_parallel_operations=max_parallel_operations,
+        max_parallel_operations=stacksmith_env_int(
+            "MAX_PARALLEL_OPERATIONS", 10, minimum=1
+        ),
         validation_report_format=validation_report_format,
         fail_on_changes=fail_on_changes,
         strict_validation_warnings=strict_validation_warnings,

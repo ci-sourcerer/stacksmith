@@ -41,6 +41,7 @@ from ..api import (
     inspect_modules,
     load_runtime_config,
     lock_stack,
+    plan_stack_operations,
     prepare_ci_execution,
     redact_plan_file,
     run_all_stacks,
@@ -663,7 +664,25 @@ def _cmd_operation_run(args: argparse.Namespace) -> int:
         no_cache=args.no_cache,
         no_cas=args.no_cas,
         force_rerun=args.force_rerun,
-        max_parallel_operations=args.max_parallel_operations,
+        merge_mode=_merge_mode_arg(args),
+    )
+    print(compact_json(result, sort_keys=True))
+    return 0
+
+
+def _cmd_operation_plan(args: argparse.Namespace) -> int:
+    """Plan approved native operations from the selected stack."""
+    _apply_runfile(args)
+    result = plan_stack_operations(
+        _stack_arg(args),
+        parse_operation_names(args.operation_names),
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        no_cas=args.no_cas,
+        force_rerun=args.force_rerun,
         merge_mode=_merge_mode_arg(args),
     )
     print(compact_json(result, sort_keys=True))
@@ -974,7 +993,6 @@ def _cmd_ci_prepare(args: argparse.Namespace) -> int:
         offline=args.offline,
         lockfile=args.lockfile,
         force_rerun=args.force_rerun,
-        max_parallel_operations=args.max_parallel_operations,
         validation_report_format=args.validation_report_format,
         fail_on_changes=args.fail_on_changes,
         strict_validation_warnings=args.strict_validation_warnings,
@@ -1053,7 +1071,13 @@ def _execute_ci_manifest(
     if manifest.env_file != "/dev/null":
         load_env_files([Path(manifest.env_file)])
     original_directory = Path.cwd()
+    original_max_parallel_operations = os.environ.get(
+        "STACKSMITH_MAX_PARALLEL_OPERATIONS"
+    )
     try:
+        os.environ["STACKSMITH_MAX_PARALLEL_OPERATIONS"] = str(
+            manifest.max_parallel_operations
+        )
         os.chdir(manifest.workdir)
         execution_args = build_parser().parse_args(
             build_ci_execution_argv(manifest, environment, execution_phase)
@@ -1076,11 +1100,19 @@ def _execute_ci_manifest(
             info_args.format = InspectOutputFormat.TABLE.value
             info_args.basic = False
             _cmd_info_modules_and_policies(info_args)
+        if execution_phase == "operation-plan":
+            return _cmd_operation_plan(execution_args)
         if execution_phase == "operation":
             return _cmd_operation_run(execution_args)
         return _cmd_terragrunt_action(execution_args, execution_phase)
     finally:
         os.chdir(original_directory)
+        if original_max_parallel_operations is None:
+            os.environ.pop("STACKSMITH_MAX_PARALLEL_OPERATIONS", None)
+        else:
+            os.environ["STACKSMITH_MAX_PARALLEL_OPERATIONS"] = (
+                original_max_parallel_operations
+            )
 
 
 def _run_ci_execute(
@@ -1303,6 +1335,8 @@ def main() -> None:
                         exit_code = 1
             case "operation":
                 match args.operation_command:
+                    case "plan":
+                        exit_code = _cmd_operation_plan(args)
                     case "run":
                         exit_code = _cmd_operation_run(args)
                     case _:

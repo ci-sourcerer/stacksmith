@@ -198,37 +198,36 @@ def build_parser() -> argparse.ArgumentParser:
 
     operation_parser = subparsers.add_parser(
         "operation",
-        help="Run native operations approved by managed configuration",
+        help="Plan or run native operations approved by managed configuration",
     )
-    operation_run_parser = operation_parser.add_subparsers(
+    operation_subparsers = operation_parser.add_subparsers(
         dest="operation_command",
         required=True,
-    ).add_parser(
-        "run",
-        help="Run approved operations declared by a stack",
     )
-    operation_run_parser.add_argument(
-        "operation_names",
-        help="Comma-delimited stack-local operation names",
-    )
-    operation_run_parser.add_argument(
-        "--max-parallel-operations",
-        type=int,
-        default=10,
-        help="Maximum independent operations to run concurrently.",
-    )
-    operation_run_parser.add_argument(
-        "--force-rerun",
-        action="store_true",
-        default=env_truthy("FORCE_RERUN", prefix="STACKSMITH_"),
-        help=(
-            "Force the operation runner resource to be replaced even when its "
-            "execution identity has not changed. Can also be enabled with "
-            "STACKSMITH_FORCE_RERUN=1."
-        ),
-    )
-    add_stack_arg(operation_run_parser)
-    add_common_args(operation_run_parser)
+    for operation_command, command_help in (
+        ("plan", "Plan approved operations declared by a stack"),
+        ("run", "Run approved operations declared by a stack"),
+    ):
+        operation_action_parser = operation_subparsers.add_parser(
+            operation_command,
+            help=command_help,
+        )
+        operation_action_parser.add_argument(
+            "operation_names",
+            help="Comma-delimited stack-local operation names",
+        )
+        operation_action_parser.add_argument(
+            "--force-rerun",
+            action="store_true",
+            default=env_truthy("FORCE_RERUN", prefix="STACKSMITH_"),
+            help=(
+                "Force the operation runner resource to be replaced even when its "
+                "execution identity has not changed. Can also be enabled with "
+                "STACKSMITH_FORCE_RERUN=1."
+            ),
+        )
+        add_stack_arg(operation_action_parser)
+        add_common_args(operation_action_parser)
 
     info_subparsers = subparsers.add_parser(
         "info",

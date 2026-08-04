@@ -197,8 +197,11 @@ def test_prepare_ci_execution_returns_provider_neutral_manifest(tmp_path: Path):
     ]
 
 
-def test_prepare_ci_execution_builds_version_two_operation_batch(tmp_path: Path):
+def test_prepare_ci_execution_builds_version_two_operation_batch(
+    monkeypatch, tmp_path: Path
+):
     _create_env_files_layout(tmp_path)
+    monkeypatch.setenv("STACKSMITH_MAX_PARALLEL_OPERATIONS", "2")
 
     manifest = prepare_ci_execution(
         command="operation",
@@ -207,22 +210,19 @@ def test_prepare_ci_execution_builds_version_two_operation_batch(tmp_path: Path)
         gitops_root=str(tmp_path),
         discovery_mode="env-files",
         environments="dev",
-        max_parallel_operations=2,
         skip_branch_validation=True,
     )
 
     assert manifest.version == 2
     assert manifest.operation_names == ["publish", "deploy", "verify"]
     assert manifest.max_parallel_operations == 2
-    assert build_ci_execution_argv(manifest, "dev")[:7] == [
+    assert build_ci_execution_argv(manifest, "dev")[:4] == [
         "operation",
         "run",
         "publish,deploy,verify",
-        "--max-parallel-operations",
-        "2",
         "--config",
-        str(_REMOTE_BACKEND_CONFIG),
     ]
+    assert "--max-parallel-operations" not in build_ci_execution_argv(manifest, "dev")
 
 
 def test_ci_manifest_accepts_single_operation():
@@ -235,12 +235,11 @@ def test_ci_manifest_accepts_single_operation():
 
     assert manifest.version == 2
     assert manifest.operation_names == ["deploy"]
-    assert build_ci_execution_argv(manifest, "dev")[:5] == [
+    assert build_ci_execution_argv(manifest, "dev")[:4] == [
         "operation",
         "run",
         "deploy",
-        "--max-parallel-operations",
-        "10",
+        "--config",
     ]
 
 
@@ -419,7 +418,7 @@ def test_prepare_ci_manifest_from_env_reads_operation_batch(
     _create_env_files_layout(tmp_path)
     monkeypatch.setenv("INPUT_COMMAND", "operation")
     monkeypatch.setenv("INPUT_OPERATION_NAMES", "publish, deploy")
-    monkeypatch.setenv("INPUT_MAX_PARALLEL_OPERATIONS", "4")
+    monkeypatch.setenv("STACKSMITH_MAX_PARALLEL_OPERATIONS", "4")
     monkeypatch.setenv("INPUT_CONFIG_REF", str(_REMOTE_BACKEND_CONFIG))
     monkeypatch.setenv("INPUT_GITOPS_ROOT", str(tmp_path))
     monkeypatch.setenv("INPUT_DISCOVERY_MODE", "env-files")
@@ -515,17 +514,23 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert "booleanParam(name: 'REQUIRE_LOCKFILE'" not in jenkins_pipeline
     assert "booleanParam(name: 'OFFLINE'" not in jenkins_pipeline
     assert "string(name: 'LOCKFILE'" not in jenkins_pipeline
+    assert "string(name: 'MAX_PARALLEL_OPERATIONS'" not in jenkins_pipeline
+    assert "params.MAX_PARALLEL_OPERATIONS" not in jenkins_pipeline
+    assert "STACKSMITH_MAX_PARALLEL_OPERATIONS" in jenkins_pipeline
     plan_stage = jenkins_pipeline.index("stage('Plan')")
+    operation_plan_stage = jenkins_pipeline.index("stage('Plan operation')")
     approval_stage = jenkins_pipeline.index("stage('Approve')")
     apply_stage = jenkins_pipeline.index("stage('Apply')")
-    assert plan_stage < approval_stage < apply_stage
+    operation_stage = jenkins_pipeline.index("stage('Run operation')")
+    assert plan_stage < operation_plan_stage < approval_stage < apply_stage
+    assert approval_stage < operation_stage
     assert "setManifestCommand" not in jenkins_pipeline
     assert jenkins_pipeline.count("returnPojo: true") == 3
     assert "readJSON(text: manifestOutput, returnPojo: true)" in jenkins_pipeline
     assert "import org.jenkinsci.plugins.pipeline.modeldefinition.Utils" in (
         jenkins_pipeline
     )
-    assert jenkins_pipeline.count("Utils.markStageSkippedForConditional") == 4
+    assert jenkins_pipeline.count("Utils.markStageSkippedForConditional") == 5
     push_trigger = apply_workflow.split("  push:", 1)[1].split(
         "  workflow_dispatch:", 1
     )[0]
@@ -536,8 +541,12 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert '--phase "$STACKSMITH_CI_PHASE"' in jenkins_pipeline
     assert "inputs.command == 'plan' || inputs.command == 'apply'" in actions_workflow
     assert "needs: [discover, plan]" in actions_workflow
+    assert "needs: [discover, operation-plan]" in actions_workflow
     assert "phase: plan" in actions_workflow
     assert "phase: apply" in actions_workflow
+    assert "phase: operation-plan" in actions_workflow
+    assert "      max_parallel_operations:" not in actions_workflow
+    assert "STACKSMITH_MAX_PARALLEL_OPERATIONS" in actions_workflow
     assert "inputs.phase || fromJson(inputs.ci_manifest).command" in actions_executor
     assert '--phase "$STACKSMITH_CI_PHASE"' in actions_executor
 
@@ -605,6 +614,26 @@ def test_ci_apply_manifest_supports_plan_then_apply_phases():
     assert "--fail-on-changes" not in plan_argv
     assert apply_argv[0] == "apply"
     assert "--auto-approve" in apply_argv
+
+
+def test_ci_operation_manifest_supports_plan_then_run_phases():
+    manifest = CiExecutionManifest(
+        command="operation",
+        operation_names=["deploy"],
+        config_ref="platform/stacksmith-config.yaml",
+        force_rerun=True,
+        matrix=[CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")],
+    )
+
+    plan_argv = build_ci_execution_argv(manifest, "dev", "operation-plan")
+    run_argv = build_ci_execution_argv(manifest, "dev", "operation")
+
+    assert plan_argv[:3] == ["operation", "plan", "deploy"]
+    assert run_argv[:3] == ["operation", "run", "deploy"]
+    assert "--force-rerun" in plan_argv
+    assert "--force-rerun" in run_argv
+    assert "--max-parallel-operations" not in plan_argv
+    assert "--max-parallel-operations" not in run_argv
 
 
 def test_ci_manifest_rejects_unapproved_execution_phase():

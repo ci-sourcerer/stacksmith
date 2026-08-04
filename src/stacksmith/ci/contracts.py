@@ -8,7 +8,7 @@ from ..enums import ValidationReportFormat
 from ..exceptions import StacksmithConfigError, StacksmithError
 
 CiCommand = Literal["plan", "apply", "operation"]
-CiPhase = CiCommand
+CiPhase = Literal["plan", "apply", "operation-plan", "operation"]
 
 
 class CiExecutionRow(BaseModel):
@@ -232,7 +232,7 @@ def resolve_ci_execution_phase(
         not in {
             "plan": {"plan"},
             "apply": {"plan", "apply"},
-            "operation": {"operation"},
+            "operation": {"operation-plan", "operation"},
         }[manifest.command]
     ):
         raise StacksmithError(
@@ -292,7 +292,7 @@ def build_ci_execution_argv(
         common_args.append("--debug")
     if manifest.no_cas:
         common_args.append("--no-cas")
-    if execution_phase != "operation":
+    if execution_phase not in {"operation-plan", "operation"}:
         if manifest.locked:
             common_args.append("--locked")
         if manifest.offline:
@@ -320,12 +320,18 @@ def build_ci_execution_argv(
         ]
     if execution_phase == "apply":
         return ["apply", *common_args, "--auto-approve"]
+    if execution_phase == "operation-plan":
+        return [
+            "operation",
+            "plan",
+            ",".join(manifest.operation_names),
+            *common_args,
+            *(["--force-rerun"] if manifest.force_rerun else []),
+        ]
     return [
         "operation",
         "run",
         ",".join(manifest.operation_names),
-        "--max-parallel-operations",
-        str(manifest.max_parallel_operations),
         *common_args,
         *(["--force-rerun"] if manifest.force_rerun else []),
     ]

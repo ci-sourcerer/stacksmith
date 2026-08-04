@@ -56,7 +56,7 @@ jobs:
   execute:
     name: stacksmith-${{ inputs.phase || fromJson(inputs.ci_manifest).command }}-${{ inputs.environment }}
     runs-on: ubuntu-latest
-    environment: ${{ (inputs.phase || fromJson(inputs.ci_manifest).command) != 'plan' && inputs.environment || '' }}
+    environment: ${{ ((inputs.phase || fromJson(inputs.ci_manifest).command) == 'apply' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'operation') && inputs.environment || '' }}
     container:
       image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
     defaults:
@@ -80,6 +80,7 @@ jobs:
           STACKSMITH_HTTP_PASSWORD: ${{ secrets.STACKSMITH_HTTP_PASSWORD }}
           STACKSMITH_JENKINS_USERNAME: ${{ secrets.STACKSMITH_JENKINS_USERNAME }}
           STACKSMITH_JENKINS_API_TOKEN: ${{ secrets.STACKSMITH_JENKINS_API_TOKEN }}
+          STACKSMITH_MAX_PARALLEL_OPERATIONS: ${{ fromJson(inputs.ci_manifest).max_parallel_operations }}
           TG_AUTH_PROVIDER_CMD: ${{ vars.TG_AUTH_PROVIDER_CMD || '' }}
           TG_IAM_ASSUME_ROLE: ${{ vars.TG_IAM_ASSUME_ROLE || '' }}
         run: |
@@ -118,7 +119,7 @@ jobs:
           print()
           print(f"- Environment: `{row['environment']}`")
           print(f"- Runfile: `{row['runfile']}`")
-          if phase == "operation":
+          if phase in {"operation-plan", "operation"}:
               print(f"- Operations: `{', '.join(manifest['operation_names'])}`")
               print(
                   "- Maximum parallel operations: "

@@ -491,11 +491,72 @@ def test_run_single_stack_operation_passes_runtime_flags(
     assert calls["run"][2]["no_cas"] is True
 
 
+def test_plan_single_stack_operation_uses_targeted_dry_run(
+    monkeypatch,
+    tmp_path: Path,
+):
+    calls: dict[str, object] = {}
+    stack = StackDefinition.model_validate(
+        {
+            "name": "application",
+            "operations": {
+                "deploy_app": {
+                    "use": "deploy",
+                    "with": {"release_tag": "1.2.3"},
+                }
+            },
+        }
+    )
+    stack.source_path = tmp_path / "stack.yaml"
+
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path, [], _config()),
+    )
+    monkeypatch.setattr(
+        api,
+        "_prepare_stack_definition",
+        lambda *args, **kwargs: (stack, {}),
+    )
+    monkeypatch.setattr(
+        api,
+        "_generate_single_stack",
+        lambda *args, **kwargs: tmp_path / "build",
+    )
+
+    def _fake_run_terragrunt(args, working_dir, **kwargs):
+        calls["run"] = (args, working_dir, kwargs)
+        return 0
+
+    monkeypatch.setattr(api, "run_terragrunt", _fake_run_terragrunt)
+
+    result = api.plan_stack_operations(
+        stack.source_path,
+        ["deploy_app"],
+        force_rerun=True,
+    )
+
+    assert result == {
+        "operations": ["deploy_app"],
+        "execution_order": ["deploy_app"],
+        "exit_code": 0,
+    }
+    assert calls["run"][0] == [
+        "plan",
+        "-target=module.stacksmith_operation_deploy_app",
+        "-parallelism=10",
+        "-replace=module.stacksmith_operation_deploy_app.terraform_data.operation",
+    ]
+    assert calls["run"][2]["auto_approve"] is False
+
+
 def test_run_stack_operations_uses_one_dependency_aware_apply(
     monkeypatch,
     tmp_path: Path,
 ):
     calls: dict[str, object] = {}
+    monkeypatch.setenv("STACKSMITH_MAX_PARALLEL_OPERATIONS", "3")
     stack = StackDefinition.model_validate(
         {
             "name": "application",
@@ -536,7 +597,6 @@ def test_run_stack_operations_uses_one_dependency_aware_apply(
     result = api.run_stack_operations(
         stack.source_path,
         ["deploy", "docs"],
-        max_parallel_operations=3,
         force_rerun=True,
     )
 

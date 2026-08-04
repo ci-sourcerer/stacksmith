@@ -200,7 +200,6 @@ withStacksmithAgent {
                 parameters([
                     string(name: 'COMMAND', defaultValue: 'plan', description: 'Stacksmith command: plan, apply, or operation'),
                     string(name: 'OPERATION_NAMES', description: 'comma-delimited stack-local operation names'),
-                    string(name: 'MAX_PARALLEL_OPERATIONS', defaultValue: '10', description: 'maximum independent operations to run concurrently'),
                     string(name: 'ENVIRONMENTS', description: 'comma-separated environments to target manually'),
                     string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
                     booleanParam(name: 'DEBUG', defaultValue: false, description: 'enable debug logs and print configured modules and policies'),
@@ -221,7 +220,7 @@ withStacksmithAgent {
                     def manifestOutput = withEnv([
                         "INPUT_COMMAND=${env.COMMAND}",
                         "INPUT_OPERATION_NAMES=${env.OPERATION_NAMES}",
-                        "INPUT_MAX_PARALLEL_OPERATIONS=${params.MAX_PARALLEL_OPERATIONS}",
+                        "STACKSMITH_MAX_PARALLEL_OPERATIONS=${env.STACKSMITH_MAX_PARALLEL_OPERATIONS ?: '10'}",
                         "INPUT_CONFIG_REF=${env.STACKSMITH_CONFIG_REF}",
                         "INPUT_WORKDIR=${params.WORKDIR}",
                         "INPUT_ENV_FILE=${env.STACKSMITH_ENV_FILE ?: '/dev/null'}",
@@ -282,6 +281,18 @@ withStacksmithAgent {
                             env.SELECTION_MATRIX,
                             params.WORKDIR,
                             'plan'
+                        )
+                    } else {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                    }
+                }
+
+                stage('Plan operation') {
+                    if (env.SELECTED_ENVIRONMENTS && env.COMMAND == 'operation') {
+                        executeStacksmithMatrix(
+                            env.SELECTION_MATRIX,
+                            params.WORKDIR,
+                            'operation-plan'
                         )
                     } else {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)

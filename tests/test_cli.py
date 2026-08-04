@@ -67,6 +67,23 @@ def _capture_run_stack_operations_call(
     return calls
 
 
+def _capture_plan_stack_operations_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, object]:
+    calls: dict[str, object] = {}
+
+    def _fake_plan_stack_operations(stack_file, operation_names, **kwargs):
+        calls["run"] = (stack_file, operation_names, kwargs)
+        return {
+            "operations": operation_names,
+            "execution_order": operation_names,
+            "exit_code": 0,
+        }
+
+    monkeypatch.setattr(cli_main, "plan_stack_operations", _fake_plan_stack_operations)
+    return calls
+
+
 def _capture_automatic_lockfile_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[tuple[object, dict[str, object]]]:
@@ -930,15 +947,14 @@ def test_operation_force_rerun_reads_environment(monkeypatch):
     assert args.force_rerun is True
 
 
-def test_cmd_operation_run_executes_operation_batch(monkeypatch, parser, capsys):
+def test_cmd_operation_run_reads_parallelism_from_environment(monkeypatch, capsys):
     calls = _capture_run_stack_operations_call(monkeypatch)
-    args = parser.parse_args(
+    monkeypatch.setenv("STACKSMITH_MAX_PARALLEL_OPERATIONS", "2")
+    args = stacksmith.cli.main.build_parser().parse_args(
         [
             "operation",
             "run",
             "publish, deploy,verify",
-            "--max-parallel-operations",
-            "2",
             "stack.yaml",
         ]
     )
@@ -949,12 +965,41 @@ def test_cmd_operation_run_executes_operation_batch(monkeypatch, parser, capsys)
     stack_file, operation_names, kwargs = calls["run"]
     assert stack_file == Path("stack.yaml")
     assert operation_names == ["publish", "deploy", "verify"]
-    assert kwargs["max_parallel_operations"] == 2
+    assert "max_parallel_operations" not in kwargs
     assert json.loads(capsys.readouterr().out) == {
         "execution_order": ["publish", "deploy", "verify"],
         "exit_code": 0,
         "operations": ["publish", "deploy", "verify"],
     }
+
+
+def test_cmd_operation_plan_uses_dry_run_api(monkeypatch, capsys):
+    calls = _capture_plan_stack_operations_call(monkeypatch)
+    args = stacksmith.cli.main.build_parser().parse_args(
+        ["operation", "plan", "deploy_app", "stack.yaml", "--force-rerun"]
+    )
+
+    exit_code = cli_main._cmd_operation_plan(args)
+
+    assert exit_code == 0
+    assert calls["run"][0] == Path("stack.yaml")
+    assert calls["run"][1] == ["deploy_app"]
+    assert calls["run"][2]["force_rerun"] is True
+    assert json.loads(capsys.readouterr().out)["operations"] == ["deploy_app"]
+
+
+def test_operation_parallelism_cli_parameter_is_removed(parser):
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "operation",
+                "run",
+                "deploy_app",
+                "--max-parallel-operations",
+                "2",
+                "stack.yaml",
+            ]
+        )
 
 
 @pytest.mark.parametrize(

@@ -79,6 +79,7 @@ from .utils import (
     cache_key,
     env_truthy,
     get_current_git_repository,
+    stacksmith_env_int,
     stacksmith_env_list,
 )
 from .validations import PlanValidationOutcome, PlanValidationResult
@@ -92,6 +93,7 @@ __all__ = [
     "inspect_environments",
     "inspect_modules",
     "lock_stack",
+    "plan_stack_operations",
     "prepare_ci_execution",
     "redact_plan",
     "redact_plan_file",
@@ -1364,6 +1366,53 @@ def lock_stack(
     }
 
 
+def plan_stack_operations(
+    stack_file: Path | str | Sequence[Path | str],
+    operation_names: Sequence[str],
+    config: list[str] | None = None,
+    vars_file: str | Sequence[str] | None = None,
+    input_layers: Sequence[InputLayer] | None = None,
+    build_dir: Path | None = None,
+    no_cache: bool = False,
+    no_cas: bool = False,
+    force_rerun: bool = False,
+    merge_mode: MergeConfig = MergeMode.DEEP,
+) -> dict[str, Any]:
+    """Plan a dependency-aware batch of approved native operations.
+
+    Args:
+        stack_file: Path, URL, or ordered sequence of stack definition files.
+        operation_names: Stack-local operation names to plan.
+        config: Optional managed config paths or URLs.
+        vars_file: Optional vars file paths or URLs.
+        input_layers: Optional ordered CLI input layers merged in call order.
+        build_dir: Optional directory for generated operation files.
+        no_cache: When `True`, clear the Stacksmith remote cache first.
+        no_cas: When `True`, disable Terragrunt CAS during this plan.
+        force_rerun: When `True`, plan replacement of selected operation resources.
+        merge_mode: Merge strategy for layered configuration and inputs.
+
+    Returns:
+        OpenTofu plan metadata, including dependency-first operation order.
+
+    Raises:
+        StacksmithConfigError: If concurrency is invalid or the operation graph fails.
+    """
+    return _execute_stack_operations(
+        TerragruntAction.PLAN,
+        stack_file,
+        operation_names,
+        config=config,
+        vars_file=vars_file,
+        input_layers=input_layers,
+        build_dir=build_dir,
+        no_cache=no_cache,
+        no_cas=no_cas,
+        force_rerun=force_rerun,
+        merge_mode=merge_mode,
+    )
+
+
 def run_stack_operations(
     stack_file: Path | str | Sequence[Path | str],
     operation_names: Sequence[str],
@@ -1374,7 +1423,6 @@ def run_stack_operations(
     no_cache: bool = False,
     no_cas: bool = False,
     force_rerun: bool = False,
-    max_parallel_operations: int = 10,
     merge_mode: MergeConfig = MergeMode.DEEP,
 ) -> dict[str, Any]:
     """Run a dependency-aware batch of approved native operations.
@@ -1389,7 +1437,6 @@ def run_stack_operations(
         no_cache: When `True`, clear the Stacksmith remote cache first.
         no_cas: When `True`, disable Terragrunt CAS during this run.
         force_rerun: When `True`, replace explicitly selected operation resources.
-        max_parallel_operations: Maximum independent operations run concurrently.
         merge_mode: Merge strategy for layered configuration and inputs.
 
     Returns:
@@ -1398,9 +1445,39 @@ def run_stack_operations(
     Raises:
         StacksmithConfigError: If concurrency is invalid or the operation graph fails.
     """
-    if max_parallel_operations < 1:
-        raise StacksmithConfigError("max_parallel_operations must be at least 1")
+    return _execute_stack_operations(
+        TerragruntAction.APPLY,
+        stack_file,
+        operation_names,
+        config=config,
+        vars_file=vars_file,
+        input_layers=input_layers,
+        build_dir=build_dir,
+        no_cache=no_cache,
+        no_cas=no_cas,
+        force_rerun=force_rerun,
+        merge_mode=merge_mode,
+    )
 
+
+def _execute_stack_operations(
+    action: TerragruntAction,
+    stack_file: Path | str | Sequence[Path | str],
+    operation_names: Sequence[str],
+    *,
+    config: list[str] | None,
+    vars_file: str | Sequence[str] | None,
+    input_layers: Sequence[InputLayer] | None,
+    build_dir: Path | None,
+    no_cache: bool,
+    no_cas: bool,
+    force_rerun: bool,
+    merge_mode: MergeConfig,
+) -> dict[str, Any]:
+    if action not in {TerragruntAction.PLAN, TerragruntAction.APPLY}:
+        raise StacksmithConfigError(
+            f"Unsupported native operation action: {action.value}"
+        )
     cache_dir, _, loaded_config = load_runtime_config(
         config, build_dir, no_cache=no_cache, merge_mode=merge_mode
     )
@@ -1430,12 +1507,13 @@ def run_stack_operations(
         "execution_order": execution_order,
         "exit_code": run_terragrunt(
             _operation_terragrunt_args(
+                action,
                 operation_names,
                 force_rerun,
-                max_parallel_operations,
+                stacksmith_env_int("MAX_PARALLEL_OPERATIONS", 10, minimum=1),
             ),
             output_dir,
-            auto_approve=True,
+            auto_approve=action == TerragruntAction.APPLY,
             config=loaded_config,
             stack_name=stack.name,
             cache_dir=cache_dir,
@@ -1446,6 +1524,7 @@ def run_stack_operations(
 
 
 def _operation_terragrunt_args(
+    action: TerragruntAction,
     operation_names: Sequence[str],
     force_rerun: bool,
     max_parallel_operations: int,
@@ -1455,7 +1534,7 @@ def _operation_terragrunt_args(
         for operation_name in operation_names
     ]
     args = [
-        "apply",
+        action.value,
         *(f"-target={module_address}" for module_address in module_addresses),
         f"-parallelism={max_parallel_operations}",
     ]
