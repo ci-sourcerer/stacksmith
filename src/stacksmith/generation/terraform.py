@@ -99,10 +99,10 @@ def _generate_operation_blocks(
     for name in resolve_operation_batch(stack, selected_names):
         invocation = stack.operations[name]
         dependencies = [
-            f"${{module.{component_name}}}" for component_name in stack.components
+            f"module.{component_name}" for component_name in stack.components
         ]
         dependencies.extend(
-            f"${{module.{operation_module_name(dependency)}}}"
+            f"module.{operation_module_name(dependency)}"
             for dependency in invocation.depends_on
         )
         modules[operation_module_name(name)] = {

@@ -141,7 +141,7 @@ def test_operation_input_preserves_component_output_reference(tmp_path: Path):
     assert module["spec"]["environment"] == {
         "RELEASE_TAG": "production-release/${module.app.release_name}"
     }
-    assert module["depends_on"] == ["${module.app}"]
+    assert module["depends_on"] == ["module.app"]
 
 
 def test_generates_selected_operation_with_transitive_dependencies():
@@ -177,7 +177,7 @@ def test_generates_selected_operation_with_transitive_dependencies():
         "stacksmith_operation_verify",
     ]
     assert generated["module"]["stacksmith_operation_verify"]["depends_on"] == [
-        "${module.stacksmith_operation_deploy}"
+        "module.stacksmith_operation_deploy"
     ]
 
 

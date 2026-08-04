@@ -12,6 +12,9 @@ class TestGenerateTerragruntJson:
         doc = generate_terragrunt_json(stack, config, {"bucket_name": "my-bucket-test"})
 
         assert doc["terraform"]["source"] == "."
+        assert doc["terraform"]["include_in_copy"] == [
+            ".stacksmith-operation-runner/**"
+        ]
         assert doc["remote_state"]["backend"] == "s3"
         assert doc["terraform_binary"] == "tofu"
 

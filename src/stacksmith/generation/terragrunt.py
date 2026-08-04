@@ -49,7 +49,10 @@ def generate_terragrunt_json(
     }
 
     doc = {
-        "terraform": {"source": "."},
+        "terraform": {
+            "source": ".",
+            "include_in_copy": [".stacksmith-operation-runner/**"],
+        },
         "remote_state": remote_state,
         "terraform_binary": "tofu",
     }
