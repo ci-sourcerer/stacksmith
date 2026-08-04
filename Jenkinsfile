@@ -94,62 +94,62 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
 
     for (def entry : credentials) {
         if (!(entry instanceof Map)) {
-            echo("DEBUG: Credential entry is not a Map: ${entry?.getClass()?.getName()}")
+            
             continue
         }
 
         String id = entry.credentialId?.toString()?.trim()
         if (!id) {
-            echo("DEBUG: Credential entry has no credentialId: ${entry}")
+            
             continue
         }
 
         String type = entry.type?.toString()?.trim() ?: 'string'
-        echo("DEBUG: Processing credential: id=${id}, type=${type}")
+        
 
         try {
             switch (type) {
                 case 'usernamePassword':
                 case 'http_basic':
-                    echo("DEBUG: Creating usernamePassword binding")
+                    
                     def binding = usernamePassword(
                         credentialsId: id,
                         usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME'),
                         passwordVariable: entry.passwordVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_PASSWORD')
                     )
-                    echo("DEBUG: Created binding: ${binding}")
+                    
                     bindings << binding
                     break
                 case 'sshUserPrivateKey':
                 case 'git_ssh_key':
-                    echo("DEBUG: Creating sshUserPrivateKey binding")
+                    
                     def binding = sshUserPrivateKey(
                         credentialsId: id,
                         keyFileVariable: entry.keyFileVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_KEY'),
                         usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME')
                     )
-                    echo("DEBUG: Created binding: ${binding}")
+                    
                     bindings << binding
                     break
                 case 'string':
                 case 'secret_text':
                 case 'git_token':
                 case 'http_token':
-                    echo("DEBUG: Creating string binding with credentialsId=${id}, variable=${credentialVariable(entry, type)}")
+                    
                     def binding = string(
                         credentialsId: id,
                         variable: credentialVariable(entry, type)
                     )
-                    echo("DEBUG: Created binding: ${binding}")
+                    
                     bindings << binding
                     break
                 default:
-                    echo("DEBUG: Creating default binding")
+                    
                     def binding = string(
                         credentialsId: id,
                         variable: credentialVariable(entry, type)
                     )
-                    echo("DEBUG: Created binding: ${binding}")
+                    
                     bindings << binding
                     break
             }
@@ -159,7 +159,7 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
         }
     }
 
-    echo("DEBUG: buildCredentialBindings() returning ${bindings.size()} binding(s)")
+    
     return bindings
 }
 
@@ -207,7 +207,7 @@ void executeStacksmithMatrix(
             }
 
             List<Map<String, Object>> credentialBindings = buildCredentialBindings(credentialsList)
-            echo("DEBUG: After buildCredentialBindings() - credentialBindings=${credentialBindings}, size=${credentialBindings?.size()}, truthy=${(boolean)credentialBindings}")
+            
             if (credentialBindings) {
                 echo("Binding ${credentialBindings.size()} credential binding(s) for environment ${environment}")
             }
@@ -219,12 +219,12 @@ void executeStacksmithMatrix(
             ]) {
                 int status
                 if (credentialBindings) {
-                    echo("DEBUG: Calling withCredentials with ${credentialBindings.size()} binding(s)")
+                    
                     status = withCredentials(credentialBindings) {
                         executeStacksmith()
                     }
                 } else {
-                    echo("DEBUG: No credential bindings, calling executeStacksmith() directly")
+                    
                     status = executeStacksmith()
                 }
 
