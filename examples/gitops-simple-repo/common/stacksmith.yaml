@@ -1,0 +1,18 @@
+description: Credential-free invocation for the simple GitOps example.
+
+# Reuse the platform-owned configuration shared by the examples.
+configs:
+  - source: local
+    data:
+      path: ../../shared-config-repo/stacksmith-base-config.yaml
+  - source: local
+    data:
+      path: ../../shared-config-repo/stacksmith-config.yaml
+stacks:
+  - source: local
+    data:
+      path: ../manifests/common/terraform-data.stack.yaml
+vars:
+  - source: local
+    data:
+      path: ../vars/vars.common.yaml

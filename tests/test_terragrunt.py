@@ -1,0 +1,192 @@
+import json
+from pathlib import Path
+
+from stacksmith.generation import (
+    generate_operations_terragrunt_json,
+    generate_terragrunt_json,
+    write_terragrunt_json,
+)
+from stacksmith.loading import load_config, load_stack
+
+
+class TestGenerateTerragruntJson:
+    def test_basic_structure(self, sample_stack_yaml: Path, sample_config_yaml: Path):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+        doc = generate_terragrunt_json(stack, config, {"bucket_name": "my-bucket-test"})
+
+        assert doc["terraform"]["source"] == "."
+        assert "include_in_copy" not in doc["terraform"]
+        assert doc["remote_state"]["backend"] == "s3"
+        assert doc["terraform_binary"] == "tofu"
+
+    def test_state_key(self, sample_stack_yaml: Path, sample_config_yaml: Path):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+        doc = generate_terragrunt_json(stack, config, {})
+
+        assert doc["remote_state"]["config"]["key"] == "my-stack/terraform.tfstate"
+
+    def test_state_key_with_root(self, monorepo_dir: Path, sample_config_yaml: Path):
+        vpc_stack = load_stack(monorepo_dir / "networking" / "vpc" / "stack.yaml")
+        config = load_config(sample_config_yaml)
+        doc = generate_terragrunt_json(vpc_stack, config, {}, root=monorepo_dir)
+
+        assert (
+            doc["remote_state"]["config"]["key"] == "networking/vpc/terraform.tfstate"
+        )
+
+    def test_backend_config(self, sample_stack_yaml: Path, sample_config_yaml: Path):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+        doc = generate_terragrunt_json(stack, config, {})
+
+        cfg = doc["remote_state"]["config"]
+        assert cfg["bucket"] == "test-state-bucket"
+        assert cfg["region"] == "us-east-1"
+
+    def test_dependency_blocks(self, monorepo_dir: Path, sample_config_yaml: Path):
+        vpc_stack = load_stack(monorepo_dir / "networking" / "vpc" / "stack.yaml")
+        web_stack = load_stack(monorepo_dir / "compute" / "web" / "stack.yaml")
+        config = load_config(sample_config_yaml)
+
+        doc = generate_terragrunt_json(
+            web_stack,
+            config,
+            {},
+            dependency_stacks={"vpc": vpc_stack},
+            dependency_build_dirs={"vpc": Path("/build/networking/vpc")},
+        )
+
+        assert "vpc" in doc["dependency"]
+        dep = doc["dependency"]["vpc"]
+        assert dep["config_path"] == "/build/networking/vpc"
+        assert dep["mock_outputs"]["vpc_id"] == "vpc://mock-vpc-id"
+        assert dep["mock_outputs_allowed_terraform_commands"] == ["plan", "validate"]
+
+    def test_inputs_include_resolved_vars(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+        doc = generate_terragrunt_json(
+            stack, config, {"bucket_name": "my-bucket-input", "instance_count": 3}
+        )
+
+        assert doc["inputs"]["bucket_name"] == "my-bucket-input"
+        assert doc["inputs"]["instance_count"] == 3
+
+    def test_no_dependency_key_when_no_deps(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+        doc = generate_terragrunt_json(stack, config, {})
+
+        assert "dependency" not in doc
+
+
+class TestLocalBackend:
+    def test_basic_structure(
+        self, sample_stack_yaml: Path, sample_config_local_yaml: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_local_yaml)
+        doc = generate_terragrunt_json(stack, config, {})
+
+        assert doc["remote_state"]["backend"] == "local"
+
+    def test_state_path(self, sample_stack_yaml: Path, sample_config_local_yaml: Path):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_local_yaml)
+        doc = generate_terragrunt_json(stack, config, {})
+
+        assert (
+            doc["remote_state"]["config"]["path"]
+            == "/tmp/stacksmith-state/my-stack/terraform.tfstate"
+        )
+
+    def test_state_path_with_root(
+        self, monorepo_dir: Path, sample_config_local_yaml: Path
+    ):
+        vpc_stack = load_stack(monorepo_dir / "networking" / "vpc" / "stack.yaml")
+        config = load_config(sample_config_local_yaml)
+        doc = generate_terragrunt_json(vpc_stack, config, {}, root=monorepo_dir)
+
+        assert (
+            doc["remote_state"]["config"]["path"]
+            == "/tmp/stacksmith-state/networking/vpc/terraform.tfstate"
+        )
+
+
+class TestGenerateOperationsTerragruntJson:
+    def test_uses_isolated_operation_state(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+
+        doc = generate_operations_terragrunt_json(stack, config)
+
+        assert doc["remote_state"]["config"]["key"] == (
+            "my-stack/operations/terraform.tfstate"
+        )
+        assert doc["terraform"]["include_in_copy"] == [
+            ".stacksmith-operation-runner/**"
+        ]
+
+    def test_relative_local_state_is_resolved_from_child_root(
+        self, sample_stack_yaml: Path, sample_config_local_yaml: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_local_yaml)
+        config.backend.path = ".state"
+
+        doc = generate_operations_terragrunt_json(stack, config)
+
+        assert doc["remote_state"]["config"]["path"] == (
+            "../.state/my-stack/operations/terraform.tfstate"
+        )
+
+    def test_component_inputs_use_read_only_infrastructure_dependency(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+
+        doc = generate_operations_terragrunt_json(
+            stack,
+            config,
+            operation_inputs=["stacksmith_operation_app_release_name"],
+        )
+
+        assert doc["dependency"]["infrastructure"]["config_path"] == ".."
+        assert doc["inputs"]["stacksmith_operation_app_release_name"] == (
+            "${dependency.infrastructure.outputs.stacksmith_operation_app_release_name}"
+        )
+        assert doc["dependency"]["infrastructure"][
+            "mock_outputs_allowed_terraform_commands"
+        ] == ["plan", "validate"]
+
+
+class TestWriteTerragruntJson:
+    def test_writes_file(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path, tmp_path: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+        output = write_terragrunt_json(stack, config, {}, tmp_path)
+
+        assert output.exists()
+        assert output.name == "terragrunt.hcl.json"
+
+    def test_output_is_valid_json(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path, tmp_path: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+        output = write_terragrunt_json(stack, config, {"x": 1}, tmp_path)
+
+        doc = json.loads(output.read_text())
+        assert doc["terraform"]["source"] == "."
+        assert doc["inputs"]["x"] == 1
