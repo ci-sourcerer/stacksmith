@@ -84,6 +84,9 @@ String credentialVariable(Map<String, Object> entry, String credentialType, Stri
         String idBased = credentialId.toUpperCase().replaceAll('-', '_')
         return "STACKSMITH_${idBased}${suffix}"
     }
+
+    // Fallback to type-based naming (should not normally occur)
+    return "STACKSMITH_${credentialType.toUpperCase()}${suffix}"
 }
 
 List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> credentials) {
@@ -149,7 +152,8 @@ int executeStacksmith() {
 void executeStacksmithMatrix(
     String matrixJson,
     String workdir,
-    String command
+    String command,
+    String credentialsJson = ''
 ) {
     def matrix = readJSON(text: matrixJson, returnPojo: true)
     Map<String, Closure> branches = [:]
@@ -161,12 +165,13 @@ void executeStacksmithMatrix(
 
         branches[environment] = {
             List<Map<String, Object>> credentialsList = []
-            def credentialsJson = (env.STACKSMITH_CREDENTIALS_JSON ?: '').toString().trim()
-            if (credentialsJson) {
+            def parsedCredentialsJson = (credentialsJson ?: env.STACKSMITH_CREDENTIALS_JSON ?: '').toString().trim()
+            if (parsedCredentialsJson) {
                 try {
-                    def parsed = readJSON(text: credentialsJson, returnPojo: true)
+                    def parsed = readJSON(text: parsedCredentialsJson, returnPojo: true)
                     if (parsed instanceof List) {
                         credentialsList = parsed
+                        echo("Loaded ${credentialsList.size()} credential(s) for environment ${environment}")
                     } else if (parsed instanceof Map) {
                         error("STACKSMITH_CREDENTIALS_JSON must be an array of credential objects, not a map")
                     }
@@ -176,6 +181,9 @@ void executeStacksmithMatrix(
             }
 
             List<Map<String, Object>> credentialBindings = buildCredentialBindings(credentialsList)
+            if (credentialBindings) {
+                echo("Binding ${credentialBindings.size()} credential binding(s) for environment ${environment}")
+            }
 
             withEnv([
                 "ENVIRONMENT=${environment}",
@@ -307,7 +315,8 @@ withStacksmithAgent {
                     executeStacksmithMatrix(
                         env.SELECTION_MATRIX,
                         params.WORKDIR,
-                        'plan'
+                        'plan',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
                     )
                 }
 
@@ -323,7 +332,8 @@ withStacksmithAgent {
                     executeStacksmithMatrix(
                         env.SELECTION_MATRIX,
                         params.WORKDIR,
-                        'plan-operation'
+                        'plan-operation',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
                     )
                 }
 
@@ -362,7 +372,8 @@ withStacksmithAgent {
                     executeStacksmithMatrix(
                         env.SELECTION_MATRIX,
                         params.WORKDIR,
-                        'apply'
+                        'apply',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
                     )
                 }
 
@@ -379,7 +390,8 @@ withStacksmithAgent {
                     executeStacksmithMatrix(
                         env.SELECTION_MATRIX,
                         params.WORKDIR,
-                        'operation'
+                        'operation',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
                     )
                 }
 
