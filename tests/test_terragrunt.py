@@ -157,12 +157,13 @@ class TestGenerateOperationsTerragruntJson:
         doc = generate_operations_terragrunt_json(
             stack,
             config,
-            operation_inputs=["stacksmith_operation_app_release_name"],
+            operation_inputs=["stacksmith_operation_bridge_app_release_name"],
         )
 
         assert doc["dependency"]["infrastructure"]["config_path"] == ".."
-        assert doc["inputs"]["stacksmith_operation_app_release_name"] == (
-            "${dependency.infrastructure.outputs.stacksmith_operation_app_release_name}"
+        assert doc["inputs"]["stacksmith_operation_bridge_app_release_name"] == (
+            "${dependency.infrastructure.outputs."
+            "stacksmith_operation_bridge_app_release_name}"
         )
         assert doc["dependency"]["infrastructure"][
             "mock_outputs_allowed_terraform_commands"

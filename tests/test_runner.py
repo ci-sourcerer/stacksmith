@@ -74,7 +74,7 @@ def _patch_run_terragrunt(monkeypatch, handler):
 
 
 def test_run_terragrunt_streaming_routes_stdout_to_stderr(monkeypatch, tmp_path):
-    calls: dict[str, object] = {}
+    calls = {}
 
     class FakeResult:
         returncode = 0
@@ -263,7 +263,7 @@ def test_check_plan_validations_uses_config_base_path(tmp_path):
 
 
 def test_run_terragrunt_plan_invokes_plan_validation_path(monkeypatch, tmp_path):
-    calls: dict[str, object] = {}
+    calls = {}
     report_results: list[runner.PlanValidationResult] = []
 
     def _fake_run_plan_validations(
@@ -417,7 +417,7 @@ def test_run_terragrunt_delegates_plan_result_processing(monkeypatch, tmp_path):
             self.stdout = stdout
             self.stderr = stderr
 
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_subprocess_run(cmd, **kwargs):
         if _matches_command(cmd, "terragrunt", "--version") or _matches_command(

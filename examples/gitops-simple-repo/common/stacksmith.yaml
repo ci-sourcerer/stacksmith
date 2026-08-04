@@ -1,6 +1,8 @@
 description: Credential-free invocation for the simple GitOps example.
 
 # Reuse the platform-owned configuration shared by the examples.
+# Pass each shared config file once so the merged operation definitions stay
+# unambiguous when this runfile is used by CI entrypoints.
 configs:
   - source: local
     data:

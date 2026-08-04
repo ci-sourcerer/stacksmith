@@ -17,9 +17,12 @@ def _backend_config_from_child_directory(
 ) -> dict[str, Any]:
     backend_config = config.backend.config_with_state_key(state_key)
     path = backend_config.get("path")
-    if config.backend.type == "local" and isinstance(path, str):
-        if not Path(path).is_absolute():
-            backend_config["path"] = str(Path("..") / path)
+    if (
+        config.backend.type == "local"
+        and isinstance(path, str)
+        and not Path(path).is_absolute()
+    ):
+        backend_config["path"] = str(Path("..") / path)
     return backend_config
 
 

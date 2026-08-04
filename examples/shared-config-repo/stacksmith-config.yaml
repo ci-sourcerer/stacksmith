@@ -297,14 +297,21 @@ operations:
     description: Echo completion of a simple GitOps reconciliation.
     runner: local
     trigger: after_apply
+    stream_output: true
+    output_masking:
+      inputs:
+        - secret_token
+      literals:
+        - DO-NOT-LEAK
     command:
       - sh
       - -c
-      - 'echo "Stacksmith simple GitOps reconciliation completed: environment=$STACKSMITH_OPERATION_ENVIRONMENT message=$STACKSMITH_OPERATION_MESSAGE project=$STACKSMITH_OPERATION_PROJECT"'
+      - 'echo "Stacksmith simple GitOps reconciliation completed: environment=$STACKSMITH_OPERATION_ENVIRONMENT message=$STACKSMITH_OPERATION_MESSAGE project=$STACKSMITH_OPERATION_PROJECT token=$STACKSMITH_OPERATION_SECRET_TOKEN"'
     environment:
       STACKSMITH_OPERATION_ENVIRONMENT: environment
       STACKSMITH_OPERATION_MESSAGE: message
       STACKSMITH_OPERATION_PROJECT: project
+      STACKSMITH_OPERATION_SECRET_TOKEN: secret_token
     inputs:
       environment:
         description: Deployment environment being reconciled.
@@ -315,6 +322,10 @@ operations:
       project:
         description: Project declared by the common manifest.
         required: true
+      secret_token:
+        description: Sensitive token shown in streamed output for masking demonstration.
+        required: true
+        secret: true
 
   deploy:
     description: Run the platform-approved deployment command

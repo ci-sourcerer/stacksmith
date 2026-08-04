@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess
 from collections.abc import Sequence
@@ -21,6 +22,8 @@ from .contracts import (
     parse_ci_stacksmith_args,
     validate_ci_policy,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,50 @@ def _ci_config_reference(config_ref: str, workdir: str) -> str | Path:
     return Path(workdir).expanduser() / config_path
 
 
+def _ci_config_ref_key(config_ref: str | Path) -> str:
+    if isinstance(config_ref, Path):
+        return str(config_ref.resolve())
+    return config_ref
+
+
+def _ci_config_split(config_ref: str) -> list[str]:
+    refs: list[str] = []
+    buffer = []
+    index = 0
+    while index < len(config_ref):
+        if config_ref.startswith("://", index):
+            buffer.append(config_ref[index : index + 3])
+            index += 3
+            continue
+        if config_ref[index] == ":":
+            refs.append("".join(buffer))
+            buffer = []
+            index += 1
+            continue
+        buffer.append(config_ref[index])
+        index += 1
+    if buffer:
+        refs.append("".join(buffer))
+    return [ref.strip() for ref in refs if ref.strip()]
+
+
+def _ci_config_references(config_ref: str, workdir: str) -> list[str | Path]:
+    results = []
+    seen = set()
+    for candidate in _ci_config_split(config_ref.strip()):
+        resolved = _ci_config_reference(candidate, workdir)
+        key = _ci_config_ref_key(resolved)
+        if key in seen:
+            LOGGER.warning(
+                "CI config_ref %r is duplicated and will be ignored",
+                candidate,
+            )
+            continue
+        seen.add(key)
+        results.append(resolved)
+    return results
+
+
 def _effective_ci_backend_type(
     manifest: CiExecutionManifest, row: CiExecutionRow
 ) -> str:
@@ -74,7 +121,7 @@ def _effective_ci_backend_type(
             resolve_references(
                 [
                     *runfile.configs,
-                    _ci_config_reference(manifest.config_ref, manifest.workdir),
+                    *_ci_config_references(manifest.config_ref, manifest.workdir),
                 ],
                 Path(manifest.workdir).expanduser()
                 / STACKSMITH_DIR_NAME

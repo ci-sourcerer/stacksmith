@@ -1,3 +1,4 @@
 project: stacksmith
 first_name: first
 second_name: second
+reconciliation_secret_token: "{{ env('STACKSMITH_EXAMPLE_SECRET') }}"

@@ -1,10 +1,34 @@
+import os
 from collections.abc import Mapping
 from typing import Any
 
-from jinja2 import ChainableUndefined, StrictUndefined
+from jinja2 import ChainableUndefined, StrictUndefined, Undefined
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 _JINJA_MARKERS = ("{{", "{%", "{#")
+_MISSING = object()
+
+
+class _TemplateEnvProxy:
+    """Expose environment-variable access from Jinja templates."""
+
+    def __init__(self, context_values: Mapping[str, Any] | None = None) -> None:
+        self._context_values = dict(context_values or {})
+
+    def __call__(self, name: str, default: Any = _MISSING) -> Any:
+        if name in os.environ:
+            return os.environ[name]
+        if default is not _MISSING:
+            return default
+        return Undefined(name)
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self._context_values:
+            return self._context_values[name]
+        raise AttributeError(name)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._context_values[key]
 
 
 def contains_jinja_template(value: str) -> bool:
@@ -35,6 +59,12 @@ def create_sandboxed_jinja_environment(
     )
 
 
+def _build_render_context(context: Mapping[str, Any]) -> dict[str, Any]:
+    render_context = dict(context)
+    render_context["env"] = _TemplateEnvProxy(context.get("env"))
+    return render_context
+
+
 def render_jinja_template_values(
     value: Any, context: Mapping[str, Any], jinja_env: Any
 ) -> Any:
@@ -52,7 +82,7 @@ def render_jinja_template_values(
         Rendered value with the same nested structure as the input.
     """
     if isinstance(value, str) and contains_jinja_template(value):
-        return jinja_env.from_string(value).render(context)
+        return jinja_env.from_string(value).render(_build_render_context(context))
     if isinstance(value, dict):
         for key, nested in value.items():
             value[key] = render_jinja_template_values(

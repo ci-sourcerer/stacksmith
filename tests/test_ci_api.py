@@ -541,10 +541,10 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert "params.MAX_PARALLEL_OPERATIONS" not in jenkins_pipeline
     assert "STACKSMITH_MAX_PARALLEL_OPERATIONS" in jenkins_pipeline
     plan_stage = jenkins_pipeline.index("stage('Plan')")
-    operation_plan_stage = jenkins_pipeline.index("stage('Plan operation')")
+    operation_plan_stage = jenkins_pipeline.index("stage('Plan operation(s)')")
     approval_stage = jenkins_pipeline.index("stage('Approve')")
     apply_stage = jenkins_pipeline.index("stage('Apply')")
-    operation_stage = jenkins_pipeline.index("stage('Run operation')")
+    operation_stage = jenkins_pipeline.index("stage('Run operation(s)')")
     assert plan_stage < operation_plan_stage < approval_stage < apply_stage
     assert approval_stage < operation_stage
     assert "setManifestCommand" not in jenkins_pipeline
@@ -707,3 +707,55 @@ def test_ci_manifest_rejects_unapproved_execution_phase():
 
     with pytest.raises(StacksmithError, match="cannot execute phase 'apply'"):
         build_ci_execution_argv(manifest, "dev", "apply")
+
+
+def test_prepare_ci_execution_accepts_colon_delimited_config_refs(tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+    base_config = tmp_path / "base" / "stacksmith-config.yaml"
+    base_config.parent.mkdir()
+    base_config.write_text(
+        "backend:\n  type: remote\nmodule_mappings: {}\n"
+        "default_module_mapping:\n  source:\n"
+        "    source: local\n    data:\n      path: ./modules\n"
+    )
+    overlay_config = tmp_path / "overlay" / "stacksmith-config.yaml"
+    overlay_config.parent.mkdir()
+    overlay_config.write_text("description: overlay\n")
+
+    manifest = prepare_ci_execution(
+        command="plan",
+        config_ref=f"{base_config}:{overlay_config}",
+        gitops_root=str(tmp_path),
+        discovery_mode="env-files",
+        environments="dev",
+        skip_branch_validation=True,
+    )
+
+    assert manifest.config_ref == f"{base_config}:{overlay_config}"
+    argv = build_ci_execution_argv(manifest, "dev")
+    assert "--config" in argv
+
+
+def test_prepare_ci_execution_ignores_duplicate_config_refs(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    _create_env_files_layout(tmp_path)
+    config = tmp_path / "stacksmith-config.yaml"
+    config.write_text(
+        "backend:\n  type: remote\nmodule_mappings: {}\n"
+        "default_module_mapping:\n  source:\n"
+        "    source: local\n    data:\n      path: ./modules\n"
+    )
+
+    with caplog.at_level(logging.WARNING, logger="stacksmith.ci.service"):
+        manifest = prepare_ci_execution(
+            command="plan",
+            config_ref=f"{config}:{config}",
+            gitops_root=str(tmp_path),
+            discovery_mode="env-files",
+            environments="dev",
+            skip_branch_validation=True,
+        )
+
+    assert manifest.config_ref == f"{config}:{config}"
+    assert "duplicated and will be ignored" in caplog.text

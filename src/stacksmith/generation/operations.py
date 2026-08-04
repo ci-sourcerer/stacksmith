@@ -221,6 +221,19 @@ def build_operation_module_spec(
                     name: str(values[input_name])
                     for name, input_name in definition.environment.items()
                 },
+                "mask_literals": list(
+                    dict.fromkeys(
+                        [
+                            *definition.output_masking.literals,
+                            *(
+                                str(values[input_name])
+                                for input_name in definition.output_masking.inputs
+                                if str(values[input_name])
+                            ),
+                        ]
+                    )
+                ),
+                "stream_output": definition.stream_output,
                 "working_directory": str(
                     (base / definition.working_directory).resolve()
                     if definition.working_directory

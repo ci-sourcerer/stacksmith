@@ -356,7 +356,7 @@ def test_cmd_run_all_emits_dry_run_json(
         load_config(sample_config_yaml),
         state_root=tmp_path,
     )
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_run_all_stacks(action, root, **kwargs):
         calls["args"] = (action, root, kwargs)
@@ -396,7 +396,7 @@ def test_cmd_info_graph_emits_dot(
         load_config(sample_config_yaml),
         state_root=tmp_path,
     )
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_inspect_dependency_graph(root, **kwargs):
         calls["args"] = (root, kwargs)

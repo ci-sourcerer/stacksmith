@@ -63,7 +63,7 @@ def test_resolve_single_tool_serializes_shared_cache_install(monkeypatch, tmp_pa
     monkeypatch.setattr(tooling, "_is_usable_tool_binary", lambda *args, **kwargs: True)
     monkeypatch.setattr(tooling, "_download_and_install_tool", fake_download)
 
-    results: list[str] = []
+    results = []
 
     def resolve_tool() -> None:
         results.append(

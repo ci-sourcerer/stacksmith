@@ -660,14 +660,39 @@ class OperationInputSpec(BaseModel):
     secret: bool = False
 
 
+class OperationOutputMaskingSpec(BaseModel):
+    """Literal masking rules for streamed local operation output."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    literals: list[str] = Field(default_factory=list)
+    inputs: list[str] = Field(default_factory=list)
+
+    @field_validator("literals", "inputs")
+    @classmethod
+    def _normalize_non_empty_unique_values(cls, values: list[str]) -> list[str]:
+        normalized_values = [value.strip() for value in values]
+        if any(not value for value in normalized_values):
+            raise ValueError("Operation output masking values must be non-empty")
+        if len(set(normalized_values)) != len(normalized_values):
+            raise ValueError("Operation output masking values must be unique")
+        return normalized_values
+
+
 class LocalOperationDefinition(BaseModel):
     """Config-owned local process operation."""
+
+    model_config = ConfigDict(extra="forbid")
 
     runner: Literal["local"]
     description: str | None = None
     trigger: Literal["manual", "after_apply"] = "manual"
     command: list[str]
     working_directory: str | None = None
+    stream_output: bool = False
+    output_masking: OperationOutputMaskingSpec = Field(
+        default_factory=OperationOutputMaskingSpec
+    )
     environment: dict[str, str] = Field(default_factory=dict)
     inputs: dict[str, OperationInputSpec] = Field(default_factory=dict)
 
@@ -681,11 +706,31 @@ class LocalOperationDefinition(BaseModel):
                 "Operation environment references undeclared inputs: "
                 f"{', '.join(unknown_inputs)}"
             )
+        unknown_mask_inputs = sorted(set(self.output_masking.inputs) - set(self.inputs))
+        if unknown_mask_inputs:
+            raise ValueError(
+                "Operation output masking references undeclared inputs: "
+                f"{', '.join(unknown_mask_inputs)}"
+            )
+        if self.stream_output and (
+            missing_secret_masks := sorted(
+                name
+                for name, specification in self.inputs.items()
+                if specification.secret and name not in self.output_masking.inputs
+            )
+        ):
+            raise ValueError(
+                "Operation output masking must include secret inputs when "
+                "stream_output is enabled: "
+                f"{', '.join(missing_secret_masks)}"
+            )
         return self
 
 
 class JenkinsOperationDefinition(BaseModel):
     """Config-owned Jenkins build operation."""
+
+    model_config = ConfigDict(extra="forbid")
 
     runner: Literal["jenkins"]
     description: str | None = None

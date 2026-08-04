@@ -40,6 +40,9 @@ on:
 permissions:
   contents: read
 
+env:
+  STACKSMITH_EXAMPLE_SECRET: ${{ secrets.STACKSMITH_EXAMPLE_SECRET }}
+
 jobs:
   plan:
     uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main

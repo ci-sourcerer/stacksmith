@@ -332,6 +332,7 @@ def test_simple_gitops_example_wires_after_apply_echo_operation():
                 "project": "stacksmith",
                 "first_name": "first",
                 "second_name": "second",
+                "reconciliation_secret_token": "example-secret-DO-NOT-LEAK",
             }
         },
     )
@@ -344,10 +345,11 @@ def test_simple_gitops_example_wires_after_apply_echo_operation():
     assert spec["command"] == [
         "sh",
         "-c",
-        'echo "Stacksmith simple GitOps reconciliation completed: environment=$STACKSMITH_OPERATION_ENVIRONMENT message=$STACKSMITH_OPERATION_MESSAGE project=$STACKSMITH_OPERATION_PROJECT"',
+        'echo "Stacksmith simple GitOps reconciliation completed: environment=$STACKSMITH_OPERATION_ENVIRONMENT message=$STACKSMITH_OPERATION_MESSAGE project=$STACKSMITH_OPERATION_PROJECT token=$STACKSMITH_OPERATION_SECRET_TOKEN"',
     ]
     assert spec["environment"] == {
         "STACKSMITH_OPERATION_ENVIRONMENT": "dev",
         "STACKSMITH_OPERATION_MESSAGE": "Hello from development",
         "STACKSMITH_OPERATION_PROJECT": "stacksmith",
+        "STACKSMITH_OPERATION_SECRET_TOKEN": "example-secret-DO-NOT-LEAK",
     }

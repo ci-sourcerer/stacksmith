@@ -1,6 +1,7 @@
 import io
 import json
 import runpy
+import subprocess
 import urllib.request
 from pathlib import Path
 
@@ -116,8 +117,89 @@ def test_generates_after_apply_operation_module():
 
     module = generated["module"]["stacksmith_operation_deploy_app"]
     assert module["source"] == "./.stacksmith-operation-runner"
+    assert module["runner"] == "local"
     assert module["spec"]["runner"] == "local"
     assert module["spec"]["environment"] == {"RELEASE_TAG": "1.2.3"}
+    assert module["spec"]["stream_output"] is False
+
+
+def test_streams_output_for_an_operation_without_secret_inputs():
+    stack = StackDefinition.model_validate(
+        {
+            "name": "application",
+            "operations": {
+                "deploy_app": {
+                    "use": "deploy",
+                    "with": {"release_tag": "1.2.3"},
+                }
+            },
+        }
+    )
+    config = _config()
+    config.operations["deploy"].stream_output = True
+
+    generated = generate_operations_tf_json(stack, config)
+
+    module = generated["module"]["stacksmith_operation_deploy_app"]
+    assert module["spec"]["stream_output"] is True
+
+
+def test_rejects_streaming_output_for_an_operation_with_secret_inputs():
+    config_data = _config().model_dump(mode="json")
+    config_data["operations"]["deploy"]["stream_output"] = True
+    config_data["operations"]["deploy"]["inputs"]["release_tag"]["secret"] = True
+
+    with pytest.raises(
+        ValueError,
+        match="Operation output masking must include secret inputs",
+    ):
+        ToolConfig.model_validate(config_data)
+
+
+def test_streaming_output_allows_secret_input_when_configured_for_masking():
+    stack = StackDefinition.model_validate(
+        {
+            "name": "application",
+            "operations": {
+                "deploy_app": {
+                    "use": "deploy",
+                    "with": {"release_tag": "1.2.3-secret"},
+                }
+            },
+        }
+    )
+    config_data = _config().model_dump(mode="json")
+    config_data["operations"]["deploy"]["stream_output"] = True
+    config_data["operations"]["deploy"]["inputs"]["release_tag"]["secret"] = True
+    config_data["operations"]["deploy"]["output_masking"] = {
+        "inputs": ["release_tag"],
+        "literals": ["DO-NOT-LEAK"],
+    }
+
+    generated = generate_operations_tf_json(
+        stack, ToolConfig.model_validate(config_data)
+    )
+
+    module = generated["module"]["stacksmith_operation_deploy_app"]
+    assert module["spec"]["stream_output"] is True
+    assert module["spec"]["mask_literals"] == ["DO-NOT-LEAK", "1.2.3-secret"]
+
+
+def test_rejects_streaming_output_for_a_jenkins_operation():
+    config_data = _config().model_dump(mode="json")
+    config_data["operations"]["deploy"] = {
+        "runner": "jenkins",
+        "url": "https://jenkins.example.com",
+        "job_name": "deploy-app",
+        "username_env": "JENKINS_USERNAME",
+        "api_token_env": "JENKINS_API_TOKEN",
+        "parameters": {"RELEASE_TAG": "release_tag"},
+        "inputs": {"release_tag": {"required": True}},
+        "stream_output": True,
+    }
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        ToolConfig.model_validate(config_data)
 
 
 def test_operation_descriptions_do_not_change_execution_identity():
@@ -195,11 +277,11 @@ def test_operation_input_preserves_component_output_reference(tmp_path: Path):
     module = generated["module"]["stacksmith_operation_deploy_app"]
     assert module["spec"]["environment"] == {
         "RELEASE_TAG": (
-            "production-release/${var.stacksmith_operation_app_release_name}"
+            "production-release/${var.stacksmith_operation_bridge_app_release_name}"
         )
     }
     assert "depends_on" not in module
-    assert infrastructure["output"]["stacksmith_operation_app_release_name"] == {
+    assert infrastructure["output"]["stacksmith_operation_bridge_app_release_name"] == {
         "value": "${module.app.release_name}",
         "sensitive": True,
     }
@@ -208,7 +290,7 @@ def test_operation_input_preserves_component_output_reference(tmp_path: Path):
     assert generated["terraform"]["backend"]["local"]["path"] == (
         "../.state/application/operations/terraform.tfstate"
     )
-    assert generated["variable"]["stacksmith_operation_app_release_name"] == {
+    assert generated["variable"]["stacksmith_operation_bridge_app_release_name"] == {
         "type": "any",
         "sensitive": True,
     }
@@ -237,7 +319,7 @@ def test_infrastructure_bridge_outputs_exist_before_operations_are_declared():
 
     generated = generate_tf_json(stack, config, {})
 
-    assert generated["output"]["stacksmith_operation_app_release_name"] == {
+    assert generated["output"]["stacksmith_operation_bridge_app_release_name"] == {
         "value": "${module.app.release_name}",
         "sensitive": True,
     }
@@ -334,8 +416,12 @@ def test_writes_packaged_operation_runner_assets(tmp_path: Path):
     write_operations_tf_json(stack, _config(), tmp_path)
 
     runner_dir = tmp_path / ".stacksmith-operation-runner"
-    assert "terraform_data" in (runner_dir / "main.tf").read_text()
-    assert "subprocess.run" in (runner_dir / "local.py").read_text()
+    runner_module = (runner_dir / "main.tf").read_text()
+    assert "terraform_data" in runner_module
+    assert "nonsensitive(jsonencode(var.spec))" in runner_module
+    local_runner = (runner_dir / "local.py").read_text()
+    assert "subprocess.run" in local_runner
+    assert "subprocess.DEVNULL" in local_runner
     assert not (runner_dir / "jenkins.py").exists()
 
 
@@ -415,10 +501,26 @@ def test_jenkins_operation_spec_configures_completion_polling():
     assert spec["timeout_seconds"] == 600
 
 
-def test_local_operation_runner_echoes_spec_environment(
+@pytest.mark.parametrize(
+    ("stream_output", "expected_stdout", "expected_stderr"),
+    (
+        (
+            True,
+            "Stacksmith simple GitOps reconciliation completed: environment=dev "
+            "message=Hello from development project=stacksmith\n",
+            "Stacksmith simple GitOps reconciliation error stream: environment=dev "
+            "project=stacksmith\n",
+        ),
+        (False, "", ""),
+    ),
+)
+def test_local_operation_runner_controls_spec_environment_output(
     monkeypatch: pytest.MonkeyPatch,
     capfd: pytest.CaptureFixture[str],
     tmp_path: Path,
+    stream_output: bool,
+    expected_stdout: str,
+    expected_stderr: str,
 ):
     monkeypatch.setenv(
         "STACKSMITH_OPERATION_SPEC",
@@ -428,13 +530,14 @@ def test_local_operation_runner_echoes_spec_environment(
                 "command": [
                     "sh",
                     "-c",
-                    'echo "Stacksmith simple GitOps reconciliation completed: environment=$STACKSMITH_OPERATION_ENVIRONMENT message=$STACKSMITH_OPERATION_MESSAGE project=$STACKSMITH_OPERATION_PROJECT"',
+                    'echo "Stacksmith simple GitOps reconciliation completed: environment=$STACKSMITH_OPERATION_ENVIRONMENT message=$STACKSMITH_OPERATION_MESSAGE project=$STACKSMITH_OPERATION_PROJECT"; echo "Stacksmith simple GitOps reconciliation error stream: environment=$STACKSMITH_OPERATION_ENVIRONMENT project=$STACKSMITH_OPERATION_PROJECT" 1>&2',
                 ],
                 "environment": {
                     "STACKSMITH_OPERATION_ENVIRONMENT": "dev",
                     "STACKSMITH_OPERATION_MESSAGE": "Hello from development",
                     "STACKSMITH_OPERATION_PROJECT": "stacksmith",
                 },
+                "stream_output": stream_output,
                 "working_directory": str(tmp_path),
             }
         ),
@@ -445,10 +548,59 @@ def test_local_operation_runner_echoes_spec_environment(
     )
     runpy.run_path(str(runner_path))
 
-    assert capfd.readouterr().out == (
-        "Stacksmith simple GitOps reconciliation completed: environment=dev "
-        "message=Hello from development project=stacksmith\n"
+    captured_output = capfd.readouterr()
+    assert captured_output.out == expected_stdout
+    assert captured_output.err == expected_stderr
+
+
+def test_local_operation_runner_masks_literals_across_chunk_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+    tmp_path: Path,
+):
+    class _Pipe:
+        def __init__(self, chunks: list[str]):
+            self._chunks = chunks
+
+        def read(self, _size: int) -> str:
+            return self._chunks.pop(0) if self._chunks else ""
+
+    class _Popen:
+        def __init__(self, *args, **kwargs):
+            self.stdout = _Pipe(["prefix super", "-secret suffix\n"])
+            self.stderr = _Pipe(["err super-se", "cret again\n"])
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", _Popen)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("Expected streaming mask path via Popen"),
     )
+    monkeypatch.setenv(
+        "STACKSMITH_OPERATION_SPEC",
+        json.dumps(
+            {
+                "runner": "local",
+                "command": ["sh", "-c", "echo not-used"],
+                "environment": {},
+                "stream_output": True,
+                "working_directory": str(tmp_path),
+                "mask_literals": ["super-secret"],
+            }
+        ),
+    )
+
+    runner_path = (
+        Path(__file__).parents[1] / "src/stacksmith/assets/operation_runner/local.py"
+    )
+    runpy.run_path(str(runner_path))
+
+    captured_output = capfd.readouterr()
+    assert captured_output.out == "prefix *** suffix\n"
+    assert captured_output.err == "err *** again\n"
 
 
 class _JenkinsResponse(io.BytesIO):
@@ -587,7 +739,7 @@ def test_plan_single_stack_operation_uses_targeted_dry_run(
     monkeypatch,
     tmp_path: Path,
 ):
-    calls: dict[str, object] = {}
+    calls = {}
     stack = StackDefinition.model_validate(
         {
             "name": "application",
@@ -647,7 +799,7 @@ def test_plan_stack_operations_selects_all_operations_when_omitted(
     monkeypatch,
     tmp_path: Path,
 ):
-    calls: dict[str, object] = {}
+    calls = {}
     stack = StackDefinition.model_validate(
         {
             "name": "application",
@@ -749,7 +901,7 @@ def test_infrastructure_apply_reconciles_after_apply_operations(
     )
     stack.source_path = tmp_path / "stack.yaml"
     config = _config()
-    calls: dict[str, object] = {}
+    calls = {}
     monkeypatch.setattr(
         api,
         "load_runtime_config",

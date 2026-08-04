@@ -233,6 +233,17 @@ class TestResolveInputs:
 
         assert result["bucket_name"] == "prod-app"
 
+    def test_inputs_can_read_environment_variables_in_templates(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("MY_SECRET_TOKEN", "s3cr3t-value")
+
+        result = resolve_inputs(
+            input_layers=[("var", "api_token={{ env('MY_SECRET_TOKEN') }}")],
+        )
+
+        assert result["api_token"] == "s3cr3t-value"
+
     def test_inline_vars_preserve_runfile_stage_one_values_for_stage_two(self):
         result = resolve_inputs(
             input_layers=[

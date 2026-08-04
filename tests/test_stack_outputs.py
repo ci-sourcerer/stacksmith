@@ -143,7 +143,7 @@ def test_emits_only_private_operation_bridge_when_stack_exports_nothing():
     )
 
     assert generate_tf_json(stack, _config(), {})["output"] == {
-        "stacksmith_operation_producer_underlying_id": {
+        "stacksmith_operation_bridge_producer_underlying_id": {
             "value": "${module.producer.underlying_id}",
             "sensitive": True,
         }

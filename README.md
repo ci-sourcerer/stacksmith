@@ -710,9 +710,15 @@ Plan validation rules can return `pass`, `warn`, or `fail` outcomes.
 
 ### Native operations
 
-Operations are config-owned imperative actions. Stacksmith compiles them into a separate runner-only Terraform root backed by `<stack-path>/operations/terraform.tfstate`. The infrastructure root never contains operation resources, and the operation root never contains infrastructure resources or providers. Every approved public component output is exposed through a stable sensitive infrastructure bridge, even before an operation references it, and Terragrunt passes requested values into the operation root through a read-only dependency. Adding or changing an operation therefore does not require an infrastructure apply merely to establish its dependency contract.
+Operations are config-owned imperative actions. Stacksmith compiles them into a separate runner-only Terraform root backed by `<stack-path>/operations/terraform.tfstate`. The infrastructure root never contains operation resources, and the operation root never contains infrastructure resources or providers.
+
+Every approved public component output is exposed from the infrastructure root through a stable sensitive output named `stacksmith_operation_bridge_<component>_<output>`, even before an operation references it. These names can therefore appear under `Changes to Outputs` in an infrastructure plan, but they are bridge values rather than operation resources and do not execute anything. They must live in the infrastructure state because that is where their component values are produced. When an operation references one of those outputs, Stacksmith declares a matching sensitive input in the operation root and Terragrunt supplies its value through a read-only dependency. Predeclaring the bridges means adding or changing an operation does not require an infrastructure apply merely to establish its dependency contract.
 
 The managed config fixes the runner details, including the local command argument vector or Jenkins job and credentials. A stack can only select an approved operation and supply declared inputs. Operation inputs support the same Jinja templates and deferred public component outputs as component properties, so an operation can consume an output such as `{{ components.app.release_name }}`. Operations use the `manual` trigger by default; set `trigger: after_apply` in managed config to run them after a successful apply.
+
+OpenTofu suppresses all `local-exec` output when its command or environment contains a sensitive value. To support operation-level output control, Stacksmith declassifies the runner specification only at the local process boundary while keeping it sensitive in plans, then discards the child process's standard output and standard error by default. Set `stream_output: true` on a managed local operation to inherit those streams through OpenTofu.
+
+Use `output_masking` to define literal redaction rules for streamed local operation output. `output_masking.literals` masks fixed literal strings, and `output_masking.inputs` masks resolved values for selected operation inputs. When streaming is enabled, every secret input must be listed in `output_masking.inputs`.
 
 ```yaml
 # stacksmith-config.yaml
@@ -732,7 +738,13 @@ operations:
     description: Deploy an approved application release.
     runner: local
     trigger: after_apply
+    stream_output: true
     command: [./bin/deploy]
+    output_masking:
+      literals:
+        - DO-NOT-LEAK
+      inputs:
+        - release_name
     environment:
       APP_ENV: environment
       RELEASE_NAME: release_name
@@ -1085,7 +1097,7 @@ The reusable workflow also supports the `folders` and `flat-files` discovery mod
 
 #### Jenkins
 
-Configure a Jenkins Multibranch Pipeline with [`Jenkinsfile`](./Jenkinsfile) as its pipeline script path. The pipeline checks out the branch, prepares its CI manifest once, and runs each selected environment in parallel. Plan jobs run in the `Plan` stage. Apply jobs run `Plan`, `Approve`, and `Apply` in order, and a failed plan prevents approval. Operations run through `Plan operation`, `Approve`, and `Run operation`, so an invalid operation plan cannot reach approval or execution. Redacted infrastructure plan JSON and validation reports are archived when artifact uploads are enabled. It maps Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically.
+Configure a Jenkins Multibranch Pipeline with [`Jenkinsfile`](./Jenkinsfile) as its pipeline script path. The pipeline checks out the branch, prepares its CI manifest once, and runs each selected environment in parallel. Plan jobs run in the `Plan` stage. Apply jobs run `Plan`, `Approve`, and `Apply` in order, and a failed plan prevents approval. Operations run through `Plan operation(s)`, `Approve`, and `Run operation(s)`, so an invalid operation plan cannot reach approval or execution. Redacted infrastructure plan JSON and validation reports are archived when artifact uploads are enabled. It maps Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically.
 
 Choose one execution mode through Jenkins folder properties or the job environment.
 

@@ -26,7 +26,7 @@ def _capture_run_all_stacks_call(
     monkeypatch: pytest.MonkeyPatch,
     return_code: int = 0,
 ) -> dict[str, object]:
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_run_all_stacks(action, root, **kwargs):
         calls["run"] = (action, root, kwargs)
@@ -40,7 +40,7 @@ def _capture_run_stack_action_call(
     monkeypatch: pytest.MonkeyPatch,
     return_code: int = 0,
 ) -> dict[str, object]:
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_run_stack_action(action, stack_file, **kwargs):
         calls["run"] = (action, stack_file, kwargs)
@@ -53,7 +53,7 @@ def _capture_run_stack_action_call(
 def _capture_run_stack_operations_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> dict[str, object]:
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_run_stack_operations(stack_file, operation_names, **kwargs):
         calls["run"] = (stack_file, operation_names, kwargs)
@@ -70,7 +70,7 @@ def _capture_run_stack_operations_call(
 def _capture_plan_stack_operations_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> dict[str, object]:
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_plan_stack_operations(stack_file, operation_names, **kwargs):
         calls["run"] = (stack_file, operation_names, kwargs)
@@ -192,7 +192,7 @@ def test_test_command_forwards_merged_config_to_pytest(
         encoding="utf-8",
     )
     generated_test = tmp_path / "generated" / "test_stacksmith_generated.py"
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_load_runtime_config(*args, **kwargs):
         calls["config"] = (args, kwargs)
@@ -286,7 +286,7 @@ def test_test_command_discovers_test_directories_for_all_config_layers(
         encoding="utf-8",
     )
     generated_test = tmp_path / "generated" / "test_stacksmith_generated.py"
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_run(command, check):
         calls["pytest"] = (command, check)
@@ -760,7 +760,7 @@ def test_validate_help_lists_stacksmith_log_categories(parser, capsys):
 
 
 def test_configure_logging_quiet_sets_error_root_level(monkeypatch):
-    added_levels: list[str] = []
+    added_levels = []
 
     monkeypatch.setattr(cli_main.LOGGER, "remove", lambda *args, **kwargs: None)
 
@@ -1107,7 +1107,7 @@ def test_cmd_terragrunt_action_require_lockfile_rejects_unlocked(monkeypatch, pa
 
 
 def test_cmd_validate_accepts_multiple_run_files(monkeypatch, tmp_path):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_validate_stack(stack_file, **kwargs):
         calls["run"] = (stack_file, kwargs)
@@ -1143,7 +1143,7 @@ def test_cmd_validate_accepts_multiple_run_files(monkeypatch, tmp_path):
 
 
 def test_cmd_validate_passes_validation_report_format(monkeypatch, parser):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_validate_stack(stack_file, **kwargs):
         calls["run"] = (stack_file, kwargs)
@@ -1163,7 +1163,7 @@ def test_cmd_validate_passes_validation_report_format(monkeypatch, parser):
 
 
 def test_cmd_validate_prepends_runfile_layers(monkeypatch, tmp_path):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_validate_stack(stack_file, **kwargs):
         calls["run"] = (stack_file, kwargs)
@@ -1275,7 +1275,7 @@ def test_cmd_run_all_passes_explicit_stacks_from_run_file(monkeypatch, tmp_path)
 
 
 def test_cli_merge_mode_overrides_runfile(monkeypatch, tmp_path):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_validate_stack(stack_file, **kwargs):
         calls["run"] = (stack_file, kwargs)
@@ -1310,7 +1310,7 @@ def test_cli_merge_mode_overrides_runfile(monkeypatch, tmp_path):
 
 
 def test_runfile_merge_rules_are_forwarded_as_policy(monkeypatch, tmp_path):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_validate_stack(stack_file, **kwargs):
         calls["run"] = (stack_file, kwargs)
@@ -1368,7 +1368,7 @@ def test_plan_json_output_modes_are_mutually_exclusive(parser):
 
 
 def test_cmd_run_all_uses_ordered_runner(monkeypatch, tmp_path):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_run_all_stacks(action, root, **kwargs):
         calls["run"] = (action, root, kwargs)
@@ -1418,7 +1418,7 @@ def test_cmd_run_all_uses_ordered_runner(monkeypatch, tmp_path):
 
 
 def test_cmd_run_all_preserves_interleaved_input_layers(monkeypatch, tmp_path):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_run_all_stacks(action, root, **kwargs):
         calls["run"] = (action, root, kwargs)
@@ -1488,7 +1488,7 @@ def test_runtime_commands_support_no_cas_flag(parser):
 
 
 def test_validate_stack_is_reusable_without_namespace(monkeypatch, tmp_path):
-    calls: dict[str, object] = {}
+    calls = {}
     stack_path = tmp_path / "stack.yaml"
 
     def _fake_resolve_config_paths(config_args, cache_dir=None):
@@ -1588,7 +1588,7 @@ def test_use_local_modules_flag_resolution(
 
 
 def test_cmd_generate_passes_use_local_modules(monkeypatch, parser):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_generate_stack(stack_file, **kwargs):
         calls["gen"] = kwargs
@@ -1606,7 +1606,7 @@ def test_cmd_generate_passes_use_local_modules(monkeypatch, parser):
 
 
 def test_cmd_generate_passes_lock_policy_args(monkeypatch, parser):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_generate_stack(stack_file, **kwargs):
         calls["gen"] = kwargs
@@ -1633,7 +1633,7 @@ def test_cmd_generate_passes_lock_policy_args(monkeypatch, parser):
 
 
 def test_cmd_generate_creates_and_enforces_missing_lockfile(monkeypatch, parser):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_generate_stack(stack_file, **kwargs):
         calls["gen"] = kwargs
@@ -1653,7 +1653,7 @@ def test_cmd_generate_creates_and_enforces_missing_lockfile(monkeypatch, parser)
 
 
 def test_cmd_generate_require_lockfile_uses_automatic_lock(monkeypatch, parser):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_generate_stack(stack_file, **kwargs):
         calls["gen"] = kwargs
@@ -1671,7 +1671,7 @@ def test_cmd_generate_require_lockfile_uses_automatic_lock(monkeypatch, parser):
 
 
 def test_cmd_generate_require_lockfile_allows_locked(monkeypatch, parser):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_generate_stack(stack_file, **kwargs):
         calls["gen"] = kwargs
@@ -1688,7 +1688,7 @@ def test_cmd_generate_require_lockfile_allows_locked(monkeypatch, parser):
 
 
 def test_cmd_generate_passes_runfile_references(monkeypatch, parser):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_generate_stack(stack_file, **kwargs):
         calls["gen"] = kwargs
@@ -1736,7 +1736,7 @@ def test_lock_command_parses_flags(parser):
 
 
 def test_cmd_lock_uses_api(monkeypatch, parser, capsys):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_lock_stack(stack_file, **kwargs):
         calls["lock"] = (stack_file, kwargs)
@@ -1787,7 +1787,7 @@ def test_cmd_run_all_passes_use_local_modules(monkeypatch):
 
 
 def test_cmd_diagnose_uses_api(monkeypatch):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_inspect_cache_diagnostics(stack_file, **kwargs):
         calls["diag"] = (stack_file, kwargs)
@@ -1879,7 +1879,7 @@ def test_cmd_ci_environments_emits_json(monkeypatch, parser, capsys):
 
 
 def test_cmd_ci_validate_uses_api(monkeypatch, parser, capsys):
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_validate_ci_inputs(**kwargs):
         calls["validate"] = kwargs
@@ -2193,7 +2193,7 @@ def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path)
         ).model_dump_json(),
         encoding="utf-8",
     )
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_plan_handler(args, command):
         calls["command"] = command
@@ -2229,7 +2229,7 @@ def test_cmd_ci_execute_skips_modules_and_policies_tables_in_debug_mode(
         ).model_dump_json(),
         encoding="utf-8",
     )
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_info_handler(args):
         calls["info_args"] = args
@@ -2264,7 +2264,7 @@ def test_cmd_ci_execute_from_env_uses_manifest_env(monkeypatch, parser, tmp_path
         ).model_dump_json(),
         encoding="utf-8",
     )
-    calls: dict[str, object] = {}
+    calls = {}
 
     def _fake_run_ci_execute(manifest, environment, validation_report_output, phase):
         calls["manifest"] = manifest

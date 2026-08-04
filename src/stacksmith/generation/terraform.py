@@ -119,21 +119,22 @@ def _generate_operation_blocks(
         )
         modules[operation_module_name(name)] = {
             "source": "./.stacksmith-operation-runner",
+            "runner": spec["runner"],
             "spec": spec,
             **({"depends_on": dependencies} if dependencies else {}),
         }
     return modules
 
 
-def _operation_output_name(component_name: str, output_name: str) -> str:
-    return f"stacksmith_operation_{component_name}_{output_name}"
+def _operation_bridge_output_name(component_name: str, output_name: str) -> str:
+    return f"stacksmith_operation_bridge_{component_name}_{output_name}"
 
 
 def _rewrite_operation_component_references(value: Any) -> Any:
     if isinstance(value, str):
         return _MODULE_REFERENCE_PATTERN.sub(
             lambda match: (
-                f"${{var.{_operation_output_name(match.group(1), match.group(2))}}}"
+                f"${{var.{_operation_bridge_output_name(match.group(1), match.group(2))}}}"
             ),
             value,
         )
@@ -192,7 +193,7 @@ def _component_bridge_outputs(
                 )
             )
     return {
-        _operation_output_name(component_name, output_name): {
+        _operation_bridge_output_name(component_name, output_name): {
             "value": f"${{module.{component_name}.{output_name}}}",
             "sensitive": True,
         }
@@ -206,9 +207,12 @@ def _backend_config_from_child_directory(
 ) -> dict[str, Any]:
     backend_config = config.backend.config_with_state_key(state_key)
     path = backend_config.get("path")
-    if config.backend.type == "local" and isinstance(path, str):
-        if not Path(path).is_absolute():
-            backend_config["path"] = str(Path("..") / path)
+    if (
+        config.backend.type == "local"
+        and isinstance(path, str)
+        and not Path(path).is_absolute()
+    ):
+        backend_config["path"] = str(Path("..") / path)
     return backend_config
 
 

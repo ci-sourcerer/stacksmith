@@ -556,6 +556,30 @@
         }
       }
     },
+    "operationOutputMaskingSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "literals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Additional literal values that are replaced with `***` in streamed local operation output."
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Operation input names whose resolved values are replaced with `***` in streamed local operation output."
+        }
+      }
+    },
     "operationDefinition": {
       "oneOf": [
         {
@@ -591,6 +615,15 @@
             "working_directory": {
               "type": "string",
               "minLength": 1
+            },
+            "stream_output": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether to stream the local process output through OpenTofu. Secret inputs must be listed in `output_masking.inputs` when enabled."
+            },
+            "output_masking": {
+              "$ref": "#/$defs/operationOutputMaskingSpec",
+              "description": "Literal masking rules for streamed local operation output."
             },
             "environment": {
               "type": "object",

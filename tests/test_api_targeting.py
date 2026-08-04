@@ -46,7 +46,7 @@ def _setup_run_stack_action_mocks(
     stack = load_stack(sample_stack_yaml)
     config = load_config(sample_config_yaml)
     stack.components["my-bucket"].tags = component_tags
-    calls: dict[str, object] = {}
+    calls = {}
 
     monkeypatch.setattr(
         api,
@@ -78,7 +78,7 @@ def _setup_run_all_stacks_mocks(
     stacks: dict[str, StackDefinition],
 ) -> dict[str, object]:
     config = load_config(sample_config_yaml)
-    calls: dict[str, object] = {}
+    calls = {}
 
     monkeypatch.setattr(
         api,
@@ -359,8 +359,8 @@ def test_generate_stack_returns_output_path(
 ):
     config = load_config(sample_config_yaml)
     stack = load_stack(sample_stack_yaml)
-    calls: dict[str, object] = {}
-    warnings: list[str] = []
+    calls = {}
+    warnings = []
     monkeypatch.delenv("STACKSMITH_WARN_ON_UNLOCKED", raising=False)
     monkeypatch.setattr(
         api.LOGGER,
@@ -415,7 +415,7 @@ def test_generate_stack_renders_component_template_before_generation(
     )
     config = load_config(sample_config_yaml)
     generated = {}
-    warnings: list[str] = []
+    warnings = []
     monkeypatch.setenv("STACKSMITH_WARN_ON_UNLOCKED", "0")
     monkeypatch.setattr(
         api.LOGGER,
@@ -601,7 +601,7 @@ def test_run_all_stacks_passes_explicit_stack_refs_to_generator(
     sample_config_yaml: Path,
 ):
     config = load_config(sample_config_yaml)
-    calls: dict[str, object] = {}
+    calls = {}
 
     monkeypatch.setattr(
         api,
@@ -1036,7 +1036,7 @@ def test_generate_stack_locked_enforces_matching_lockfile(
     sample_values_yaml: Path,
 ) -> None:
     lockfile = tmp_path / "stacksmith.lock.yaml"
-    warnings: list[str] = []
+    warnings = []
     monkeypatch.delenv("STACKSMITH_WARN_ON_UNLOCKED", raising=False)
     monkeypatch.setattr(
         api.LOGGER,

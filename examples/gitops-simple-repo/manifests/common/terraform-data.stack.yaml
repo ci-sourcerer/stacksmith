@@ -33,3 +33,4 @@ operations:
       environment: "{{ inputs.environment }}"
       message: "{{ inputs.message }}"
       project: "{{ inputs.project }}"
+      secret_token: "{{ inputs.reconciliation_secret_token }}"

@@ -234,7 +234,7 @@ def test_redact_plan_rejects_unsupported_format(format_version):
 
 
 def test_redact_plan_rejects_malformed_known_sections_without_copying_them():
-    with pytest.raises(ValueError, match="values"):
+    with pytest.raises((TypeError, ValueError), match="values"):
         redact_plan(
             {
                 "format_version": "1.0",

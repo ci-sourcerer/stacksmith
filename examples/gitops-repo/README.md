@@ -46,6 +46,8 @@ Unlike planning, applying this example executes the configured Jenkins operation
 
 Use the included helper script to test the reusable GitHub Actions workflow locally.
 
+This helper passes the managed shared config reference to CI and relies on the example runfile to layer both `examples/shared-config-repo/stacksmith-base-config.yaml` and `examples/shared-config-repo/stacksmith-config.yaml` through its own `configs:` list.
+
 ```sh
 examples/scripts/run-act-workflow.sh gitops-repo plan dev
 examples/scripts/run-act-workflow.sh gitops-repo apply dev

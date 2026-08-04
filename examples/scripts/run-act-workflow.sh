@@ -18,6 +18,7 @@ Examples:
 
 Environment variables:
   IMAGE_VERSION                    Optional image version (default: latest)
+  STACKSMITH_EXAMPLE_SECRET        Required for gitops-simple-repo
   STACKSMITH_JENKINS_USERNAME      Required for gitops-repo apply
   STACKSMITH_JENKINS_API_TOKEN     Required for gitops-repo apply
 EOF
@@ -35,7 +36,7 @@ gitops-repo | examples/gitops-repo)
   ;;
 gitops-simple-repo | examples/gitops-simple-repo)
   gitops_root=examples/gitops-simple-repo
-  config_ref=examples/shared-config-repo/null-resource-config.yaml
+  config_ref=examples/shared-config-repo/stacksmith-config.yaml
   ;;
 *)
   echo "Invalid example: $1" >&2
@@ -89,21 +90,51 @@ tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/stacksmith-act.XXXXXX")
 manifest_file=$tmpdir/ci-manifest.json
 event_file=$tmpdir/workflow-call.json
 secret_file=$tmpdir/secrets
+secret_file_ready=false
 trap 'rm -f "$manifest_file" "$event_file" "$secret_file"; rmdir "$tmpdir"' EXIT
 
-docker run --rm \
-  --volume "$PWD:/workspace:ro" \
-  --workdir /workspace \
-  --env "INPUT_COMMAND=$stacksmith_command" \
-  --env "INPUT_CONFIG_REF=$config_ref" \
-  --env "INPUT_GITOPS_ROOT=$gitops_root" \
-  --env INPUT_DISCOVERY_MODE=env-files \
-  --env "INPUT_ENVIRONMENTS=$environment" \
-  --env INPUT_WORKDIR=. \
-  --env INPUT_ENV_FILE=/dev/null \
-  --env 'INPUT_STACKSMITH_ARGS_JSON=[]' \
-  --env SKIP_BRANCH_VALIDATION=true \
-  "$image_ref" ci prepare-from-env --provider generic >"$manifest_file"
+if [ "$gitops_root" = "examples/gitops-simple-repo" ]; then
+  : "${STACKSMITH_EXAMPLE_SECRET:?STACKSMITH_EXAMPLE_SECRET must be set}"
+  umask 077
+  printf 'STACKSMITH_EXAMPLE_SECRET=%s\n' "$STACKSMITH_EXAMPLE_SECRET" \
+    >"$secret_file"
+  secret_file_ready=true
+fi
+
+# The GitOps example runfiles already layer the shared platform config
+# through their own `configs:` list. The CI wrapper should pass only the
+# managed config reference here and let the runfile resolve the full
+# shared configuration stack.
+if [ "$gitops_root" = "examples/gitops-simple-repo" ]; then
+  docker run --rm \
+    --volume "$PWD:/workspace:ro" \
+    --workdir /workspace \
+    --env "STACKSMITH_EXAMPLE_SECRET=$STACKSMITH_EXAMPLE_SECRET" \
+    --env "INPUT_COMMAND=$stacksmith_command" \
+    --env "INPUT_CONFIG_REF=$config_ref" \
+    --env "INPUT_GITOPS_ROOT=$gitops_root" \
+    --env INPUT_DISCOVERY_MODE=env-files \
+    --env "INPUT_ENVIRONMENTS=$environment" \
+    --env INPUT_WORKDIR=. \
+    --env INPUT_ENV_FILE=/dev/null \
+    --env 'INPUT_STACKSMITH_ARGS_JSON=[]' \
+    --env SKIP_BRANCH_VALIDATION=true \
+    "$image_ref" ci prepare-from-env --provider generic >"$manifest_file"
+else
+  docker run --rm \
+    --volume "$PWD:/workspace:ro" \
+    --workdir /workspace \
+    --env "INPUT_COMMAND=$stacksmith_command" \
+    --env "INPUT_CONFIG_REF=$config_ref" \
+    --env "INPUT_GITOPS_ROOT=$gitops_root" \
+    --env INPUT_DISCOVERY_MODE=env-files \
+    --env "INPUT_ENVIRONMENTS=$environment" \
+    --env INPUT_WORKDIR=. \
+    --env INPUT_ENV_FILE=/dev/null \
+    --env 'INPUT_STACKSMITH_ARGS_JSON=[]' \
+    --env SKIP_BRANCH_VALIDATION=true \
+    "$image_ref" ci prepare-from-env --provider generic >"$manifest_file"
+fi
 
 jq -e \
   --arg command "$stacksmith_command" \
@@ -145,13 +176,18 @@ fi
 
 if [ "$gitops_root" = "examples/gitops-repo" ] &&
   [ "$stacksmith_command" = "apply" ]; then
-  umask 077
-  {
-    printf 'STACKSMITH_JENKINS_USERNAME=%s\n' \
-      "$STACKSMITH_JENKINS_USERNAME"
-    printf 'STACKSMITH_JENKINS_API_TOKEN=%s\n' \
-      "$STACKSMITH_JENKINS_API_TOKEN"
-  } >"$secret_file"
+  if [ "$secret_file_ready" = false ]; then
+    umask 077
+    : >"$secret_file"
+    secret_file_ready=true
+  fi
+  printf 'STACKSMITH_JENKINS_USERNAME=%s\n' \
+    "$STACKSMITH_JENKINS_USERNAME" >>"$secret_file"
+  printf 'STACKSMITH_JENKINS_API_TOKEN=%s\n' \
+    "$STACKSMITH_JENKINS_API_TOKEN" >>"$secret_file"
+fi
+
+if [ "$secret_file_ready" = true ]; then
   set -- "$@" --secret-file "$secret_file"
 fi
 

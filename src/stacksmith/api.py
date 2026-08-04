@@ -2198,8 +2198,8 @@ def run_all_stacks(
         merge_mode=merge_mode,
     )
 
-    stack_args_by_name: dict[str, list[str]] | None = None
-    plan_validation_results: list[PlanValidationResult] = []
+    stack_args_by_name = None
+    plan_validation_results = []
     if tags or tag_expr:
         filtered_stack_dirs = {}
         stack_args_by_name = {}

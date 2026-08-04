@@ -8,6 +8,13 @@ boolean parseBoolean(value) {
     return value.toString().trim().toLowerCase() in ['1', 'true', 'yes', 'on']
 }
 
+boolean parseBooleanWithDefault(value, boolean defaultValue) {
+    if (value == null || value.toString().trim() == '') {
+        return defaultValue
+    }
+    return parseBoolean(value)
+}
+
 String getStacksmithImage() {
     return env.STACKSMITH_IMAGE ?:
         "cisourcerer/stacksmith:${env.STACKSMITH_IMAGE_VERSION ?: 'latest'}"
@@ -75,6 +82,30 @@ String credentialId(Map<String, Map<String, Object>> credentials, String credent
     return id?.toString()?.trim() ?: null
 }
 
+String credentialVariable(Map<String, Object> entry, String credentialType) {
+    String explicitName = [entry.variable, entry.name, entry.variableName]
+        .find { it?.toString()?.trim() }
+    if (explicitName) {
+        return explicitName.toString().trim()
+    }
+
+    switch (credentialType) {
+        case 'git_token':
+            return 'STACKSMITH_GIT_TOKEN'
+        case 'http_token':
+            return 'STACKSMITH_HTTP_TOKEN'
+        case 'http_basic':
+            return 'STACKSMITH_HTTP_USERNAME'
+        case 'git_ssh_key':
+            return 'STACKSMITH_GIT_SSH_USERNAME'
+        case 'string':
+        case 'secret_text':
+            return 'STACKSMITH_SECRET'
+        default:
+            return credentialType.toUpperCase()
+    }
+}
+
 List<Map<String, Object>> buildCredentialBindings(Map<String, Map<String, Object>> credentials) {
     List<Map<String, Object>> bindings = []
 
@@ -88,13 +119,13 @@ List<Map<String, Object>> buildCredentialBindings(Map<String, Map<String, Object
             case 'git_token':
                 bindings << string(
                     credentialsId: id,
-                    variable: 'STACKSMITH_GIT_TOKEN'
+                    variable: credentialVariable(credentials[credentialType], credentialType)
                 )
                 break
             case 'http_token':
                 bindings << string(
                     credentialsId: id,
-                    variable: 'STACKSMITH_HTTP_TOKEN'
+                    variable: credentialVariable(credentials[credentialType], credentialType)
                 )
                 break
             case 'http_basic':
@@ -109,6 +140,13 @@ List<Map<String, Object>> buildCredentialBindings(Map<String, Map<String, Object
                     credentialsId: id,
                     keyFileVariable: 'STACKSMITH_GIT_SSH_KEY',
                     usernameVariable: 'STACKSMITH_GIT_SSH_USERNAME'
+                )
+                break
+            case 'string':
+            case 'secret_text':
+                bindings << string(
+                    credentialsId: id,
+                    variable: credentialVariable(credentials[credentialType], credentialType)
                 )
                 break
         }
@@ -161,7 +199,9 @@ void executeStacksmithMatrix(
                 "VALIDATION_REPORT_PATH=${artifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
             ]) {
                 int status = credentialBindings
-                    ? withCredentials(credentialBindings) { executeStacksmith() }
+                    ? withCredentials(credentialBindings) {
+                        executeStacksmith()
+                    }
                     : executeStacksmith()
 
                 if (command == 'plan' && parseBoolean(env.STACKSMITH_UPLOAD_ARTIFACTS ?: 'true')) {
@@ -198,14 +238,15 @@ withStacksmithAgent {
         ansiColor('xterm') {
             properties([
                 parameters([
-                    choice(name: 'COMMAND', choices: ['plan', 'apply', 'plan-operation', 'operation'], defaultValue: 'plan', description: 'Stacksmith command'),
+                    choice(name: 'COMMAND', choices: ['plan', 'apply', 'plan-operation', 'operation'], description: 'Stacksmith command'),
                     string(name: 'OPERATION_NAMES', description: 'comma-delimited stack-local operation names; empty selects all'),
                     string(name: 'ENVIRONMENTS', description: 'comma-separated environments to target manually'),
                     string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
                     booleanParam(name: 'DEBUG', defaultValue: false, description: 'enable debug logs and print configured modules and policies'),
                     booleanParam(name: 'FAIL_ON_CHANGES', defaultValue: false, description: 'fail if plan contains changes'),
                     booleanParam(name: 'STRICT_VALIDATION_WARNINGS', defaultValue: false, description: 'treat validation warnings as failures'),
-                ])
+                ]),
+                disableConcurrentBuilds(),
             ])
 
             checkout(scm)
@@ -286,7 +327,7 @@ withStacksmithAgent {
                     )
                 }
 
-                stage('Plan operation') {
+                stage('Plan operation(s)') {
                     if (!(
                         env.SELECTED_ENVIRONMENTS
                         && env.COMMAND in ['plan', 'apply', 'plan-operation', 'operation']
@@ -341,7 +382,7 @@ withStacksmithAgent {
                     )
                 }
 
-                stage('Run operation') {
+                stage('Run operation(s)') {
                     if (!(
                         env.SELECTED_ENVIRONMENTS
                         && env.COMMAND == 'operation'

@@ -170,7 +170,15 @@ def _run_terragrunt(
 def _run_terragrunt_streaming(
     cmd: list[str], working_dir: Path, auth_config: RemoteAuthConfig | None = None
 ) -> int:
-    return int(_run_terragrunt(cmd, working_dir, auth_config=auth_config).returncode)
+    return int(
+        subprocess.run(  # noqa: PLW1510
+            cmd,
+            cwd=working_dir,
+            env=_build_env(auth_config),
+            stdout=sys.stderr,
+            stderr=sys.stderr,
+        ).returncode
+    )
 
 
 def _run_terragrunt_capture_text(
