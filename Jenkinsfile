@@ -107,33 +107,55 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
         String type = entry.type?.toString()?.trim() ?: 'string'
         echo("DEBUG: Processing credential: id=${id}, type=${type}")
 
-        switch (type) {
-            case 'usernamePassword':
-            case 'http_basic':
-                bindings << usernamePassword(
-                    credentialsId: id,
-                    usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME'),
-                    passwordVariable: entry.passwordVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_PASSWORD')
-                )
-                break
-            case 'sshUserPrivateKey':
-            case 'git_ssh_key':
-                bindings << sshUserPrivateKey(
-                    credentialsId: id,
-                    keyFileVariable: entry.keyFileVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_KEY'),
-                    usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME')
-                )
-                break
-            case 'string':
-            case 'secret_text':
-            case 'git_token':
-            case 'http_token':
-            default:
-                bindings << string(
-                    credentialsId: id,
-                    variable: credentialVariable(entry, type)
-                )
-                break
+        try {
+            switch (type) {
+                case 'usernamePassword':
+                case 'http_basic':
+                    echo("DEBUG: Creating usernamePassword binding")
+                    def binding = usernamePassword(
+                        credentialsId: id,
+                        usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME'),
+                        passwordVariable: entry.passwordVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_PASSWORD')
+                    )
+                    echo("DEBUG: Created binding: ${binding}")
+                    bindings << binding
+                    break
+                case 'sshUserPrivateKey':
+                case 'git_ssh_key':
+                    echo("DEBUG: Creating sshUserPrivateKey binding")
+                    def binding = sshUserPrivateKey(
+                        credentialsId: id,
+                        keyFileVariable: entry.keyFileVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_KEY'),
+                        usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME')
+                    )
+                    echo("DEBUG: Created binding: ${binding}")
+                    bindings << binding
+                    break
+                case 'string':
+                case 'secret_text':
+                case 'git_token':
+                case 'http_token':
+                    echo("DEBUG: Creating string binding with credentialsId=${id}, variable=${credentialVariable(entry, type)}")
+                    def binding = string(
+                        credentialsId: id,
+                        variable: credentialVariable(entry, type)
+                    )
+                    echo("DEBUG: Created binding: ${binding}")
+                    bindings << binding
+                    break
+                default:
+                    echo("DEBUG: Creating default binding")
+                    def binding = string(
+                        credentialsId: id,
+                        variable: credentialVariable(entry, type)
+                    )
+                    echo("DEBUG: Created binding: ${binding}")
+                    bindings << binding
+                    break
+            }
+        } catch (Exception e) {
+            echo("ERROR creating binding for ${id}: ${e.message}")
+            e.printStackTrace()
         }
     }
 
