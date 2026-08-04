@@ -1,14 +1,14 @@
-name: stacksmith-operation
+name: stacksmith-plan-operation
 
 on:
   workflow_dispatch:
     inputs:
       operation_names:
-        description: Comma-delimited stack-local native operation names. Leave empty to run all.
+        description: Comma-delimited stack-local native operation names. Leave empty to plan all.
         required: false
         type: string
       environments:
-        description: Comma-separated environment names. Leave empty to run in all environments.
+        description: Comma-separated environment names. Leave empty to plan in all environments.
         required: false
         type: string
       gitops_root:
@@ -28,10 +28,10 @@ permissions:
   contents: read
 
 jobs:
-  operation:
+  plan-operation:
     uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main
     with:
-      command: operation
+      command: plan-operation
       operation_names: ${{ github.event.inputs.operation_names || '' }}
       environments: ${{ github.event.inputs.environments || '' }}
       gitops_root: ${{ github.event.inputs.gitops_root || vars.STACKSMITH_GITOPS_ROOT || '.' }}

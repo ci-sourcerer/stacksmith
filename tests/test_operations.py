@@ -643,7 +643,7 @@ def test_plan_single_stack_operation_uses_targeted_dry_run(
     assert "auto_approve" not in calls["run"][2]
 
 
-def test_plan_stack_operations_selects_after_apply_operations_when_omitted(
+def test_plan_stack_operations_selects_all_operations_when_omitted(
     monkeypatch,
     tmp_path: Path,
 ):
@@ -660,10 +660,12 @@ def test_plan_stack_operations_selects_after_apply_operations_when_omitted(
         }
     )
     stack.source_path = tmp_path / "stack.yaml"
+    config = _config()
+    config.operations["deploy"].trigger = "manual"
     monkeypatch.setattr(
         api,
         "load_runtime_config",
-        lambda *args, **kwargs: (tmp_path, [], _config()),
+        lambda *args, **kwargs: (tmp_path, [], config),
     )
     monkeypatch.setattr(
         api,
@@ -725,7 +727,7 @@ def test_plan_stack_operations_is_no_op_without_after_apply_operations(
         lambda *args, **kwargs: (stack, {}),
     )
 
-    result = api.plan_stack_operations(stack.source_path)
+    result = api.plan_stack_operations(stack.source_path, after_apply_only=True)
 
     assert result == {"operations": [], "execution_order": [], "exit_code": 0}
 

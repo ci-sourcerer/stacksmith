@@ -119,10 +119,17 @@ jobs:
           print()
           print(f"- Environment: `{row['environment']}`")
           print(f"- Runfile: `{row['runfile']}`")
-          if phase in {"operation-plan", "operation"}:
+          if phase in {"plan-operation", "operation"}:
+              selected_operations = ", ".join(manifest["operation_names"])
+              if not selected_operations:
+                  selected_operations = (
+                      "after_apply operations"
+                      if manifest["command"] in {"plan", "apply"}
+                      else "all operations"
+                  )
               print(
                   "- Operations: `"
-                  f"{', '.join(manifest['operation_names']) or 'after_apply operations'}"
+                  f"{selected_operations}"
                   "`"
               )
               print(

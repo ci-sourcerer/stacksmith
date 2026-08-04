@@ -7,8 +7,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from ..enums import ValidationReportFormat
 from ..exceptions import StacksmithConfigError, StacksmithError
 
-CiCommand = Literal["plan", "apply", "operation"]
-CiPhase = Literal["plan", "apply", "operation-plan", "operation"]
+CiCommand = Literal["plan", "apply", "plan-operation", "operation"]
+CiPhase = Literal["plan", "apply", "plan-operation", "operation"]
 
 
 class CiExecutionRow(BaseModel):
@@ -31,7 +31,7 @@ class CiExecutionManifest(BaseModel):
     Attributes:
         version: Manifest schema version.
         command: Stacksmith command to execute.
-        operation_names: Stack-local operation names for native operation runs.
+        operation_names: Stack-local operation names for native operation plans or runs.
         config_ref: Platform-managed Stacksmith config reference.
         workdir: Working directory relative to the checked-out repository.
         env_file: Optional environment file, with `/dev/null` disabling implicit loading.
@@ -82,15 +82,16 @@ class CiExecutionManifest(BaseModel):
     def _validate_manifest(self) -> CiExecutionManifest:
         if not self.config_ref.strip():
             raise ValueError("config_ref must be a non-empty string")
-        if self.command == "operation" and not self.operation_names:
+        if self.command not in {"plan-operation", "operation"} and self.operation_names:
             raise ValueError(
-                "at least one operation is required when command is 'operation'"
+                "operation names are only supported when command is "
+                "'plan-operation' or 'operation'"
             )
-        if self.command != "operation" and self.operation_names:
-            raise ValueError(
-                "operation names are only supported when command is 'operation'"
-            )
-        if self.command != "operation" and self.offline and not self.locked:
+        if (
+            self.command not in {"plan-operation", "operation"}
+            and self.offline
+            and not self.locked
+        ):
             raise ValueError("offline CI execution requires locked execution")
         ValidationReportFormat(self.validation_report_format)
         return self
@@ -175,17 +176,15 @@ def validate_ci_policy(
     Raises:
         StacksmithConfigError: If command or branch policy is invalid.
     """
-    if command not in {"plan", "apply", "operation"}:
+    if command not in {"plan", "apply", "plan-operation", "operation"}:
         raise StacksmithConfigError(
-            f"Invalid command '{command}'. Expected 'plan', 'apply', or 'operation'."
+            f"Invalid command '{command}'. Expected 'plan', 'apply', "
+            "'plan-operation', or 'operation'."
         )
-    if command == "operation" and not operation_names:
+    if command not in {"plan-operation", "operation"} and operation_names:
         raise StacksmithConfigError(
-            "At least one operation is required when command is 'operation'."
-        )
-    if command != "operation" and operation_names:
-        raise StacksmithConfigError(
-            "Operation names are only supported when command is 'operation'."
+            "Operation names are only supported when command is "
+            "'plan-operation' or 'operation'."
         )
     if skip_branch_validation:
         return
@@ -230,9 +229,10 @@ def resolve_ci_execution_phase(
     if (
         resolved_phase
         not in {
-            "plan": {"plan", "operation-plan"},
-            "apply": {"plan", "operation-plan", "apply"},
-            "operation": {"operation-plan", "operation"},
+            "plan": {"plan", "plan-operation"},
+            "apply": {"plan", "plan-operation", "apply"},
+            "plan-operation": {"plan-operation"},
+            "operation": {"plan-operation", "operation"},
         }[manifest.command]
     ):
         raise StacksmithError(
@@ -292,7 +292,7 @@ def build_ci_execution_argv(
         common_args.append("--debug")
     if manifest.no_cas:
         common_args.append("--no-cas")
-    if execution_phase not in {"operation-plan", "operation"}:
+    if execution_phase not in {"plan-operation", "operation"}:
         if manifest.locked:
             common_args.append("--locked")
         if manifest.offline:
@@ -320,18 +320,19 @@ def build_ci_execution_argv(
         ]
     if execution_phase == "apply":
         return ["apply", *common_args, "--auto-approve"]
-    if execution_phase == "operation-plan":
+    if execution_phase == "plan-operation":
         return [
             "operation",
             "plan",
             *([",".join(manifest.operation_names)] if manifest.operation_names else []),
             *common_args,
+            *(["--after-apply"] if manifest.command in {"plan", "apply"} else []),
             *(["--force-rerun"] if manifest.force_rerun else []),
         ]
     return [
         "operation",
         "run",
-        ",".join(manifest.operation_names),
+        *([",".join(manifest.operation_names)] if manifest.operation_names else []),
         *common_args,
         *(["--force-rerun"] if manifest.force_rerun else []),
     ]

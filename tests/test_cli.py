@@ -988,7 +988,7 @@ def test_cmd_operation_plan_uses_dry_run_api(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["operations"] == ["deploy_app"]
 
 
-def test_cmd_operation_plan_omits_names_for_after_apply_selection(
+def test_cmd_operation_plan_omits_names_for_all_operation_selection(
     monkeypatch,
     parser,
 ):
@@ -996,6 +996,34 @@ def test_cmd_operation_plan_omits_names_for_after_apply_selection(
     args = parser.parse_args(["operation", "plan", "--stack", "stack.yaml"])
 
     exit_code = cli_main._cmd_operation_plan(args)
+
+    assert exit_code == 0
+    assert calls["run"][0] == "stack.yaml"
+    assert calls["run"][1] is None
+    assert calls["run"][2]["after_apply_only"] is False
+
+
+def test_cmd_operation_plan_supports_after_apply_selection(monkeypatch, parser):
+    calls = _capture_plan_stack_operations_call(monkeypatch)
+    args = parser.parse_args(
+        ["operation", "plan", "--after-apply", "--stack", "stack.yaml"]
+    )
+
+    exit_code = cli_main._cmd_operation_plan(args)
+
+    assert exit_code == 0
+    assert calls["run"][1] is None
+    assert calls["run"][2]["after_apply_only"] is True
+
+
+def test_cmd_operation_run_omits_names_for_all_operation_selection(
+    monkeypatch,
+    parser,
+):
+    calls = _capture_run_stack_operations_call(monkeypatch)
+    args = parser.parse_args(["operation", "run", "--stack", "stack.yaml"])
+
+    exit_code = cli_main._cmd_operation_run(args)
 
     assert exit_code == 0
     assert calls["run"][0] == "stack.yaml"

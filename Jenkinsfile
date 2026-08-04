@@ -198,8 +198,8 @@ withStacksmithAgent {
         ansiColor('xterm') {
             properties([
                 parameters([
-                    choice(name: 'COMMAND', choices: ['plan', 'apply', 'operation', 'destroy', 'plan-destroy'], defaultValue: 'plan', description: 'Stacksmith command'),
-                    string(name: 'OPERATION_NAMES', description: 'comma-delimited stack-local operation names'),
+                    choice(name: 'COMMAND', choices: ['plan', 'apply', 'plan-operation', 'operation'], defaultValue: 'plan', description: 'Stacksmith command'),
+                    string(name: 'OPERATION_NAMES', description: 'comma-delimited stack-local operation names; empty selects all'),
                     string(name: 'ENVIRONMENTS', description: 'comma-separated environments to target manually'),
                     string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
                     booleanParam(name: 'DEBUG', defaultValue: false, description: 'enable debug logs and print configured modules and policies'),
@@ -289,7 +289,7 @@ withStacksmithAgent {
                 stage('Plan operation') {
                     if (!(
                         env.SELECTED_ENVIRONMENTS
-                        && env.COMMAND in ['plan', 'apply', 'operation']
+                        && env.COMMAND in ['plan', 'apply', 'plan-operation', 'operation']
                     )) {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
                         return
@@ -298,7 +298,7 @@ withStacksmithAgent {
                     executeStacksmithMatrix(
                         env.SELECTION_MATRIX,
                         params.WORKDIR,
-                        'operation-plan'
+                        'plan-operation'
                     )
                 }
 
@@ -311,7 +311,7 @@ withStacksmithAgent {
                     try {
                         input(
                             message: env.COMMAND == 'operation'
-                                ? "Run Stacksmith operations '${env.SELECTED_OPERATIONS}' in ${env.SELECTED_ENVIRONMENTS}?"
+                                ? "Run Stacksmith ${env.SELECTED_OPERATIONS ?: 'all operations'} in ${env.SELECTED_ENVIRONMENTS}?"
                                 : "Apply Stacksmith changes to ${env.SELECTED_ENVIRONMENTS}?"
                         )
                     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {

@@ -29,7 +29,6 @@ from ..vendor import get_vendor_dir, resolve_module_source
 from .operations import (
     build_operation_module_spec,
     resolve_operation_batch,
-    select_after_apply_operations,
 )
 from .properties import PropertyRenderer
 from .providers import (
@@ -97,9 +96,7 @@ def _generate_operation_blocks(
 ) -> dict[str, Any]:
     modules = {}
     selected_names = (
-        select_after_apply_operations(stack, config)
-        if operation_names is None
-        else list(operation_names)
+        list(stack.operations) if operation_names is None else list(operation_names)
     )
     if not selected_names:
         return modules
@@ -548,7 +545,7 @@ def generate_operations_tf_json(
     Args:
         stack: Parsed stack definition.
         config: Tool configuration.
-        operation_names: Explicit operation names, or `None` for `after_apply`.
+        operation_names: Explicit operation names, or `None` for all operations.
         cache_dir: Cache directory for fetching remote scripts.
         auth_config: Optional host-keyed auth configuration for remote fetching.
         vendor_dir: Root directory containing vendored modules.
@@ -647,7 +644,7 @@ def write_operations_tf_json(
         stack: Parsed stack definition.
         config: Tool configuration.
         output_dir: Directory to write `stacksmith.tf.json` into.
-        operation_names: Explicit operation names, or `None` for `after_apply`.
+        operation_names: Explicit operation names, or `None` for all operations.
         cache_dir: Cache directory for fetching remote scripts.
         auth_config: Optional host-keyed auth configuration for remote fetching.
         vendor_dir: Root directory containing vendored modules.

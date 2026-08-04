@@ -214,14 +214,19 @@ def build_parser() -> argparse.ArgumentParser:
         )
         operation_action_parser.add_argument(
             "operation_names",
-            nargs="?" if operation_command == "plan" else None,
+            nargs="?",
             help=(
-                "Comma-delimited stack-local operation names. Omit when planning "
-                "to select operations configured with the after_apply trigger."
-                if operation_command == "plan"
-                else "Comma-delimited stack-local operation names"
+                "Comma-delimited stack-local operation names. Omit to select all "
+                "operations declared by the stack."
             ),
         )
+        if operation_command == "plan":
+            operation_action_parser.add_argument(
+                "--after-apply",
+                action="store_true",
+                default=False,
+                help="Select only operations configured with the after_apply trigger.",
+            )
         operation_action_parser.add_argument(
             "--force-rerun",
             action="store_true",

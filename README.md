@@ -765,10 +765,16 @@ Dry-run a manual operation by its stack-local name before executing it.
 stacksmith operation plan deploy_app --stack stack.yaml --config stacksmith-config.yaml
 ```
 
-Omit operation names to dry-run every operation selected by the `after_apply` trigger. This is the operation dry run used automatically alongside infrastructure plans in the Jenkins and GitHub Actions GitOps pipelines.
+Omit operation names to dry-run every operation declared by the stack. The same omission for `operation run` executes all declared operations.
 
 ```shell
 stacksmith operation plan --stack stack.yaml --config stacksmith-config.yaml
+```
+
+Infrastructure plans use `--after-apply` to restrict the operation preview to operations configured with the `after_apply` trigger. The Jenkins and GitHub Actions GitOps pipelines set this automatically for `plan` and `apply` commands.
+
+```shell
+stacksmith operation plan --after-apply --stack stack.yaml --config stacksmith-config.yaml
 ```
 
 Run the operation after reviewing the plan.
@@ -926,21 +932,21 @@ Stacksmith provides equivalent opinionated GitOps entrypoints for GitHub Actions
 
 - [`.github/workflows/stacksmith-gitops-reusable.yml`](./.github/workflows/stacksmith-gitops-reusable.yml) executes one lifecycle phase for one environment from a versioned CI manifest.
 - [`.github/workflows/stacksmith-gitops-opinionated-reusable.yml`](./.github/workflows/stacksmith-gitops-opinionated-reusable.yml) discovers environments and fans out to the single-environment reusable workflow.
-- [`examples/github-actions/stacksmith-plan.yml`](./examples/github-actions/stacksmith-plan.yml), [`examples/github-actions/stacksmith-apply.yml`](./examples/github-actions/stacksmith-apply.yml), and [`examples/github-actions/stacksmith-operation.yml`](./examples/github-actions/stacksmith-operation.yml) are trigger wrappers that call the opinionated reusable workflow using `uses`.
+- [`examples/github-actions/stacksmith-plan.yml`](./examples/github-actions/stacksmith-plan.yml), [`examples/github-actions/stacksmith-apply.yml`](./examples/github-actions/stacksmith-apply.yml), [`examples/github-actions/stacksmith-plan-operation.yml`](./examples/github-actions/stacksmith-plan-operation.yml), and [`examples/github-actions/stacksmith-operation.yml`](./examples/github-actions/stacksmith-operation.yml) are trigger wrappers that call the opinionated reusable workflow using `uses`.
 - [`Jenkinsfile`](./Jenkinsfile) is the opinionated Jenkins GitOps wrapper and is best used as a Multibranch Pipeline.
 
 The GitHub templates under `examples/` do not execute in this repository because they are outside `.github/workflows`.
 
 #### Shared behavior
 
-The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins wrapper uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. Plan and apply requests execute both the infrastructure `plan` phase and an `operation-plan` phase for operations selected by `after_apply`; manual operations are excluded. Apply waits for both previews before provider approval, applies infrastructure, then replans and reconciles the isolated operation state. Native manual operations execute `operation-plan`, wait for provider approval, and then execute `operation`. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
+The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins wrapper uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. Plan and apply requests execute both the infrastructure `plan` phase and a `plan-operation` phase for operations selected by `after_apply`; manual operations are excluded. Apply waits for both previews before provider approval, applies infrastructure, then replans and reconciles the isolated operation state. A `plan-operation` request previews an explicitly selected batch, or all operations when names are omitted, without approval or execution. An `operation` request performs the same preview, waits for provider approval, and then executes the batch. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
 
 `stacksmith ci prepare` resolves the effective layered configuration for every selected environment and rejects `backend.type: local`. CI runs must use a remote backend so state is durable and shared between plan and apply jobs.
 
 The CI selector is named `command` in GitHub Actions and `COMMAND` in Jenkins. Callers using the former `operation` or `OPERATION` selector must update to the new name.
 
 - GitHub Actions `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.
-- Native operation mode requires the comma-delimited `operation_names` input, such as `publish_image,deploy_app,smoke_test`. Each selected environment dry-runs its dependency-aware batch before approval and execution. Set the repository, organization, job, or folder variable `STACKSMITH_MAX_PARALLEL_OPERATIONS` to cap concurrency and `STACKSMITH_FORCE_RERUN=1` to force replacement of explicitly selected operation runner resources when their execution identities have not changed.
+- `plan-operation` previews native operations without approval or execution; `operation` previews, requests approval, and executes them. Supply a comma-delimited `operation_names` input such as `publish_image,deploy_app,smoke_test`, or leave it empty to select all operations in each stack. Set the repository, organization, job, or folder variable `STACKSMITH_MAX_PARALLEL_OPERATIONS` to cap concurrency and `STACKSMITH_FORCE_RERUN=1` to force replacement of selected operation runner resources when their execution identities have not changed.
 - `discovery_mode` selects how environments are discovered. Use `folders` for `environments/<env>/` directories, `flat-files` for root-level `stacksmith.<env>.yaml|yml|json` files, or `env-files` for the hybrid `environments/<env>.yaml` layout. The aliases `env` and `env-files` both map to the hybrid env-file discovery path.
 - In GitHub Actions, `STACKSMITH_GITOPS_ROOT` defaults to `.` and can be overridden per run with `gitops_root`.
 - Changes under `<gitops_root>/common` and `<gitops_root>/manifests/common` fan out to all environments.
@@ -1058,17 +1064,16 @@ on:
   workflow_dispatch:
     inputs:
       operation_names:
-        description: Comma-delimited stack-local native operation names.
-        required: true
+        description: Comma-delimited stack-local native operation names. Leave empty to run all.
+        required: false
         type: string
-        default: deploy_app
 
 jobs:
   run-operation:
     uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@<version>
     with:
       command: operation
-      operation_names: ${{ inputs.operation_names }}
+      operation_names: ${{ inputs.operation_names || '' }}
       gitops_root: ${{ vars.STACKSMITH_GITOPS_ROOT || '.' }}
       workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
     secrets: inherit
@@ -1090,8 +1095,8 @@ Choose one execution mode through Jenkins folder properties or the job environme
 
 The following Jenkins parameters are exposed on every build.
 
-- `COMMAND`: `plan`, `apply`, or `operation`. Defaults to `plan`.
-- `OPERATION_NAMES`: Comma-delimited operation names for a dependency-aware batch.
+- `COMMAND`: `plan`, `apply`, `plan-operation`, or `operation`. Defaults to `plan`.
+- `OPERATION_NAMES`: Comma-delimited operation names for a dependency-aware batch. Leave empty to select all operations for `plan-operation` or `operation`.
 - `ENVIRONMENTS`: Optional comma-separated list of environment names.
 - `WORKDIR`: Working directory for Stacksmith commands. Defaults to `.`.
 - `DEBUG`: Enable debug logging and print configured modules and policies before execution. Defaults to `false`.
@@ -1183,7 +1188,7 @@ print(result.rerun_token)
 
 Use `update_operation_rerun_token`, `set_operation_inputs`, and `update_component_properties` when mutation and Git publication should be controlled separately. YAML edits retain content outside the modified value; comments within a replaced mapping may be reformatted or removed.
 
-The Jenkins and GitHub Actions GitOps entrypoints also support native operation batches. Provide comma-delimited names through Jenkins `OPERATION_NAMES` with `COMMAND=operation`, or through the reusable workflow's `operation_names` input with `command: operation`. Set `STACKSMITH_FORCE_RERUN=1` in Jenkins folder properties or GitHub repository variables for a definite dispatch. Native operations use the same environment discovery, runfile layering, credentials, branch protections, and deployment approvals as infrastructure applies.
+The Jenkins and GitHub Actions GitOps entrypoints also support native operation batches. Use `COMMAND=plan-operation` for a dry run or `COMMAND=operation` for an approved execution in Jenkins; use the corresponding reusable workflow `command` value in GitHub Actions. Provide comma-delimited names through `OPERATION_NAMES` or `operation_names`, or leave the value empty to select all operations. Set `STACKSMITH_FORCE_RERUN=1` in Jenkins folder properties or GitHub repository variables for a definite dispatch. Native operations use the same environment discovery, runfile layering, credentials, branch protections, and deployment approvals as infrastructure applies.
 
 In this pattern, the shared runfile references the platform and service stack layers first, then environment-specific vars and overlays are layered on top.
 
@@ -1657,8 +1662,8 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-f
 ### `stacksmith operation plan`
 
 ```text
-stacksmith operation plan [-h] [--force-rerun] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
-                                 [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+stacksmith operation plan [-h] [--after-apply] [--force-rerun] [--stack STACK] [--runfile RUNFILE]
+                                 [-c CONFIG] [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
                                  [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
                                  [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
                                  --no-local-modules] [--debug | -q]
@@ -1667,7 +1672,8 @@ stacksmith operation plan [-h] [--force-rerun] [--stack STACK] [--runfile RUNFIL
 
 | Argument | Description |
 | - | - |
-| `operation_names` | Comma-delimited stack-local operation names. Omit when planning to select operations configured with the after_apply trigger. |
+| `operation_names` | Comma-delimited stack-local operation names. Omit to select all operations declared by the stack. |
+| `--after-apply` | Select only operations configured with the after_apply trigger. |
 | `--force-rerun` | Force the operation runner resource to be replaced even when its execution identity has not changed. Can also be enabled with STACKSMITH_FORCE_RERUN=1. |
 | `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
 | `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
@@ -1695,12 +1701,12 @@ stacksmith operation run [-h] [--force-rerun] [--stack STACK] [--runfile RUNFILE
                                 [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
                                 [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
                                 --no-local-modules] [--debug | -q]
-                                operation_names [stack_file]
+                                [operation_names] [stack_file]
 ```
 
 | Argument | Description |
 | - | - |
-| `operation_names` | Comma-delimited stack-local operation names |
+| `operation_names` | Comma-delimited stack-local operation names. Omit to select all operations declared by the stack. |
 | `--force-rerun` | Force the operation runner resource to be replaced even when its execution identity has not changed. Can also be enabled with STACKSMITH_FORCE_RERUN=1. |
 | `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
 | `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
@@ -1869,7 +1875,7 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
                              [--discovery-mode {folders,flat-files,env-files,env,auto}]
                              [--environments ENVIRONMENTS] [--event-name EVENT_NAME]
                              [--changed-path CHANGED_PATH] [--base-ref BASE_REF] [--before BEFORE]
-                             [--after AFTER] --command {plan,apply,operation}
+                             [--after AFTER] --command {plan,apply,plan-operation,operation}
                              [--operation-names OPERATION_NAMES] --config-ref CONFIG_REF [--workdir WORKDIR]
                              [--env-file ENV_FILE] [--stacksmith-args-json STACKSMITH_ARGS_JSON] [--debug]
                              [--no-cas] [--locked] [--offline] [--lockfile LOCKFILE] [--force-rerun]
@@ -1889,8 +1895,8 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
 | `--base-ref` | Base branch name used for pull-request diff selection. |
 | `--before` | Previous commit SHA used for push diff selection. |
 | `--after` | Current commit SHA used for push diff selection. |
-| `--command` | Stacksmith command to execute for each selected environment. Choices: `plan`, `apply`, `operation`. |
-| `--operation-names` | Comma-delimited stack-local operation names for operation execution. |
+| `--command` | Stacksmith command to execute for each selected environment. Choices: `plan`, `apply`, `plan-operation`, `operation`. |
+| `--operation-names` | Comma-delimited stack-local operation names. Empty selects all for plan-operation and operation commands. |
 | `--config-ref` | Platform-managed Stacksmith config reference. |
 | `--workdir` | Working directory relative to the checked-out repository. |
 | `--env-file` | Environment file path, or /dev/null to disable implicit loading. |
@@ -1914,7 +1920,7 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
 
 ```text
 stacksmith ci execute [-h] --manifest MANIFEST --environment ENVIRONMENT
-                             [--phase {plan,apply,operation-plan,operation}]
+                             [--phase {plan,apply,plan-operation,operation}]
                              [--validation-report-output VALIDATION_REPORT_OUTPUT]
 ```
 
@@ -1922,7 +1928,7 @@ stacksmith ci execute [-h] --manifest MANIFEST --environment ENVIRONMENT
 | - | - |
 | `--manifest` | Path to a JSON manifest emitted by stacksmith ci prepare. |
 | `--environment` | Environment row from the manifest to execute. |
-| `--phase` | Lifecycle phase to execute. Apply and operation manifests support their corresponding dry-run and execution phases. Choices: `plan`, `apply`, `operation-plan`, `operation`. |
+| `--phase` | Lifecycle phase to execute. Apply and operation manifests support their corresponding dry-run and execution phases. Choices: `plan`, `apply`, `plan-operation`, `operation`. |
 | `--validation-report-output` | Optional path for plan validation report output. When set, plan JSON report output is written to this file. |
 
 ### `stacksmith ci prepare-from-env`
@@ -1943,7 +1949,7 @@ stacksmith ci prepare-from-env [-h] [--provider {generic,github-actions,jenkins}
 ```text
 stacksmith ci execute-from-env [-h] [--provider {generic,github-actions,jenkins}]
                                       [--manifest-file MANIFEST_FILE] [--environment ENVIRONMENT]
-                                      [--phase {plan,apply,operation-plan,operation}]
+                                      [--phase {plan,apply,plan-operation,operation}]
                                       [--validation-report-output VALIDATION_REPORT_OUTPUT]
 ```
 
@@ -1952,7 +1958,7 @@ stacksmith ci execute-from-env [-h] [--provider {generic,github-actions,jenkins}
 | `--provider` | CI provider adapter mode for execution defaults. Choices: `generic`, `github-actions`, `jenkins`. |
 | `--manifest-file` | Optional manifest file path override. When omitted, CI_MANIFEST_FILE or STACKSMITH_CI_MANIFEST is used. |
 | `--environment` | Optional environment name override. When omitted, STACKSMITH_ENVIRONMENT or ENVIRONMENT is used. |
-| `--phase` | Optional lifecycle phase override. When omitted, STACKSMITH_CI_PHASE or the manifest command is used. Choices: `plan`, `apply`, `operation-plan`, `operation`. |
+| `--phase` | Optional lifecycle phase override. When omitted, STACKSMITH_CI_PHASE or the manifest command is used. Choices: `plan`, `apply`, `plan-operation`, `operation`. |
 | `--validation-report-output` | Optional plan validation report output path override. When omitted, STACKSMITH_VALIDATION_REPORT_PATH or provider defaults are used. |
 
 ### `stacksmith ci redact-plan`

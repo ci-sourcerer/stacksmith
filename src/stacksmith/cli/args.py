@@ -726,13 +726,16 @@ def configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
         "--command",
         dest="ci_execution_command",
         required=True,
-        choices=["plan", "apply", "operation"],
+        choices=["plan", "apply", "plan-operation", "operation"],
         help="Stacksmith command to execute for each selected environment.",
     )
     parser.add_argument(
         "--operation-names",
         default="",
-        help="Comma-delimited stack-local operation names for operation execution.",
+        help=(
+            "Comma-delimited stack-local operation names. Empty selects all for "
+            "plan-operation and operation commands."
+        ),
     )
     parser.add_argument(
         "--config-ref",
@@ -862,7 +865,7 @@ def configure_ci_execute_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--phase",
-        choices=["plan", "apply", "operation-plan", "operation"],
+        choices=["plan", "apply", "plan-operation", "operation"],
         default="",
         help=(
             "Lifecycle phase to execute. Apply and operation manifests support "
@@ -946,7 +949,7 @@ def configure_ci_execute_from_env_parser(parser: argparse.ArgumentParser) -> Non
     )
     parser.add_argument(
         "--phase",
-        choices=["plan", "apply", "operation-plan", "operation"],
+        choices=["plan", "apply", "plan-operation", "operation"],
         default="",
         help=(
             "Optional lifecycle phase override. When omitted, "

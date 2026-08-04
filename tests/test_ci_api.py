@@ -243,6 +243,29 @@ def test_ci_manifest_accepts_single_operation():
     ]
 
 
+@pytest.mark.parametrize("command", ["plan-operation", "operation"])
+def test_ci_operation_commands_select_all_when_names_are_omitted(
+    command: str,
+    tmp_path: Path,
+):
+    _create_env_files_layout(tmp_path)
+    manifest = prepare_ci_execution(
+        command=command,
+        config_ref=str(_REMOTE_BACKEND_CONFIG),
+        gitops_root=str(tmp_path),
+        discovery_mode="env-files",
+        environments="dev",
+        skip_branch_validation=True,
+    )
+
+    assert manifest.operation_names == []
+    assert build_ci_execution_argv(manifest, "dev")[:3] == [
+        "operation",
+        "plan" if command == "plan-operation" else "run",
+        "--config",
+    ]
+
+
 @pytest.mark.parametrize(
     "operation_names",
     ["deploy,deploy", "deploy,", ",deploy"],
@@ -540,16 +563,16 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert '"STACKSMITH_CI_PHASE=${command}"' in jenkins_pipeline
     assert '--phase "$STACKSMITH_CI_PHASE"' in jenkins_pipeline
     assert "inputs.command == 'plan' || inputs.command == 'apply'" in actions_workflow
-    assert "needs: [discover, plan, operation-plan]" in actions_workflow
-    assert "needs: [discover, operation-plan]" in actions_workflow
+    assert "needs: [discover, plan, plan-operation]" in actions_workflow
+    assert "needs: [discover, plan-operation]" in actions_workflow
     assert "phase: plan" in actions_workflow
     assert "phase: apply" in actions_workflow
-    assert "phase: operation-plan" in actions_workflow
+    assert "phase: plan-operation" in actions_workflow
+    assert "inputs.command == 'plan-operation'" in actions_workflow
     assert (
-        "inputs.command == 'plan' || inputs.command == 'apply' || inputs.command == 'operation'"
-        in actions_workflow
+        "env.COMMAND in ['plan', 'apply', 'plan-operation', 'operation']"
+        in jenkins_pipeline
     )
-    assert "env.COMMAND in ['plan', 'apply', 'operation']" in jenkins_pipeline
     assert "      max_parallel_operations:" not in actions_workflow
     assert "STACKSMITH_MAX_PARALLEL_OPERATIONS" in actions_workflow
     assert "inputs.phase || fromJson(inputs.ci_manifest).command" in actions_executor
@@ -630,7 +653,7 @@ def test_ci_operation_manifest_supports_plan_then_run_phases():
         matrix=[CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")],
     )
 
-    plan_argv = build_ci_execution_argv(manifest, "dev", "operation-plan")
+    plan_argv = build_ci_execution_argv(manifest, "dev", "plan-operation")
     run_argv = build_ci_execution_argv(manifest, "dev", "operation")
 
     assert plan_argv[:3] == ["operation", "plan", "deploy"]
@@ -651,10 +674,11 @@ def test_ci_plan_manifest_supports_after_apply_operation_plan_phase():
     operation_plan_argv = build_ci_execution_argv(
         manifest,
         "dev",
-        "operation-plan",
+        "plan-operation",
     )
 
     assert operation_plan_argv[:3] == ["operation", "plan", "--config"]
+    assert "--after-apply" in operation_plan_argv
 
 
 def test_ci_apply_manifest_supports_after_apply_operation_plan_phase():
@@ -667,10 +691,11 @@ def test_ci_apply_manifest_supports_after_apply_operation_plan_phase():
     operation_plan_argv = build_ci_execution_argv(
         manifest,
         "dev",
-        "operation-plan",
+        "plan-operation",
     )
 
     assert operation_plan_argv[:3] == ["operation", "plan", "--config"]
+    assert "--after-apply" in operation_plan_argv
 
 
 def test_ci_manifest_rejects_unapproved_execution_phase():

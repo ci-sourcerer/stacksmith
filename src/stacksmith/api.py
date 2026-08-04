@@ -694,7 +694,7 @@ def _generate_operation_stack(
     stack: StackDefinition,
     config: ToolConfig,
     infrastructure_output_dir: Path,
-    operation_names: Sequence[str] | None,
+    operation_names: Sequence[str],
     *,
     cache_dir: Path | None,
     state_root: Path | None = None,
@@ -936,10 +936,11 @@ def _validate_prepared_stacks(
             dependency_build_dirs,
             root=prepared.state_root,
         )
-        if select_after_apply_operations(stack, config):
+        if operation_names := select_after_apply_operations(stack, config):
             generate_operations_tf_json(
                 stack,
                 config,
+                operation_names,
                 cache_dir=cache_dir,
                 auth_config=config.remote_auth or None,
                 root=prepared.state_root,
@@ -1438,6 +1439,8 @@ def lock_stack(
 def plan_stack_operations(
     stack_file: Path | str | Sequence[Path | str],
     operation_names: Sequence[str] | None = None,
+    *,
+    after_apply_only: bool = False,
     config: list[str] | None = None,
     vars_file: str | Sequence[str] | None = None,
     input_layers: Sequence[InputLayer] | None = None,
@@ -1451,8 +1454,10 @@ def plan_stack_operations(
 
     Args:
         stack_file: Path, URL, or ordered sequence of stack definition files.
-        operation_names: Stack-local operation names to plan. When omitted, plan the
-            operations configured with the `after_apply` trigger.
+        operation_names: Stack-local operation names to plan. When omitted, plan all
+            operations declared by the stack.
+        after_apply_only: When `True`, select only operations configured with the
+            `after_apply` trigger.
         config: Optional managed config paths or URLs.
         vars_file: Optional vars file paths or URLs.
         input_layers: Optional ordered CLI input layers merged in call order.
@@ -1472,6 +1477,7 @@ def plan_stack_operations(
         TerragruntAction.PLAN,
         stack_file,
         operation_names,
+        after_apply_only=after_apply_only,
         config=config,
         vars_file=vars_file,
         input_layers=input_layers,
@@ -1485,7 +1491,7 @@ def plan_stack_operations(
 
 def run_stack_operations(
     stack_file: Path | str | Sequence[Path | str],
-    operation_names: Sequence[str],
+    operation_names: Sequence[str] | None = None,
     config: list[str] | None = None,
     vars_file: str | Sequence[str] | None = None,
     input_layers: Sequence[InputLayer] | None = None,
@@ -1499,7 +1505,8 @@ def run_stack_operations(
 
     Args:
         stack_file: Path, URL, or ordered sequence of stack definition files.
-        operation_names: Stack-local operation names to execute.
+        operation_names: Stack-local operation names to execute. When omitted, run all
+            operations declared by the stack.
         config: Optional managed config paths or URLs.
         vars_file: Optional vars file paths or URLs.
         input_layers: Optional ordered CLI input layers merged in call order.
@@ -1519,6 +1526,7 @@ def run_stack_operations(
         TerragruntAction.APPLY,
         stack_file,
         operation_names,
+        after_apply_only=False,
         config=config,
         vars_file=vars_file,
         input_layers=input_layers,
@@ -1535,6 +1543,7 @@ def _execute_stack_operations(
     stack_file: Path | str | Sequence[Path | str],
     operation_names: Sequence[str] | None,
     *,
+    after_apply_only: bool,
     config: list[str] | None,
     vars_file: str | Sequence[str] | None,
     input_layers: Sequence[InputLayer] | None,
@@ -1561,11 +1570,16 @@ def _execute_stack_operations(
     )
     if stack.source_path is None:
         raise RuntimeError("Loaded stack is missing a source path")
-    selected_operation_names = (
-        select_after_apply_operations(stack, loaded_config)
-        if operation_names is None
-        else list(operation_names)
-    )
+    if after_apply_only and operation_names is not None:
+        raise StacksmithConfigError(
+            "Explicit operation names cannot be combined with after_apply selection"
+        )
+    if after_apply_only:
+        selected_operation_names = select_after_apply_operations(stack, loaded_config)
+    elif operation_names is None:
+        selected_operation_names = list(stack.operations)
+    else:
+        selected_operation_names = list(operation_names)
     if not selected_operation_names:
         return {
             "operations": [],
