@@ -72,81 +72,57 @@ void withStacksmithKubernetesAgent(Closure body) {
     }
 }
 
-String credentialId(Map<String, Map<String, Object>> credentials, String credentialType) {
-    def entry = credentials[credentialType]
-    if (!(entry instanceof Map)) {
-        return null
-    }
-
-    String id = entry.credentialId ?: entry.id
-    return id?.toString()?.trim() ?: null
-}
-
-String credentialVariable(Map<String, Object> entry, String credentialType) {
+String credentialVariable(Map<String, Object> entry, String credentialType, String suffix = '') {
     String explicitName = [entry.variable, entry.name, entry.variableName]
         .find { it?.toString()?.trim() }
     if (explicitName) {
         return explicitName.toString().trim()
     }
-
-    switch (credentialType) {
-        case 'git_token':
-            return 'STACKSMITH_GIT_TOKEN'
-        case 'http_token':
-            return 'STACKSMITH_HTTP_TOKEN'
-        case 'http_basic':
-            return 'STACKSMITH_HTTP_USERNAME'
-        case 'git_ssh_key':
-            return 'STACKSMITH_GIT_SSH_USERNAME'
-        case 'string':
-        case 'secret_text':
-            return 'STACKSMITH_SECRET'
-        default:
-            return credentialType.toUpperCase()
-    }
+    return "STACKSMITH_${credentialType.toUpperCase()}${suffix}"
 }
 
 List<Map<String, Object>> buildCredentialBindings(Map<String, Map<String, Object>> credentials) {
     List<Map<String, Object>> bindings = []
 
     for (String credentialType : credentials.keySet()) {
-        String id = credentialId(credentials, credentialType)
+        def entry = credentials[credentialType]
+        if (!(entry instanceof Map)) {
+            continue
+        }
+
+        String id = entry.credentialId ?: entry.id
+        id = id?.toString()?.trim()
         if (!id) {
             continue
         }
 
-        switch (credentialType) {
-            case 'git_token':
-                bindings << string(
-                    credentialsId: id,
-                    variable: credentialVariable(credentials[credentialType], credentialType)
-                )
-                break
-            case 'http_token':
-                bindings << string(
-                    credentialsId: id,
-                    variable: credentialVariable(credentials[credentialType], credentialType)
-                )
-                break
+        String type = entry.type?.toString()?.trim() ?: credentialType
+
+        switch (type) {
+            case 'usernamePassword':
             case 'http_basic':
                 bindings << usernamePassword(
                     credentialsId: id,
-                    usernameVariable: 'STACKSMITH_HTTP_USERNAME',
-                    passwordVariable: 'STACKSMITH_HTTP_PASSWORD'
+                    usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, credentialType, '_USERNAME'),
+                    passwordVariable: entry.passwordVariable?.toString()?.trim() ?: credentialVariable(entry, credentialType, '_PASSWORD')
                 )
                 break
+            case 'sshUserPrivateKey':
             case 'git_ssh_key':
                 bindings << sshUserPrivateKey(
                     credentialsId: id,
-                    keyFileVariable: 'STACKSMITH_GIT_SSH_KEY',
-                    usernameVariable: 'STACKSMITH_GIT_SSH_USERNAME'
+                    keyFileVariable: entry.keyFileVariable?.toString()?.trim() ?: credentialVariable(entry, credentialType, '_KEY'),
+                    usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, credentialType, '_USERNAME')
                 )
                 break
             case 'string':
             case 'secret_text':
+            case 'git_token':
+            case 'http_token':
+            default:
                 bindings << string(
                     credentialsId: id,
-                    variable: credentialVariable(credentials[credentialType], credentialType)
+                    variable: credentialVariable(entry, credentialType)
                 )
                 break
         }
