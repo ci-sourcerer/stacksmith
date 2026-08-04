@@ -84,9 +84,6 @@ String credentialVariable(Map<String, Object> entry, String credentialType, Stri
         String idBased = credentialId.toUpperCase().replaceAll('-', '_')
         return "STACKSMITH_${idBased}${suffix}"
     }
-
-    // Fallback to type-based naming (should not normally occur)
-    return "STACKSMITH_${credentialType.toUpperCase()}${suffix}"
 }
 
 List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> credentials) {
