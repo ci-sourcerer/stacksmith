@@ -34,7 +34,14 @@ def normalize_path_input(path: Path | Sequence[Path], empty_error: str) -> list[
     paths = [path] if isinstance(path, Path) else list(path)
     if not paths:
         raise StacksmithConfigError(empty_error)
-    return paths
+    seen: set[Path] = set()
+    deduped: list[Path] = []
+    for p in paths:
+        resolved = p.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            deduped.append(p)
+    return deduped
 
 
 def load_env_file(path: Path) -> None:
