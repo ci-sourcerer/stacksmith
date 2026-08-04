@@ -215,65 +215,63 @@ withStacksmithAgent {
 
             withFolderProperties {
 
-                stage('Init pipeline') {
-                    def manifestFile = '.stacksmith-ci/ci-execution-manifest.json'
-                    def manifestOutput = withEnv([
-                        "INPUT_COMMAND=${env.COMMAND}",
-                        "INPUT_OPERATION_NAMES=${env.OPERATION_NAMES}",
-                        "STACKSMITH_MAX_PARALLEL_OPERATIONS=${env.STACKSMITH_MAX_PARALLEL_OPERATIONS ?: '10'}",
-                        "INPUT_CONFIG_REF=${env.STACKSMITH_CONFIG_REF}",
-                        "INPUT_WORKDIR=${params.WORKDIR}",
-                        "INPUT_ENV_FILE=${env.STACKSMITH_ENV_FILE ?: '/dev/null'}",
-                        "INPUT_STACKSMITH_ARGS_JSON=${env.STACKSMITH_ARGS_JSON ?: '[]'}",
-                        "INPUT_DEBUG=${parseBoolean(env.STACKSMITH_DEBUG) || params.DEBUG}",
-                        "INPUT_NO_CAS=${env.STACKSMITH_NO_CAS ?: 'false'}",
-                        "INPUT_LOCKED=${env.STACKSMITH_REQUIRE_LOCKFILE ?: 'false'}",
-                        "INPUT_OFFLINE=${env.STACKSMITH_OFFLINE ?: 'false'}",
-                        "INPUT_LOCKFILE=${env.STACKSMITH_LOCKFILE ?: ''}",
-                        "INPUT_FORCE_RERUN=${env.STACKSMITH_FORCE_RERUN ?: 'false'}",
-                        "INPUT_VALIDATION_REPORT_FORMAT=${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
-                        "INPUT_FAIL_ON_CHANGES=${params.FAIL_ON_CHANGES}",
-                        "INPUT_STRICT_VALIDATION_WARNINGS=${params.STRICT_VALIDATION_WARNINGS}",
-                        "INPUT_GITOPS_ROOT=${env.STACKSMITH_GITOPS_ROOT ?: params.WORKDIR}",
-                        "INPUT_DISCOVERY_MODE=${env.STACKSMITH_DISCOVERY_MODE ?: 'auto'}",
-                        "INPUT_ENVIRONMENTS=${params.ENVIRONMENTS}",
-                        "CALLER_EVENT_NAME=${env.CHANGE_ID ? 'pull_request' : 'push'}",
-                        "CALLER_BASE_REF=${env.CHANGE_TARGET ?: ''}",
-                        "CALLER_EVENT_BEFORE=${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: env.GIT_PREVIOUS_COMMIT ?: ''}",
-                        "CALLER_SHA=${env.GIT_COMMIT ?: ''}",
-                        "CALLER_REF_NAME=${env.BRANCH_NAME ?: ''}",
-                        "CALLER_DEFAULT_BRANCH=${env.STACKSMITH_DEFAULT_BRANCH ?: ''}",
-                        "CALLER_IS_PRIMARY_BRANCH=${parseBoolean(env.BRANCH_IS_PRIMARY) || env.BRANCH_NAME == env.STACKSMITH_DEFAULT_BRANCH ? 'true' : 'false'}",
-                        "SKIP_BRANCH_VALIDATION=${env.NO_VALIDATE_BRANCH_AND_OPERATION ?: 'false'}",
-                        "CI_MANIFEST_FILE=${manifestFile}",
-                    ]) {
-                        sh(
-                            script: '''#!/usr/bin/env bash
-                                set -euo pipefail
-                                mkdir -p "$(dirname \"$CI_MANIFEST_FILE\")"
-                                stacksmith ci prepare-from-env \
-                                    --provider jenkins \
-                                    --manifest-file "$CI_MANIFEST_FILE"
-                            ''',
-                            returnStdout: true
-                        )
-                    }
-
-                    def manifest = readJSON(text: manifestOutput, returnPojo: true)
-                    def matrix = manifest.matrix
-                    env.SELECTED_ENVIRONMENTS = matrix.collect { it.environment }.join(',')
-                    env.SELECTION_MATRIX = writeJSON(json: matrix, returnText: true)
-                    env.CI_MANIFEST_FILE = "${env.WORKSPACE}/${manifestFile}"
-                    env.SELECTED_OPERATIONS = manifest.operation_names.join(', ')
-
-                    if (!env.SELECTED_ENVIRONMENTS) {
-                        echo "No environments selected; skipping ${params.COMMAND}."
-                        currentBuild.result = 'NOT_BUILT'
-                        return
-                    }
-
-                    echo("Selected environments: ${env.SELECTED_ENVIRONMENTS}")
+                def manifestFile = '.stacksmith-ci/ci-execution-manifest.json'
+                def manifestOutput = withEnv([
+                    "INPUT_COMMAND=${env.COMMAND}",
+                    "INPUT_OPERATION_NAMES=${env.OPERATION_NAMES}",
+                    "STACKSMITH_MAX_PARALLEL_OPERATIONS=${env.STACKSMITH_MAX_PARALLEL_OPERATIONS ?: '10'}",
+                    "INPUT_CONFIG_REF=${env.STACKSMITH_CONFIG_REF}",
+                    "INPUT_WORKDIR=${params.WORKDIR}",
+                    "INPUT_ENV_FILE=${env.STACKSMITH_ENV_FILE ?: '/dev/null'}",
+                    "INPUT_STACKSMITH_ARGS_JSON=${env.STACKSMITH_ARGS_JSON ?: '[]'}",
+                    "INPUT_DEBUG=${parseBoolean(env.STACKSMITH_DEBUG) || params.DEBUG}",
+                    "INPUT_NO_CAS=${env.STACKSMITH_NO_CAS ?: 'false'}",
+                    "INPUT_LOCKED=${env.STACKSMITH_REQUIRE_LOCKFILE ?: 'false'}",
+                    "INPUT_OFFLINE=${env.STACKSMITH_OFFLINE ?: 'false'}",
+                    "INPUT_LOCKFILE=${env.STACKSMITH_LOCKFILE ?: ''}",
+                    "INPUT_FORCE_RERUN=${env.STACKSMITH_FORCE_RERUN ?: 'false'}",
+                    "INPUT_VALIDATION_REPORT_FORMAT=${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
+                    "INPUT_FAIL_ON_CHANGES=${params.FAIL_ON_CHANGES}",
+                    "INPUT_STRICT_VALIDATION_WARNINGS=${params.STRICT_VALIDATION_WARNINGS}",
+                    "INPUT_GITOPS_ROOT=${env.STACKSMITH_GITOPS_ROOT ?: params.WORKDIR}",
+                    "INPUT_DISCOVERY_MODE=${env.STACKSMITH_DISCOVERY_MODE ?: 'auto'}",
+                    "INPUT_ENVIRONMENTS=${params.ENVIRONMENTS}",
+                    "CALLER_EVENT_NAME=${env.CHANGE_ID ? 'pull_request' : 'push'}",
+                    "CALLER_BASE_REF=${env.CHANGE_TARGET ?: ''}",
+                    "CALLER_EVENT_BEFORE=${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: env.GIT_PREVIOUS_COMMIT ?: ''}",
+                    "CALLER_SHA=${env.GIT_COMMIT ?: ''}",
+                    "CALLER_REF_NAME=${env.BRANCH_NAME ?: ''}",
+                    "CALLER_DEFAULT_BRANCH=${env.STACKSMITH_DEFAULT_BRANCH ?: ''}",
+                    "CALLER_IS_PRIMARY_BRANCH=${parseBoolean(env.BRANCH_IS_PRIMARY) || env.BRANCH_NAME == env.STACKSMITH_DEFAULT_BRANCH ? 'true' : 'false'}",
+                    "SKIP_BRANCH_VALIDATION=${env.NO_VALIDATE_BRANCH_AND_OPERATION ?: 'false'}",
+                    "CI_MANIFEST_FILE=${manifestFile}",
+                ]) {
+                    sh(
+                        script: '''#!/usr/bin/env bash
+                            set -euo pipefail
+                            mkdir -p "$(dirname \"$CI_MANIFEST_FILE\")"
+                            stacksmith ci prepare-from-env \
+                                --provider jenkins \
+                                --manifest-file "$CI_MANIFEST_FILE"
+                        ''',
+                        returnStdout: true
+                    )
                 }
+
+                def manifest = readJSON(text: manifestOutput, returnPojo: true)
+                def matrix = manifest.matrix
+                env.SELECTED_ENVIRONMENTS = matrix.collect { it.environment }.join(',')
+                env.SELECTION_MATRIX = writeJSON(json: matrix, returnText: true)
+                env.CI_MANIFEST_FILE = "${env.WORKSPACE}/${manifestFile}"
+                env.SELECTED_OPERATIONS = manifest.operation_names.join(', ')
+
+                if (!env.SELECTED_ENVIRONMENTS) {
+                    echo "No environments selected; skipping ${params.COMMAND}."
+                    currentBuild.result = 'NOT_BUILT'
+                    return
+                }
+
+                echo("Selected environments: ${env.SELECTED_ENVIRONMENTS}")
 
                 stage('Plan') {
                     if (!(env.SELECTED_ENVIRONMENTS && env.COMMAND in ['plan', 'apply'])) {
