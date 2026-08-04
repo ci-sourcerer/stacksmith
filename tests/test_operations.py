@@ -8,7 +8,12 @@ import pytest
 
 from stacksmith import api
 from stacksmith.exceptions import StacksmithConfigError
-from stacksmith.generation import generate_tf_json, write_tf_json
+from stacksmith.generation import (
+    generate_operations_tf_json,
+    generate_tf_json,
+    write_operations_tf_json,
+    write_tf_json,
+)
 from stacksmith.loading import load_stack
 from stacksmith.models import ModuleMapping, StackDefinition, ToolConfig
 
@@ -45,6 +50,55 @@ def _config() -> ToolConfig:
     )
 
 
+def _write_safe_operation_plan(kwargs: dict[str, object]) -> None:
+    plan_path = kwargs.get("save_plan_json")
+    if isinstance(plan_path, Path):
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text(
+            json.dumps(
+                {
+                    "resource_changes": [
+                        {
+                            "address": (
+                                "module.stacksmith_operation_deploy_app."
+                                "terraform_data.operation"
+                            ),
+                            "mode": "managed",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+
+def test_operation_plan_rejects_managed_infrastructure_changes(tmp_path: Path):
+    plan_path = tmp_path / "operation-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "resource_changes": [
+                    {
+                        "address": "module.application.aws_instance.main",
+                        "mode": "managed",
+                    },
+                    {
+                        "address": "data.terraform_remote_state.infrastructure",
+                        "mode": "data",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        StacksmithConfigError,
+        match="outside operation modules: module.application.aws_instance.main",
+    ):
+        api._validate_operation_plan(plan_path)
+
+
 def test_generates_after_apply_operation_module():
     stack = StackDefinition.model_validate(
         {
@@ -58,7 +112,7 @@ def test_generates_after_apply_operation_module():
         }
     )
 
-    generated = generate_tf_json(stack, _config(), {"release_tag": "1.2.3"})
+    generated = generate_operations_tf_json(stack, _config())
 
     module = generated["module"]["stacksmith_operation_deploy_app"]
     assert module["source"] == "./.stacksmith-operation-runner"
@@ -79,7 +133,7 @@ def test_operation_descriptions_do_not_change_execution_identity():
         }
     )
     config = _config()
-    original_identity = generate_tf_json(stack, config, {})["module"][
+    original_identity = generate_operations_tf_json(stack, config)["module"][
         "stacksmith_operation_deploy_app"
     ]["spec"]["identity"]
     config.operations["deploy"].description = "Deploy an approved release."
@@ -87,7 +141,7 @@ def test_operation_descriptions_do_not_change_execution_identity():
         "release_tag"
     ].description = "Immutable application release identifier."
 
-    documented_identity = generate_tf_json(stack, config, {})["module"][
+    documented_identity = generate_operations_tf_json(stack, config)["module"][
         "stacksmith_operation_deploy_app"
     ]["spec"]["identity"]
 
@@ -135,13 +189,58 @@ def test_operation_input_preserves_component_output_reference(tmp_path: Path):
         }
     )
 
-    generated = generate_tf_json(stack, config, {"environment": "production"})
+    infrastructure = generate_tf_json(stack, config, {"environment": "production"})
+    generated = generate_operations_tf_json(stack, config)
 
     module = generated["module"]["stacksmith_operation_deploy_app"]
     assert module["spec"]["environment"] == {
-        "RELEASE_TAG": "production-release/${module.app.release_name}"
+        "RELEASE_TAG": (
+            "production-release/${var.stacksmith_operation_app_release_name}"
+        )
     }
-    assert module["depends_on"] == ["module.app"]
+    assert "depends_on" not in module
+    assert infrastructure["output"]["stacksmith_operation_app_release_name"] == {
+        "value": "${module.app.release_name}",
+        "sensitive": True,
+    }
+    assert "app" not in generated["module"]
+    assert "provider" not in generated
+    assert generated["terraform"]["backend"]["local"]["path"] == (
+        "../.state/application/operations/terraform.tfstate"
+    )
+    assert generated["variable"]["stacksmith_operation_app_release_name"] == {
+        "type": "any",
+        "sensitive": True,
+    }
+
+
+def test_infrastructure_bridge_outputs_exist_before_operations_are_declared():
+    stack = StackDefinition.model_validate(
+        {
+            "name": "application",
+            "components": {"app": {"type": "application"}},
+        }
+    )
+    config = _config()
+    config.module_mappings["application"] = ModuleMapping.model_validate(
+        {
+            "source": {
+                "source": "registry",
+                "data": {
+                    "address": "example/application",
+                    "version": "1.0.0",
+                },
+            },
+            "outputs": {"release_name": {}},
+        }
+    )
+
+    generated = generate_tf_json(stack, config, {})
+
+    assert generated["output"]["stacksmith_operation_app_release_name"] == {
+        "value": "${module.app.release_name}",
+        "sensitive": True,
+    }
 
 
 def test_generates_selected_operation_with_transitive_dependencies():
@@ -164,10 +263,9 @@ def test_generates_selected_operation_with_transitive_dependencies():
         }
     )
 
-    generated = generate_tf_json(
+    generated = generate_operations_tf_json(
         stack,
         _config(),
-        {},
         operation_names=["verify"],
     )
 
@@ -204,20 +302,18 @@ def test_rejects_unknown_and_cyclic_operation_dependencies():
     )
 
     with pytest.raises(StacksmithConfigError, match="unknown operation 'publish'"):
-        generate_tf_json(
+        generate_operations_tf_json(
             unknown_dependency,
             _config(),
-            {},
             operation_names=["deploy"],
         )
     with pytest.raises(
         StacksmithConfigError,
         match="publish -> deploy -> publish",
     ):
-        generate_tf_json(
+        generate_operations_tf_json(
             cyclic_dependency,
             _config(),
-            {},
             operation_names=["publish"],
         )
 
@@ -235,7 +331,7 @@ def test_writes_packaged_operation_runner_assets(tmp_path: Path):
         }
     )
 
-    write_tf_json(stack, _config(), {}, tmp_path)
+    write_operations_tf_json(stack, _config(), tmp_path)
 
     runner_dir = tmp_path / ".stacksmith-operation-runner"
     assert "terraform_data" in (runner_dir / "main.tf").read_text()
@@ -275,8 +371,8 @@ def test_replaces_obsolete_operation_runner_assets(tmp_path: Path):
         "inputs": {"release_tag": {"required": True}},
     }
 
-    write_tf_json(stack, ToolConfig.model_validate(config_data), {}, tmp_path)
-    write_tf_json(stack, _config(), {}, tmp_path)
+    write_operations_tf_json(stack, ToolConfig.model_validate(config_data), tmp_path)
+    write_operations_tf_json(stack, _config(), tmp_path)
 
     runner_dir = tmp_path / ".stacksmith-operation-runner"
     assert (runner_dir / "local.py").exists()
@@ -308,10 +404,9 @@ def test_jenkins_operation_spec_configures_completion_polling():
         "inputs": {"release_tag": {"required": True}},
     }
 
-    generated = generate_tf_json(
+    generated = generate_operations_tf_json(
         stack,
         ToolConfig.model_validate(config_data),
-        {},
         operation_names=["deploy_app"],
     )
 
@@ -430,7 +525,7 @@ def test_run_single_stack_operation_passes_runtime_flags(
     tmp_path: Path,
     force_rerun: bool,
 ):
-    calls: dict[str, object] = {}
+    calls: list[tuple[list[str], Path, dict[str, object]]] = []
     stack = StackDefinition.model_validate(
         {
             "name": "application",
@@ -454,14 +549,10 @@ def test_run_single_stack_operation_passes_runtime_flags(
         "_prepare_stack_definition",
         lambda *args, **kwargs: (stack, {}),
     )
-    monkeypatch.setattr(
-        api,
-        "_generate_single_stack",
-        lambda *args, **kwargs: tmp_path / "build",
-    )
 
     def _fake_run_terragrunt(args, working_dir, **kwargs):
-        calls["run"] = (args, working_dir, kwargs)
+        calls.append((args, working_dir, kwargs))
+        _write_safe_operation_plan(kwargs)
         return 0
 
     monkeypatch.setattr(api, "run_terragrunt", _fake_run_terragrunt)
@@ -478,17 +569,18 @@ def test_run_single_stack_operation_passes_runtime_flags(
         "execution_order": ["deploy_app"],
         "exit_code": 0,
     }
-    expected_args = [
-        "apply",
-        "-target=module.stacksmith_operation_deploy_app",
+    expected_plan_args = [
+        "plan",
         "-parallelism=10",
     ]
     if force_rerun:
-        expected_args.append(
+        expected_plan_args.append(
             "-replace=module.stacksmith_operation_deploy_app.terraform_data.operation"
         )
-    assert calls["run"][0] == expected_args
-    assert calls["run"][2]["no_cas"] is True
+    assert calls[0][0] == expected_plan_args
+    assert calls[0][2]["no_cas"] is True
+    assert calls[1][0][0:2] == ["apply", "-parallelism=10"]
+    assert calls[1][0][2].endswith("stacksmith-operation.tfplan")
 
 
 def test_plan_single_stack_operation_uses_targeted_dry_run(
@@ -527,6 +619,7 @@ def test_plan_single_stack_operation_uses_targeted_dry_run(
 
     def _fake_run_terragrunt(args, working_dir, **kwargs):
         calls["run"] = (args, working_dir, kwargs)
+        _write_safe_operation_plan(kwargs)
         return 0
 
     monkeypatch.setattr(api, "run_terragrunt", _fake_run_terragrunt)
@@ -544,11 +637,10 @@ def test_plan_single_stack_operation_uses_targeted_dry_run(
     }
     assert calls["run"][0] == [
         "plan",
-        "-target=module.stacksmith_operation_deploy_app",
         "-parallelism=10",
         "-replace=module.stacksmith_operation_deploy_app.terraform_data.operation",
     ]
-    assert calls["run"][2]["auto_approve"] is False
+    assert "auto_approve" not in calls["run"][2]
 
 
 def test_plan_stack_operations_selects_after_apply_operations_when_omitted(
@@ -586,6 +678,7 @@ def test_plan_stack_operations_selects_after_apply_operations_when_omitted(
 
     def _fake_run(args, working_dir, **kwargs):
         calls["args"] = args
+        _write_safe_operation_plan(kwargs)
         return 0
 
     monkeypatch.setattr(api, "run_terragrunt", _fake_run)
@@ -599,7 +692,6 @@ def test_plan_stack_operations_selects_after_apply_operations_when_omitted(
     }
     assert calls["args"] == [
         "plan",
-        "-target=module.stacksmith_operation_deploy_app",
         "-parallelism=10",
     ]
 
@@ -638,11 +730,57 @@ def test_plan_stack_operations_is_no_op_without_after_apply_operations(
     assert result == {"operations": [], "execution_order": [], "exit_code": 0}
 
 
+def test_infrastructure_apply_reconciles_after_apply_operations(
+    monkeypatch,
+    tmp_path: Path,
+):
+    stack = StackDefinition.model_validate(
+        {
+            "name": "application",
+            "operations": {
+                "deploy_app": {
+                    "use": "deploy",
+                    "with": {"release_tag": "1.2.3"},
+                }
+            },
+        }
+    )
+    stack.source_path = tmp_path / "stack.yaml"
+    config = _config()
+    calls: dict[str, object] = {}
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [], config),
+    )
+    monkeypatch.setattr(
+        api,
+        "_prepare_stack_definition",
+        lambda *args, **kwargs: (stack, {}),
+    )
+    monkeypatch.setattr(
+        api,
+        "_generate_single_stack",
+        lambda *args, **kwargs: tmp_path / ".stacksmith",
+    )
+    monkeypatch.setattr(api, "run_terragrunt", lambda *args, **kwargs: 0)
+
+    def _fake_execute(*args, **kwargs):
+        calls["operation"] = (args, kwargs)
+        return {"exit_code": 0}
+
+    monkeypatch.setattr(api, "_execute_prepared_operations", _fake_execute)
+
+    assert api.run_stack_action("apply", stack.source_path) == 0
+    assert calls["operation"][0][0] == api.TerragruntAction.APPLY
+    assert calls["operation"][0][3] == ["deploy_app"]
+
+
 def test_run_stack_operations_uses_one_dependency_aware_apply(
     monkeypatch,
     tmp_path: Path,
 ):
-    calls: dict[str, object] = {}
+    calls: dict[str, object] = {"runs": []}
     monkeypatch.setenv("STACKSMITH_MAX_PARALLEL_OPERATIONS", "3")
     stack = StackDefinition.model_validate(
         {
@@ -670,15 +808,16 @@ def test_run_stack_operations_uses_one_dependency_aware_apply(
         lambda *args, **kwargs: (stack, {}),
     )
 
-    def _fake_generate(*args, **kwargs):
-        calls["generated_operations"] = kwargs["operation_names"]
+    def _fake_generate(stack, config, output_dir, operation_names, **kwargs):
+        calls["generated_operations"] = operation_names
         return tmp_path / "build"
 
     def _fake_run(args, working_dir, **kwargs):
-        calls["run"] = (args, working_dir, kwargs)
+        calls["runs"].append((args, working_dir, kwargs))
+        _write_safe_operation_plan(kwargs)
         return 0
 
-    monkeypatch.setattr(api, "_generate_single_stack", _fake_generate)
+    monkeypatch.setattr(api, "_generate_operation_stack", _fake_generate)
     monkeypatch.setattr(api, "run_terragrunt", _fake_run)
 
     result = api.run_stack_operations(
@@ -693,11 +832,10 @@ def test_run_stack_operations_uses_one_dependency_aware_apply(
         "exit_code": 0,
     }
     assert calls["generated_operations"] == ["publish", "deploy", "docs"]
-    assert calls["run"][0] == [
-        "apply",
-        "-target=module.stacksmith_operation_deploy",
-        "-target=module.stacksmith_operation_docs",
+    assert calls["runs"][0][0] == [
+        "plan",
         "-parallelism=3",
         "-replace=module.stacksmith_operation_deploy.terraform_data.operation",
         "-replace=module.stacksmith_operation_docs.terraform_data.operation",
     ]
+    assert calls["runs"][1][0][0:2] == ["apply", "-parallelism=3"]

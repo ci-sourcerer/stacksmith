@@ -8,8 +8,9 @@ from typing import Any
 from loguru import logger as LOGGER
 
 from ..constants import GENERATED_TF_JSON
+from ..exceptions import StacksmithConfigError
 from ..formatters import render_module_source_for
-from ..introspection import discover_module_variables
+from ..introspection import discover_module_outputs, discover_module_variables
 from ..models import (
     LocalModuleSourceReference,
     RemoteAuthConfig,
@@ -17,9 +18,13 @@ from ..models import (
     ToolConfig,
     render_module_source_identity,
 )
-from ..module_mapping import resolve_module_mapping
+from ..module_mapping import auto_exposed_output_names, resolve_module_mapping
 from ..stack_outputs import build_stack_output_blocks
-from ..utils import derive_stack_state_key, get_current_git_repository
+from ..utils import (
+    derive_operation_state_key,
+    derive_stack_state_key,
+    get_current_git_repository,
+)
 from ..vendor import get_vendor_dir, resolve_module_source
 from .operations import (
     build_operation_module_spec,
@@ -34,6 +39,10 @@ from .providers import (
 )
 
 _OPERATION_RUNNER_ASSETS = ("main.tf", "local.py", "jenkins.py")
+_MODULE_REFERENCE_PATTERN = re.compile(
+    r"\$\{module\.([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\}"
+)
+_OPERATION_INPUT_PATTERN = re.compile(r"\$\{var\.([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 def operation_module_name(name: str) -> str:
@@ -98,25 +107,130 @@ def _generate_operation_blocks(
     for name in resolve_operation_batch(stack, selected_names):
         invocation = stack.operations[name]
         dependencies = [
-            f"module.{component_name}" for component_name in stack.components
-        ]
-        dependencies.extend(
             f"module.{operation_module_name(dependency)}"
             for dependency in invocation.depends_on
-        )
-        modules[operation_module_name(name)] = {
-            "source": "./.stacksmith-operation-runner",
-            "spec": build_operation_module_spec(
+        ]
+        spec = _rewrite_operation_component_references(
+            build_operation_module_spec(
                 stack,
                 config,
                 name,
                 cache_dir=cache_dir,
                 auth_config=auth_config,
                 vendor_dir=vendor_dir,
-            ),
+            )
+        )
+        modules[operation_module_name(name)] = {
+            "source": "./.stacksmith-operation-runner",
+            "spec": spec,
             **({"depends_on": dependencies} if dependencies else {}),
         }
     return modules
+
+
+def _operation_output_name(component_name: str, output_name: str) -> str:
+    return f"stacksmith_operation_{component_name}_{output_name}"
+
+
+def _rewrite_operation_component_references(value: Any) -> Any:
+    if isinstance(value, str):
+        return _MODULE_REFERENCE_PATTERN.sub(
+            lambda match: (
+                f"${{var.{_operation_output_name(match.group(1), match.group(2))}}}"
+            ),
+            value,
+        )
+    if isinstance(value, dict):
+        return {
+            key: _rewrite_operation_component_references(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_rewrite_operation_component_references(item) for item in value]
+    return value
+
+
+def _component_bridge_outputs(
+    stack: StackDefinition,
+    config: ToolConfig,
+    cache_dir: Path | None,
+    auth_config: RemoteAuthConfig | None,
+    vendor_dir: Path | None,
+) -> dict[str, Any]:
+    references: set[tuple[str, str]] = set()
+    repository_path = (
+        stack.source_path.parent if stack.source_path is not None else None
+    )
+    for component_name, component in stack.components.items():
+        mapping = resolve_module_mapping(
+            config,
+            component.type,
+            component_name,
+            repository_path=repository_path,
+        )
+        references.update(
+            (component_name, output.mapped_from or output_name)
+            for output_name, output in mapping.outputs.items()
+        )
+        if mapping.auto_expose_outputs:
+            references.update(
+                (component_name, output_name)
+                for output_name in auto_exposed_output_names(
+                    mapping,
+                    discover_module_outputs(
+                        *render_module_source_identity(
+                            mapping.source,
+                            options={
+                                "base_path": (
+                                    config.source_path.parent
+                                    if config.source_path is not None
+                                    else None
+                                )
+                            },
+                        ),
+                        cache_dir=cache_dir,
+                        auth_config=auth_config,
+                        vendor_dir=vendor_dir or get_vendor_dir(),
+                    ),
+                )
+            )
+    return {
+        _operation_output_name(component_name, output_name): {
+            "value": f"${{module.{component_name}.{output_name}}}",
+            "sensitive": True,
+        }
+        for component_name, output_name in sorted(references)
+    }
+
+
+def _backend_config_from_child_directory(
+    config: ToolConfig,
+    state_key: str,
+) -> dict[str, Any]:
+    backend_config = config.backend.config_with_state_key(state_key)
+    path = backend_config.get("path")
+    if config.backend.type == "local" and isinstance(path, str):
+        if not Path(path).is_absolute():
+            backend_config["path"] = str(Path("..") / path)
+    return backend_config
+
+
+def _generate_operations_terraform_block(
+    config: ToolConfig,
+    stack: StackDefinition,
+    root: Path | None,
+) -> dict[str, Any]:
+    block: dict[str, Any] = {}
+    if config.tools and config.tools.tofu:
+        block["required_version"] = f"= {config.tools.tofu.version}"
+    if config.backend:
+        block["backend"] = {
+            config.backend.type: _backend_config_from_child_directory(
+                config,
+                derive_operation_state_key(stack.name, stack.source_path, root),
+            )
+        }
+    return block
 
 
 def _stack_context(stack: StackDefinition) -> dict[str, Any]:
@@ -341,7 +455,6 @@ def generate_tf_json(
     vendor_dir: Path | None = None,
     root: Path | None = None,
     formatter_options: Mapping[str, Mapping[str, Any]] | None = None,
-    operation_names: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Generate the complete `.tf.json` structure for a stack.
 
@@ -375,17 +488,6 @@ def generate_tf_json(
         vendor_dir=vendor_dir,
         module_source_formatter_options=module_source_options,
     )
-    modules.update(
-        _generate_operation_blocks(
-            stack,
-            config,
-            operation_names,
-            cache_dir=cache_dir,
-            auth_config=auth_config,
-            vendor_dir=vendor_dir,
-        )
-    )
-
     doc = {
         "terraform": _generate_terraform_block(
             config,
@@ -395,13 +497,27 @@ def generate_tf_json(
         ),
         "module": modules,
     }
-    if output_blocks := build_stack_output_blocks(
+    output_blocks = build_stack_output_blocks(
         stack,
         config,
         cache_dir=cache_dir,
         auth_config=auth_config,
         vendor_dir=vendor_dir,
-    ):
+    )
+    bridge_outputs = _component_bridge_outputs(
+        stack,
+        config,
+        cache_dir,
+        auth_config,
+        vendor_dir,
+    )
+    if collisions := sorted(set(output_blocks) & set(bridge_outputs)):
+        raise StacksmithConfigError(
+            "Stack output names reserved for operation bridges: "
+            f"{', '.join(collisions)}"
+        )
+    output_blocks.update(bridge_outputs)
+    if output_blocks:
         doc["output"] = output_blocks
 
     providers = build_provider_blocks(
@@ -418,6 +534,55 @@ def generate_tf_json(
     return doc
 
 
+def generate_operations_tf_json(
+    stack: StackDefinition,
+    config: ToolConfig,
+    operation_names: Sequence[str] | None = None,
+    cache_dir: Path | None = None,
+    auth_config: RemoteAuthConfig | None = None,
+    vendor_dir: Path | None = None,
+    root: Path | None = None,
+) -> dict[str, Any]:
+    """Generate an isolated Terraform document for stack operations.
+
+    Args:
+        stack: Parsed stack definition.
+        config: Tool configuration.
+        operation_names: Explicit operation names, or `None` for `after_apply`.
+        cache_dir: Cache directory for fetching remote scripts.
+        auth_config: Optional host-keyed auth configuration for remote fetching.
+        vendor_dir: Root directory containing vendored modules.
+        root: Optional monorepo root used for state key derivation.
+
+    Returns:
+        Terraform JSON containing only operation runner modules and read-only
+        infrastructure state access.
+    """
+    modules = _generate_operation_blocks(
+        stack,
+        config,
+        operation_names,
+        cache_dir=cache_dir,
+        auth_config=auth_config,
+        vendor_dir=vendor_dir,
+    )
+    doc: dict[str, Any] = {
+        "terraform": _generate_operations_terraform_block(config, stack, root),
+        "module": modules,
+    }
+    if operation_inputs := sorted(
+        set(_OPERATION_INPUT_PATTERN.findall(json.dumps(modules)))
+    ):
+        doc["variable"] = {
+            name: {
+                "type": "any",
+                "sensitive": True,
+            }
+            for name in operation_inputs
+        }
+    return doc
+
+
 def write_tf_json(
     stack: StackDefinition,
     config: ToolConfig,
@@ -429,7 +594,6 @@ def write_tf_json(
     vendor_dir: Path | None = None,
     root: Path | None = None,
     formatter_options: Mapping[str, Mapping[str, Any]] | None = None,
-    operation_names: Sequence[str] | None = None,
 ) -> Path:
     """Generate and write `stacksmith.tf.json` to the output directory.
 
@@ -459,10 +623,51 @@ def write_tf_json(
         vendor_dir=vendor_dir,
         root=root,
         formatter_options=formatter_options,
-        operation_names=operation_names,
     )
     _write_operation_runner_assets(output_dir, tf_json)
     output_path = output_dir / GENERATED_TF_JSON
     output_path.write_text(json.dumps(tf_json, indent=2) + "\n", encoding="utf-8")
     LOGGER.debug("Wrote generated JSON: {path}", path=output_path)
+    return output_path
+
+
+def write_operations_tf_json(
+    stack: StackDefinition,
+    config: ToolConfig,
+    output_dir: Path,
+    operation_names: Sequence[str] | None = None,
+    cache_dir: Path | None = None,
+    auth_config: RemoteAuthConfig | None = None,
+    vendor_dir: Path | None = None,
+    root: Path | None = None,
+) -> Path:
+    """Generate and write an isolated operation Terraform document.
+
+    Args:
+        stack: Parsed stack definition.
+        config: Tool configuration.
+        output_dir: Directory to write `stacksmith.tf.json` into.
+        operation_names: Explicit operation names, or `None` for `after_apply`.
+        cache_dir: Cache directory for fetching remote scripts.
+        auth_config: Optional host-keyed auth configuration for remote fetching.
+        vendor_dir: Root directory containing vendored modules.
+        root: Optional monorepo root used for state key derivation.
+
+    Returns:
+        Path to the written `stacksmith.tf.json` file.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    tf_json = generate_operations_tf_json(
+        stack,
+        config,
+        operation_names,
+        cache_dir,
+        auth_config,
+        vendor_dir,
+        root,
+    )
+    _write_operation_runner_assets(output_dir, tf_json)
+    output_path = output_dir / GENERATED_TF_JSON
+    output_path.write_text(json.dumps(tf_json, indent=2) + "\n", encoding="utf-8")
+    LOGGER.debug("Wrote generated operation JSON: {path}", path=output_path)
     return output_path

@@ -231,7 +231,7 @@ def resolve_ci_execution_phase(
         resolved_phase
         not in {
             "plan": {"plan", "operation-plan"},
-            "apply": {"plan", "apply"},
+            "apply": {"plan", "operation-plan", "apply"},
             "operation": {"operation-plan", "operation"},
         }[manifest.command]
     ):

@@ -253,6 +253,25 @@ def derive_stack_state_key(
     return f"{stack_name}/terraform.tfstate"
 
 
+def derive_operation_state_key(
+    stack_name: str, source_path: Path | None, root: Path | None = None
+) -> str:
+    """Return the isolated backend state key for a stack's operations.
+
+    Args:
+        stack_name: Logical stack name.
+        source_path: Path to the stack definition file.
+        root: Optional monorepo root used for relative state key derivation.
+
+    Returns:
+        State key path ending in `operations/terraform.tfstate`.
+    """
+    infrastructure_key = Path(derive_stack_state_key(stack_name, source_path, root))
+    return str(
+        infrastructure_key.parent / "operations" / infrastructure_key.name
+    ).replace("\\", "/")
+
+
 def get_current_git_repository(path: Path | None = None) -> str | None:
     """Return the `origin` URL for the Git repository containing a path.
 

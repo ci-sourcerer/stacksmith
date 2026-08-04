@@ -114,7 +114,7 @@ jobs:
 
   apply:
     name: apply
-    needs: [discover, plan]
+    needs: [discover, plan, operation-plan]
     if: ${{ inputs.command == 'apply' && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false
@@ -131,7 +131,7 @@ jobs:
   operation-plan:
     name: operation-plan
     needs: discover
-    if: ${{ (inputs.command == 'plan' || inputs.command == 'operation') && needs.discover.outputs.count != '0' }}
+    if: ${{ (inputs.command == 'plan' || inputs.command == 'apply' || inputs.command == 'operation') && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false
       matrix:

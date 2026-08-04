@@ -289,7 +289,7 @@ withStacksmithAgent {
                 stage('Plan operation') {
                     if (!(
                         env.SELECTED_ENVIRONMENTS
-                        && env.COMMAND in ['plan', 'operation']
+                        && env.COMMAND in ['plan', 'apply', 'operation']
                     )) {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
                         return

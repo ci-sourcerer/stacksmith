@@ -8,7 +8,19 @@ from ..constants import GENERATED_TG_JSON
 from ..enums import TerragruntAction
 from ..models import StackDefinition, ToolConfig
 from ..stack_outputs import build_stack_mock_outputs
-from ..utils import derive_stack_state_key
+from ..utils import derive_operation_state_key, derive_stack_state_key
+
+
+def _backend_config_from_child_directory(
+    config: ToolConfig,
+    state_key: str,
+) -> dict[str, Any]:
+    backend_config = config.backend.config_with_state_key(state_key)
+    path = backend_config.get("path")
+    if config.backend.type == "local" and isinstance(path, str):
+        if not Path(path).is_absolute():
+            backend_config["path"] = str(Path("..") / path)
+    return backend_config
 
 
 def generate_terragrunt_json(
@@ -51,7 +63,6 @@ def generate_terragrunt_json(
     doc = {
         "terraform": {
             "source": ".",
-            "include_in_copy": [".stacksmith-operation-runner/**"],
         },
         "remote_state": remote_state,
         "terraform_binary": "tofu",
@@ -113,4 +124,89 @@ def write_terragrunt_json(
     output_path = output_dir / GENERATED_TG_JSON
     output_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
     LOGGER.debug("Wrote generated Terragrunt JSON: {path}", path=output_path)
+    return output_path
+
+
+def generate_operations_terragrunt_json(
+    stack: StackDefinition,
+    config: ToolConfig,
+    root: Path | None = None,
+    operation_inputs: list[str] | None = None,
+) -> dict[str, Any]:
+    """Generate Terragrunt configuration for an isolated operation root.
+
+    Args:
+        stack: Parsed stack definition.
+        config: Tool configuration.
+        root: Optional monorepo root used for state key derivation.
+        operation_inputs: Infrastructure bridge inputs consumed by operations.
+
+    Returns:
+        Terragrunt configuration backed by the operation-only state key.
+    """
+    doc = {
+        "terraform": {
+            "source": ".",
+            "include_in_copy": [".stacksmith-operation-runner/**"],
+        },
+        "remote_state": {
+            "backend": config.backend.type,
+            "config": _backend_config_from_child_directory(
+                config,
+                derive_operation_state_key(stack.name, stack.source_path, root),
+            ),
+        },
+        "terraform_binary": "tofu",
+        "inputs": {
+            name: f"${{dependency.infrastructure.outputs.{name}}}"
+            for name in operation_inputs or []
+        },
+    }
+    if operation_inputs:
+        doc["dependency"] = {
+            "infrastructure": {
+                "config_path": "..",
+                "mock_outputs": {
+                    name: "stacksmith-operation-plan-mock" for name in operation_inputs
+                },
+                "mock_outputs_allowed_terraform_commands": ["plan", "validate"],
+            }
+        }
+    return doc
+
+
+def write_operations_terragrunt_json(
+    stack: StackDefinition,
+    config: ToolConfig,
+    output_dir: Path,
+    root: Path | None = None,
+    operation_inputs: list[str] | None = None,
+) -> Path:
+    """Write Terragrunt configuration for an isolated operation root.
+
+    Args:
+        stack: Parsed stack definition.
+        config: Tool configuration.
+        output_dir: Directory to write `terragrunt.hcl.json` into.
+        root: Optional monorepo root used for state key derivation.
+        operation_inputs: Infrastructure bridge inputs consumed by operations.
+
+    Returns:
+        Path to the written `terragrunt.hcl.json` file.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / GENERATED_TG_JSON
+    output_path.write_text(
+        json.dumps(
+            generate_operations_terragrunt_json(
+                stack,
+                config,
+                root,
+                operation_inputs,
+            ),
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    LOGGER.debug("Wrote generated operation Terragrunt JSON: {path}", path=output_path)
     return output_path

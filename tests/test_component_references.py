@@ -121,9 +121,15 @@ def test_binds_auto_exposed_component_output(tmp_path: Path):
         '      endpoint: "{{ components.producer.endpoint }}"\n',
     )
 
-    with patch(
-        "stacksmith.component_references.discover_module_outputs",
-        return_value={"endpoint", "underlying_id"},
+    with (
+        patch(
+            "stacksmith.component_references.discover_module_outputs",
+            return_value={"endpoint", "underlying_id"},
+        ),
+        patch(
+            "stacksmith.generation.terraform.discover_module_outputs",
+            return_value={"endpoint", "underlying_id"},
+        ),
     ):
         generated = generate_tf_json(
             stack,

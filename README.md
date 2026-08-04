@@ -154,7 +154,7 @@ The same rendering pass handles ordinary values, so existing property expression
 
 #### State backend
 
-The S3 state key is derived automatically from the stack file's path relative to the repo root. For example `networking/vpc/stack.yaml` produces key `networking/vpc/terraform.tfstate`. For standalone stacks (single-stack commands without a `--root`), the key is simply `<name>/terraform.tfstate`.
+The S3 state key is derived automatically from the stack file's path relative to the repo root. For example `networking/vpc/stack.yaml` produces key `networking/vpc/terraform.tfstate`. For standalone stacks (single-stack commands without a `--root`), the key is simply `<name>/terraform.tfstate`. Native operations use a separate `<stack-path>/operations/terraform.tfstate` key.
 
 ### Configuration
 
@@ -710,7 +710,7 @@ Plan validation rules can return `pass`, `warn`, or `fail` outcomes.
 
 ### Native operations
 
-Operations are config-owned imperative actions. Stacksmith compiles them into private first-party Terraform modules, so their execution identity and locking use the same configured OpenTofu backend as the stack.
+Operations are config-owned imperative actions. Stacksmith compiles them into a separate runner-only Terraform root backed by `<stack-path>/operations/terraform.tfstate`. The infrastructure root never contains operation resources, and the operation root never contains infrastructure resources or providers. Every approved public component output is exposed through a stable sensitive infrastructure bridge, even before an operation references it, and Terragrunt passes requested values into the operation root through a read-only dependency. Adding or changing an operation therefore does not require an infrastructure apply merely to establish its dependency contract.
 
 The managed config fixes the runner details, including the local command argument vector or Jenkins job and credentials. A stack can only select an approved operation and supply declared inputs. Operation inputs support the same Jinja templates and deferred public component outputs as component properties, so an operation can consume an output such as `{{ components.app.release_name }}`. Operations use the `manual` trigger by default; set `trigger: after_apply` in managed config to run them after a successful apply.
 
@@ -777,7 +777,7 @@ Run the operation after reviewing the plan.
 stacksmith operation run deploy_app --stack stack.yaml --config stacksmith-config.yaml
 ```
 
-Select multiple operations with a comma-delimited list. Stacksmith includes transitive `depends_on` operations automatically and submits the batch through one targeted OpenTofu plan or apply. Independent operations run concurrently, while dependency edges preserve ordering. Set `STACKSMITH_MAX_PARALLEL_OPERATIONS` to cap concurrency; it defaults to `10` and is intentionally not a command-line or CI parameter.
+Select multiple operations with a comma-delimited list. Stacksmith includes transitive `depends_on` operations automatically and generates a root containing only that batch. Independent operations run concurrently, while dependency edges preserve ordering. Set `STACKSMITH_MAX_PARALLEL_OPERATIONS` to cap concurrency; it defaults to `10` and is intentionally not a command-line or CI parameter.
 
 ```shell
 STACKSMITH_MAX_PARALLEL_OPERATIONS=3 \
@@ -786,13 +786,13 @@ stacksmith operation run publish_image,deploy_app,smoke_test \
   --config stacksmith-config.yaml
 ```
 
-For a one-time definite dispatch without changing the stack definition, add `--force-rerun` or set `STACKSMITH_FORCE_RERUN=1`. This passes `-replace=module.<operation_module>.terraform_data.operation` to the underlying apply while retaining the operation module target.
+For a one-time definite dispatch without changing the stack definition, add `--force-rerun` or set `STACKSMITH_FORCE_RERUN=1`. This marks each explicitly selected operation resource for replacement in the operation plan.
 
 ```shell
 stacksmith operation run deploy_app --force-rerun --stack stack.yaml --config stacksmith-config.yaml
 ```
 
-Alternatively, change `rerun_token` in the stack definition when the rerun request should remain declarative and reviewable. `operation plan` performs a targeted OpenTofu dry run without invoking provisioners, while `operation run` performs the corresponding targeted apply. Operations with the `after_apply` trigger run in stack dependency order during `stacksmith apply` and `stacksmith run-all apply`; stack-local `depends_on` can order multiple operations within a stack. Jenkins runners poll the queued build through completion, so a dependent operation starts only after its Jenkins prerequisite succeeds. Managed Jenkins definitions can set `poll_interval_seconds` and `timeout_seconds`, which default to 5 and 3600.
+Alternatively, change `rerun_token` in the stack definition when the rerun request should remain declarative and reviewable. `operation plan` creates a saved operation-only OpenTofu plan without invoking provisioners. `operation run` validates that the plan contains no managed changes outside `module.stacksmith_operation_*` and applies that exact saved plan. Operations with the `after_apply` trigger run in stack dependency order during `stacksmith apply` and `stacksmith run-all apply`; Stacksmith replans them after infrastructure succeeds so component outputs are current. Stack-local `depends_on` can order multiple operations within a stack. Jenkins runners poll the queued build through completion, so a dependent operation starts only after its Jenkins prerequisite succeeds. Managed Jenkins definitions can set `poll_interval_seconds` and `timeout_seconds`, which default to 5 and 3600.
 
 #### Declarative application deployments through Jenkins
 
@@ -843,7 +843,7 @@ vars:
       application_commit: "8c9f20bd0cbf2c70f7f728f4e92bf6ad239a45b1"
 ```
 
-On a merge to the default branch, the normal apply workflow generates the operation as a state-backed Terraform resource. Changing `application_commit`, the approved Jenkins definition, or another bound parameter changes the operation specification, so OpenTofu replaces the operation resource and Stacksmith starts the Jenkins build. An unchanged specification is a no-op. The runner passes `GIT_COMMIT` to Jenkins, waits for the queued build to finish, and fails the apply if Jenkins does not report success. Jenkins credentials stay in the CI environment and never enter the application manifest.
+On a merge to the default branch, the normal apply workflow reconciles the operation in its isolated state after infrastructure succeeds. Changing `application_commit`, the approved Jenkins definition, a component output, or another bound parameter changes the operation specification, so OpenTofu replaces the operation resource and Stacksmith starts the Jenkins build. An unchanged specification is a no-op. The runner passes `GIT_COMMIT` to Jenkins, waits for the queued build to finish, and fails the operation phase if Jenkins does not report success. Jenkins credentials stay in the CI environment and never enter the application manifest.
 
 ### Testing policies and transforms
 
@@ -933,7 +933,7 @@ The GitHub templates under `examples/` do not execute in this repository because
 
 #### Shared behavior
 
-The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins wrapper uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. A plan request executes the infrastructure `plan` phase and an `operation-plan` phase for operations selected by `after_apply`; manual operations are excluded. An apply request executes `plan`, waits for provider approval, and then executes `apply`; native manual operations execute `operation-plan`, wait for provider approval, and then execute `operation`. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
+The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins wrapper uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. Plan and apply requests execute both the infrastructure `plan` phase and an `operation-plan` phase for operations selected by `after_apply`; manual operations are excluded. Apply waits for both previews before provider approval, applies infrastructure, then replans and reconciles the isolated operation state. Native manual operations execute `operation-plan`, wait for provider approval, and then execute `operation`. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
 
 `stacksmith ci prepare` resolves the effective layered configuration for every selected environment and rejects `backend.type: local`. CI runs must use a remote backend so state is durable and shared between plan and apply jobs.
 

@@ -1,7 +1,11 @@
 import json
 from pathlib import Path
 
-from stacksmith.generation import generate_terragrunt_json, write_terragrunt_json
+from stacksmith.generation import (
+    generate_operations_terragrunt_json,
+    generate_terragrunt_json,
+    write_terragrunt_json,
+)
 from stacksmith.loading import load_config, load_stack
 
 
@@ -12,9 +16,7 @@ class TestGenerateTerragruntJson:
         doc = generate_terragrunt_json(stack, config, {"bucket_name": "my-bucket-test"})
 
         assert doc["terraform"]["source"] == "."
-        assert doc["terraform"]["include_in_copy"] == [
-            ".stacksmith-operation-runner/**"
-        ]
+        assert "include_in_copy" not in doc["terraform"]
         assert doc["remote_state"]["backend"] == "s3"
         assert doc["terraform_binary"] == "tofu"
 
@@ -115,6 +117,56 @@ class TestLocalBackend:
             doc["remote_state"]["config"]["path"]
             == "/tmp/stacksmith-state/networking/vpc/terraform.tfstate"
         )
+
+
+class TestGenerateOperationsTerragruntJson:
+    def test_uses_isolated_operation_state(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+
+        doc = generate_operations_terragrunt_json(stack, config)
+
+        assert doc["remote_state"]["config"]["key"] == (
+            "my-stack/operations/terraform.tfstate"
+        )
+        assert doc["terraform"]["include_in_copy"] == [
+            ".stacksmith-operation-runner/**"
+        ]
+
+    def test_relative_local_state_is_resolved_from_child_root(
+        self, sample_stack_yaml: Path, sample_config_local_yaml: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_local_yaml)
+        config.backend.path = ".state"
+
+        doc = generate_operations_terragrunt_json(stack, config)
+
+        assert doc["remote_state"]["config"]["path"] == (
+            "../.state/my-stack/operations/terraform.tfstate"
+        )
+
+    def test_component_inputs_use_read_only_infrastructure_dependency(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        config = load_config(sample_config_yaml)
+
+        doc = generate_operations_terragrunt_json(
+            stack,
+            config,
+            operation_inputs=["stacksmith_operation_app_release_name"],
+        )
+
+        assert doc["dependency"]["infrastructure"]["config_path"] == ".."
+        assert doc["inputs"]["stacksmith_operation_app_release_name"] == (
+            "${dependency.infrastructure.outputs.stacksmith_operation_app_release_name}"
+        )
+        assert doc["dependency"]["infrastructure"][
+            "mock_outputs_allowed_terraform_commands"
+        ] == ["plan", "validate"]
 
 
 class TestWriteTerragruntJson:

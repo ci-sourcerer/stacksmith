@@ -1,4 +1,5 @@
 import hashlib
+import json
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -33,11 +34,15 @@ from .exceptions import StacksmithConfigError, StacksmithError
 from .execution import build_execution_preview
 from .formatters import compact_json
 from .generation import (
+    generate_operations_terragrunt_json,
+    generate_operations_tf_json,
     generate_terragrunt_json,
     generate_tf_json,
     operation_module_name,
     resolve_operation_batch,
     select_after_apply_operations,
+    write_operations_terragrunt_json,
+    write_operations_tf_json,
     write_terragrunt_json,
     write_tf_json,
 )
@@ -652,7 +657,6 @@ def _generate_single_stack(
     cache_dir: Path | None = None,
     use_local_modules: bool = False,
     merge_mode: MergeConfig = MergeMode.DEEP,
-    operation_names: Sequence[str] | None = None,
 ) -> Path:
     LOGGER.debug(
         "Resolved variable keys: {keys}",
@@ -670,13 +674,55 @@ def _generate_single_stack(
         cache_dir=cache_dir,
         auth_config=config.remote_auth or None,
         use_local_modules=use_local_modules,
-        operation_names=operation_names,
     )
     write_terragrunt_json(stack, config, resolved_inputs, output_dir)
+    if operation_names := select_after_apply_operations(stack, config):
+        _generate_operation_stack(
+            stack,
+            config,
+            output_dir,
+            operation_names,
+            cache_dir=cache_dir,
+        )
 
     if not silent:
         LOGGER.info("Generated files in {output_dir}", output_dir=output_dir)
     return output_dir
+
+
+def _generate_operation_stack(
+    stack: StackDefinition,
+    config: ToolConfig,
+    infrastructure_output_dir: Path,
+    operation_names: Sequence[str] | None,
+    *,
+    cache_dir: Path | None,
+    state_root: Path | None = None,
+) -> Path:
+    operation_output_dir = infrastructure_output_dir / "operations"
+    write_operations_tf_json(
+        stack,
+        config,
+        operation_output_dir,
+        operation_names,
+        cache_dir,
+        config.remote_auth or None,
+        root=state_root,
+    )
+    write_operations_terragrunt_json(
+        stack,
+        config,
+        operation_output_dir,
+        root=state_root,
+        operation_inputs=sorted(
+            json.loads(
+                (operation_output_dir / "stacksmith.tf.json").read_text(
+                    encoding="utf-8"
+                )
+            ).get("variable", {})
+        ),
+    )
+    return operation_output_dir
 
 
 @dataclass(frozen=True)
@@ -890,6 +936,19 @@ def _validate_prepared_stacks(
             dependency_build_dirs,
             root=prepared.state_root,
         )
+        if select_after_apply_operations(stack, config):
+            generate_operations_tf_json(
+                stack,
+                config,
+                cache_dir=cache_dir,
+                auth_config=config.remote_auth or None,
+                root=prepared.state_root,
+            )
+            generate_operations_terragrunt_json(
+                stack,
+                config,
+                root=prepared.state_root,
+            )
 
 
 def _clean_prepared_stacks(prepared: _PreparedStacks) -> None:
@@ -948,6 +1007,15 @@ def _write_prepared_stacks(
             dependency_build_dirs,
             root=prepared.state_root,
         )
+        if operation_names := select_after_apply_operations(stack, config):
+            _generate_operation_stack(
+                stack,
+                config,
+                prepared.stack_build_dirs[name],
+                operation_names,
+                cache_dir=cache_dir,
+                state_root=prepared.state_root,
+            )
 
 
 def _generate_all_stacks(
@@ -1483,7 +1551,7 @@ def _execute_stack_operations(
     cache_dir, _, loaded_config = load_runtime_config(
         config, build_dir, no_cache=no_cache, merge_mode=merge_mode
     )
-    stack, resolved_inputs = _prepare_stack_definition(
+    stack, _ = _prepare_stack_definition(
         stack_file,
         loaded_config,
         vars_file,
@@ -1504,36 +1572,102 @@ def _execute_stack_operations(
             "execution_order": [],
             "exit_code": 0,
         }
-    execution_order = resolve_operation_batch(stack, selected_operation_names)
-    output_dir = _generate_single_stack(
+    return _execute_prepared_operations(
+        action,
         stack,
         loaded_config,
-        resolved_inputs,
-        build_dir,
-        silent=True,
+        selected_operation_names,
+        _resolve_build_dir(stack.source_path, build_dir),
         cache_dir=cache_dir,
-        merge_mode=merge_mode,
-        operation_names=execution_order,
+        no_cas=no_cas or no_cache,
+        force_rerun=force_rerun,
     )
-    return {
-        "operations": selected_operation_names,
-        "execution_order": execution_order,
-        "exit_code": run_terragrunt(
-            _operation_terragrunt_args(
-                action,
-                selected_operation_names,
-                force_rerun,
-                stacksmith_env_int("MAX_PARALLEL_OPERATIONS", 10, minimum=1),
-            ),
+
+
+def _execute_prepared_operations(
+    action: TerragruntAction,
+    stack: StackDefinition,
+    config: ToolConfig,
+    selected_operation_names: Sequence[str],
+    infrastructure_output_dir: Path,
+    *,
+    cache_dir: Path | None,
+    no_cas: bool,
+    force_rerun: bool,
+    state_root: Path | None = None,
+) -> dict[str, Any]:
+    execution_order = resolve_operation_batch(stack, selected_operation_names)
+    output_dir = _generate_operation_stack(
+        stack,
+        config,
+        infrastructure_output_dir,
+        execution_order,
+        cache_dir=cache_dir,
+        state_root=state_root,
+    )
+    plan_json = (output_dir / "stacksmith-operation-plan.json").resolve()
+    plan_binary = (output_dir / "stacksmith-operation.tfplan").resolve()
+    plan_exit_code = run_terragrunt(
+        _operation_terragrunt_args(
+            TerragruntAction.PLAN,
+            selected_operation_names,
+            force_rerun,
+            stacksmith_env_int("MAX_PARALLEL_OPERATIONS", 10, minimum=1),
+        ),
+        output_dir,
+        config=config,
+        stack_name=stack.name,
+        cache_dir=cache_dir,
+        auth_config=config.remote_auth or None,
+        save_plan_json=plan_json,
+        save_plan_binary=plan_binary,
+        no_cas=no_cas,
+    )
+    if plan_exit_code != 0:
+        return {
+            "operations": list(selected_operation_names),
+            "execution_order": execution_order,
+            "exit_code": plan_exit_code,
+        }
+    _validate_operation_plan(plan_json)
+    exit_code = plan_exit_code
+    if action == TerragruntAction.APPLY:
+        exit_code = run_terragrunt(
+            [
+                TerragruntAction.APPLY.value,
+                f"-parallelism={stacksmith_env_int('MAX_PARALLEL_OPERATIONS', 10, minimum=1)}",
+                str(plan_binary),
+            ],
             output_dir,
-            auto_approve=action == TerragruntAction.APPLY,
-            config=loaded_config,
+            auto_approve=True,
+            config=config,
             stack_name=stack.name,
             cache_dir=cache_dir,
-            auth_config=loaded_config.remote_auth or None,
-            no_cas=no_cas or no_cache,
-        ),
+            auth_config=config.remote_auth or None,
+            no_cas=no_cas,
+        )
+    return {
+        "operations": list(selected_operation_names),
+        "execution_order": execution_order,
+        "exit_code": exit_code,
     }
+
+
+def _validate_operation_plan(plan_path: Path) -> None:
+    plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
+    forbidden_addresses = sorted(
+        change.get("address", "<unknown>")
+        for change in plan_data.get("resource_changes", [])
+        if change.get("mode", "managed") == "managed"
+        and not str(change.get("address", "")).startswith(
+            "module.stacksmith_operation_"
+        )
+    )
+    if forbidden_addresses:
+        raise StacksmithConfigError(
+            "Operation plan attempted to change resources outside operation modules: "
+            f"{', '.join(forbidden_addresses)}"
+        )
 
 
 def _operation_terragrunt_args(
@@ -1548,7 +1682,6 @@ def _operation_terragrunt_args(
     ]
     args = [
         action.value,
-        *(f"-target={module_address}" for module_address in module_addresses),
         f"-parallelism={max_parallel_operations}",
     ]
     if force_rerun:
@@ -1743,6 +1876,28 @@ def run_stack_action(
                 stack_count=1,
             ),
             report_format=validation_report_format,
+        )
+
+    if (
+        terragrunt_exit_code == 0
+        and action_enum == TerragruntAction.APPLY
+        and not destroy
+        and (operation_names := select_after_apply_operations(stack, loaded_config))
+    ):
+        LOGGER.info(
+            "Infrastructure apply succeeded; reconciling after-apply operations"
+        )
+        return int(
+            _execute_prepared_operations(
+                TerragruntAction.APPLY,
+                stack,
+                loaded_config,
+                operation_names,
+                output_dir,
+                cache_dir=cache_dir,
+                no_cas=effective_no_cas,
+                force_rerun=False,
+            )["exit_code"]
         )
 
     return terragrunt_exit_code
@@ -2013,6 +2168,7 @@ def run_all_stacks(
             clean=clean,
         )
 
+    explicit_stack_refs = bool(stacks)
     _, stack_build_dirs, stacks = _generate_all_stacks(
         root,
         loaded_config,
@@ -2098,6 +2254,36 @@ def run_all_stacks(
             ),
             report_format=validation_report_format,
         )
+
+    if (
+        terragrunt_exit_code == 0
+        and action_enum == TerragruntAction.APPLY
+        and not destroy
+    ):
+        for stack_name, stack_dir in stack_build_dirs.items():
+            operation_names = select_after_apply_operations(
+                stacks[stack_name], loaded_config
+            )
+            if not operation_names:
+                continue
+            LOGGER.info(
+                "Infrastructure apply succeeded for stack '{stack_name}'; "
+                "reconciling after-apply operations",
+                stack_name=stack_name,
+            )
+            operation_result = _execute_prepared_operations(
+                TerragruntAction.APPLY,
+                stacks[stack_name],
+                loaded_config,
+                operation_names,
+                stack_dir,
+                cache_dir=cache_dir,
+                no_cas=effective_no_cas,
+                force_rerun=False,
+                state_root=None if explicit_stack_refs else root,
+            )
+            if operation_result["exit_code"] != 0:
+                return int(operation_result["exit_code"])
 
     return terragrunt_exit_code
 
