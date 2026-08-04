@@ -8,7 +8,6 @@ from ..enums import ValidationReportFormat
 from ..exceptions import StacksmithConfigError, StacksmithError
 
 CiCommand = Literal["plan", "apply", "plan-operation", "operation"]
-CiPhase = Literal["plan", "apply", "plan-operation", "operation"]
 
 
 class CiExecutionRow(BaseModel):
@@ -212,7 +211,7 @@ def validate_ci_policy(
 
 def resolve_ci_execution_phase(
     manifest: CiExecutionManifest, phase: str = ""
-) -> CiPhase:
+) -> CiCommand:
     """Resolve and validate a lifecycle phase for a CI manifest.
 
     Args:
@@ -239,7 +238,7 @@ def resolve_ci_execution_phase(
             f"CI manifest command '{manifest.command}' cannot execute "
             f"phase '{resolved_phase}'."
         )
-    return cast(CiPhase, resolved_phase)
+    return cast(CiCommand, resolved_phase)
 
 
 def build_ci_execution_argv(
