@@ -120,7 +120,11 @@ jobs:
           print(f"- Environment: `{row['environment']}`")
           print(f"- Runfile: `{row['runfile']}`")
           if phase in {"operation-plan", "operation"}:
-              print(f"- Operations: `{', '.join(manifest['operation_names'])}`")
+              print(
+                  "- Operations: `"
+                  f"{', '.join(manifest['operation_names']) or 'after_apply operations'}"
+                  "`"
+              )
               print(
                   "- Maximum parallel operations: "
                   f"`{manifest.get('max_parallel_operations', 10)}`"

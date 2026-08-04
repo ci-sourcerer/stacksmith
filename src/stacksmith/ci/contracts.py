@@ -230,7 +230,7 @@ def resolve_ci_execution_phase(
     if (
         resolved_phase
         not in {
-            "plan": {"plan"},
+            "plan": {"plan", "operation-plan"},
             "apply": {"plan", "apply"},
             "operation": {"operation-plan", "operation"},
         }[manifest.command]
@@ -324,7 +324,7 @@ def build_ci_execution_argv(
         return [
             "operation",
             "plan",
-            ",".join(manifest.operation_names),
+            *([",".join(manifest.operation_names)] if manifest.operation_names else []),
             *common_args,
             *(["--force-rerun"] if manifest.force_rerun else []),
         ]

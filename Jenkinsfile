@@ -288,7 +288,10 @@ withStacksmithAgent {
                 }
 
                 stage('Plan operation') {
-                    if (env.SELECTED_ENVIRONMENTS && env.COMMAND == 'operation') {
+                    if (
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND in ['plan', 'operation']
+                    ) {
                         executeStacksmithMatrix(
                             env.SELECTION_MATRIX,
                             params.WORKDIR,

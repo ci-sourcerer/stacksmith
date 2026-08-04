@@ -94,6 +94,27 @@ def resolve_operation_batch(
     return execution_order
 
 
+def select_after_apply_operations(
+    stack: StackDefinition,
+    config: ToolConfig,
+) -> list[str]:
+    """Select stack operations configured to run after infrastructure applies.
+
+    Args:
+        stack: Stack containing operation invocations.
+        config: Managed configuration containing approved operation definitions.
+
+    Returns:
+        Stack-local names whose approved definitions use the `after_apply` trigger.
+    """
+    return [
+        name
+        for name, invocation in stack.operations.items()
+        if (definition := config.operations.get(invocation.use)) is not None
+        and definition.trigger == "after_apply"
+    ]
+
+
 def _validate_invocation(
     definition: OperationDefinition,
     invocation: OperationInvocation,

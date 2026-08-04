@@ -988,6 +988,20 @@ def test_cmd_operation_plan_uses_dry_run_api(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["operations"] == ["deploy_app"]
 
 
+def test_cmd_operation_plan_omits_names_for_after_apply_selection(
+    monkeypatch,
+    parser,
+):
+    calls = _capture_plan_stack_operations_call(monkeypatch)
+    args = parser.parse_args(["operation", "plan", "--stack", "stack.yaml"])
+
+    exit_code = cli_main._cmd_operation_plan(args)
+
+    assert exit_code == 0
+    assert calls["run"][0] == "stack.yaml"
+    assert calls["run"][1] is None
+
+
 def test_operation_parallelism_cli_parameter_is_removed(parser):
     with pytest.raises(SystemExit):
         parser.parse_args(
@@ -2170,7 +2184,7 @@ def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path)
     assert calls["args"].fail_on_changes is True
 
 
-def test_cmd_ci_execute_prints_modules_and_policies_in_debug_mode(
+def test_cmd_ci_execute_skips_modules_and_policies_tables_in_debug_mode(
     monkeypatch, parser, tmp_path: Path
 ):
     from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
@@ -2204,10 +2218,7 @@ def test_cmd_ci_execute_prints_modules_and_policies_in_debug_mode(
     )
 
     assert cli_main._cmd_ci_execute(args) == 0
-    assert calls["info_args"].command == "info"
-    assert calls["info_args"].info_command == "modules-and-policies"
-    assert calls["info_args"].config == ["platform/stacksmith-config.yaml"]
-    assert calls["info_args"].runfile == ["common/stacksmith.yaml"]
+    assert "info_args" not in calls
 
 
 def test_cmd_ci_execute_from_env_uses_manifest_env(monkeypatch, parser, tmp_path: Path):

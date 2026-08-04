@@ -675,7 +675,7 @@ def _cmd_operation_plan(args: argparse.Namespace) -> int:
     _apply_runfile(args)
     result = plan_stack_operations(
         _stack_arg(args),
-        parse_operation_names(args.operation_names),
+        (parse_operation_names(args.operation_names) if args.operation_names else None),
         config=args.config,
         vars_file=_vars_arg(args),
         input_layers=_ordered_input_layers(args),
@@ -1093,13 +1093,6 @@ def _execute_ci_manifest(
                 "Configured modules and policies for CI environment '{environment}'.",
                 environment=environment,
             )
-            info_args = argparse.Namespace(**vars(execution_args))
-            info_args.command = "info"
-            info_args.info_command = "modules-and-policies"
-            info_args.component_type = []
-            info_args.format = InspectOutputFormat.TABLE.value
-            info_args.basic = False
-            _cmd_info_modules_and_policies(info_args)
         if execution_phase == "operation-plan":
             return _cmd_operation_plan(execution_args)
         if execution_phase == "operation":

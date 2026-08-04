@@ -37,6 +37,7 @@ from .generation import (
     generate_tf_json,
     operation_module_name,
     resolve_operation_batch,
+    select_after_apply_operations,
     write_terragrunt_json,
     write_tf_json,
 )
@@ -1368,7 +1369,7 @@ def lock_stack(
 
 def plan_stack_operations(
     stack_file: Path | str | Sequence[Path | str],
-    operation_names: Sequence[str],
+    operation_names: Sequence[str] | None = None,
     config: list[str] | None = None,
     vars_file: str | Sequence[str] | None = None,
     input_layers: Sequence[InputLayer] | None = None,
@@ -1382,7 +1383,8 @@ def plan_stack_operations(
 
     Args:
         stack_file: Path, URL, or ordered sequence of stack definition files.
-        operation_names: Stack-local operation names to plan.
+        operation_names: Stack-local operation names to plan. When omitted, plan the
+            operations configured with the `after_apply` trigger.
         config: Optional managed config paths or URLs.
         vars_file: Optional vars file paths or URLs.
         input_layers: Optional ordered CLI input layers merged in call order.
@@ -1463,7 +1465,7 @@ def run_stack_operations(
 def _execute_stack_operations(
     action: TerragruntAction,
     stack_file: Path | str | Sequence[Path | str],
-    operation_names: Sequence[str],
+    operation_names: Sequence[str] | None,
     *,
     config: list[str] | None,
     vars_file: str | Sequence[str] | None,
@@ -1491,7 +1493,18 @@ def _execute_stack_operations(
     )
     if stack.source_path is None:
         raise RuntimeError("Loaded stack is missing a source path")
-    execution_order = resolve_operation_batch(stack, operation_names)
+    selected_operation_names = (
+        select_after_apply_operations(stack, loaded_config)
+        if operation_names is None
+        else list(operation_names)
+    )
+    if not selected_operation_names:
+        return {
+            "operations": [],
+            "execution_order": [],
+            "exit_code": 0,
+        }
+    execution_order = resolve_operation_batch(stack, selected_operation_names)
     output_dir = _generate_single_stack(
         stack,
         loaded_config,
@@ -1503,12 +1516,12 @@ def _execute_stack_operations(
         operation_names=execution_order,
     )
     return {
-        "operations": list(operation_names),
+        "operations": selected_operation_names,
         "execution_order": execution_order,
         "exit_code": run_terragrunt(
             _operation_terragrunt_args(
                 action,
-                operation_names,
+                selected_operation_names,
                 force_rerun,
                 stacksmith_env_int("MAX_PARALLEL_OPERATIONS", 10, minimum=1),
             ),

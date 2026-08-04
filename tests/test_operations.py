@@ -551,6 +551,93 @@ def test_plan_single_stack_operation_uses_targeted_dry_run(
     assert calls["run"][2]["auto_approve"] is False
 
 
+def test_plan_stack_operations_selects_after_apply_operations_when_omitted(
+    monkeypatch,
+    tmp_path: Path,
+):
+    calls: dict[str, object] = {}
+    stack = StackDefinition.model_validate(
+        {
+            "name": "application",
+            "operations": {
+                "deploy_app": {
+                    "use": "deploy",
+                    "with": {"release_tag": "1.2.3"},
+                }
+            },
+        }
+    )
+    stack.source_path = tmp_path / "stack.yaml"
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path, [], _config()),
+    )
+    monkeypatch.setattr(
+        api,
+        "_prepare_stack_definition",
+        lambda *args, **kwargs: (stack, {}),
+    )
+    monkeypatch.setattr(
+        api,
+        "_generate_single_stack",
+        lambda *args, **kwargs: tmp_path / "build",
+    )
+
+    def _fake_run(args, working_dir, **kwargs):
+        calls["args"] = args
+        return 0
+
+    monkeypatch.setattr(api, "run_terragrunt", _fake_run)
+
+    result = api.plan_stack_operations(stack.source_path)
+
+    assert result == {
+        "operations": ["deploy_app"],
+        "execution_order": ["deploy_app"],
+        "exit_code": 0,
+    }
+    assert calls["args"] == [
+        "plan",
+        "-target=module.stacksmith_operation_deploy_app",
+        "-parallelism=10",
+    ]
+
+
+def test_plan_stack_operations_is_no_op_without_after_apply_operations(
+    monkeypatch,
+    tmp_path: Path,
+):
+    stack = StackDefinition.model_validate(
+        {
+            "name": "application",
+            "operations": {
+                "deploy_app": {
+                    "use": "deploy",
+                    "with": {"release_tag": "1.2.3"},
+                }
+            },
+        }
+    )
+    stack.source_path = tmp_path / "stack.yaml"
+    config = _config()
+    config.operations["deploy"].trigger = "manual"
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path, [], config),
+    )
+    monkeypatch.setattr(
+        api,
+        "_prepare_stack_definition",
+        lambda *args, **kwargs: (stack, {}),
+    )
+
+    result = api.plan_stack_operations(stack.source_path)
+
+    assert result == {"operations": [], "execution_order": [], "exit_code": 0}
+
+
 def test_run_stack_operations_uses_one_dependency_aware_apply(
     monkeypatch,
     tmp_path: Path,

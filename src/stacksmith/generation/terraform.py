@@ -21,7 +21,11 @@ from ..module_mapping import resolve_module_mapping
 from ..stack_outputs import build_stack_output_blocks
 from ..utils import derive_stack_state_key, get_current_git_repository
 from ..vendor import get_vendor_dir, resolve_module_source
-from .operations import build_operation_module_spec, resolve_operation_batch
+from .operations import (
+    build_operation_module_spec,
+    resolve_operation_batch,
+    select_after_apply_operations,
+)
 from .properties import PropertyRenderer
 from .providers import (
     build_provider_blocks,
@@ -84,12 +88,7 @@ def _generate_operation_blocks(
 ) -> dict[str, Any]:
     modules = {}
     selected_names = (
-        [
-            name
-            for name, invocation in stack.operations.items()
-            if (definition := config.operations.get(invocation.use)) is not None
-            and definition.trigger == "after_apply"
-        ]
+        select_after_apply_operations(stack, config)
         if operation_names is None
         else list(operation_names)
     )

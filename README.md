@@ -765,6 +765,12 @@ Dry-run a manual operation by its stack-local name before executing it.
 stacksmith operation plan deploy_app --stack stack.yaml --config stacksmith-config.yaml
 ```
 
+Omit operation names to dry-run every operation selected by the `after_apply` trigger. This is the operation dry run used automatically alongside infrastructure plans in the Jenkins and GitHub Actions GitOps pipelines.
+
+```shell
+stacksmith operation plan --stack stack.yaml --config stacksmith-config.yaml
+```
+
 Run the operation after reviewing the plan.
 
 ```shell
@@ -927,7 +933,7 @@ The GitHub templates under `examples/` do not execute in this repository because
 
 #### Shared behavior
 
-The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins wrapper uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. A plan request executes only the `plan` phase. An apply request executes `plan`, waits for provider approval, and then executes `apply`; native operations execute `operation-plan`, wait for provider approval, and then execute `operation`. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
+The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins wrapper uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. A plan request executes the infrastructure `plan` phase and an `operation-plan` phase for operations selected by `after_apply`; manual operations are excluded. An apply request executes `plan`, waits for provider approval, and then executes `apply`; native manual operations execute `operation-plan`, wait for provider approval, and then execute `operation`. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
 
 `stacksmith ci prepare` resolves the effective layered configuration for every selected environment and rejects `backend.type: local`. CI runs must use a remote backend so state is durable and shared between plan and apply jobs.
 
@@ -1656,12 +1662,12 @@ stacksmith operation plan [-h] [--force-rerun] [--stack STACK] [--runfile RUNFIL
                                  [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
                                  [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
                                  --no-local-modules] [--debug | -q]
-                                 operation_names [stack_file]
+                                 [operation_names] [stack_file]
 ```
 
 | Argument | Description |
 | - | - |
-| `operation_names` | Comma-delimited stack-local operation names |
+| `operation_names` | Comma-delimited stack-local operation names. Omit when planning to select operations configured with the after_apply trigger. |
 | `--force-rerun` | Force the operation runner resource to be replaced even when its execution identity has not changed. Can also be enabled with STACKSMITH_FORCE_RERUN=1. |
 | `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
 | `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |

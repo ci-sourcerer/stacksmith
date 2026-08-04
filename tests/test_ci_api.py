@@ -545,6 +545,10 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert "phase: plan" in actions_workflow
     assert "phase: apply" in actions_workflow
     assert "phase: operation-plan" in actions_workflow
+    assert (
+        "inputs.command == 'plan' || inputs.command == 'operation'" in actions_workflow
+    )
+    assert "env.COMMAND in ['plan', 'operation']" in jenkins_pipeline
     assert "      max_parallel_operations:" not in actions_workflow
     assert "STACKSMITH_MAX_PARALLEL_OPERATIONS" in actions_workflow
     assert "inputs.phase || fromJson(inputs.ci_manifest).command" in actions_executor
@@ -634,6 +638,22 @@ def test_ci_operation_manifest_supports_plan_then_run_phases():
     assert "--force-rerun" in run_argv
     assert "--max-parallel-operations" not in plan_argv
     assert "--max-parallel-operations" not in run_argv
+
+
+def test_ci_plan_manifest_supports_after_apply_operation_plan_phase():
+    manifest = CiExecutionManifest(
+        command="plan",
+        config_ref="platform/stacksmith-config.yaml",
+        matrix=[CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")],
+    )
+
+    operation_plan_argv = build_ci_execution_argv(
+        manifest,
+        "dev",
+        "operation-plan",
+    )
+
+    assert operation_plan_argv[:3] == ["operation", "plan", "--config"]
 
 
 def test_ci_manifest_rejects_unapproved_execution_phase():
