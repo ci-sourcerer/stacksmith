@@ -1,0 +1,24 @@
+{
+	"image": "cisourcerer/devcontainer-python:3.14",
+	"features": {
+		"ghcr.io/devcontainers/features/aws-cli:1": {},
+		"ghcr.io/devcontainers/features/docker-in-docker:4": {},
+		"ghcr.io/devcontainers-extra/features/act:1": {}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"redhat.vscode-yaml",
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"ms-python.black-formatter",
+				"ms-python.isort",
+				"njpwerner.autodocstring",
+				"-ms-python.autopep8"
+			]
+		}
+	},
+	"mounts": [
+		"source=${localEnv:HOME}/.config/gh,target=/root/.config/gh,type=bind,consistency=cached"
+	]
+}

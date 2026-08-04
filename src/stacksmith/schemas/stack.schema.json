@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stacksmith.dev/schemas/stack.schema.json",
+  "title": "Stacksmith Stack Definition",
+  "description": "Defines a single infrastructure stack for stacksmith.",
+  "type": "object",
+  "minProperties": 1,
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "minLength": 2,
+      "description": "Unique stack identifier within the monorepo."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional human-readable description of the stack's purpose."
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "description": "Arbitrary tags for filtering, CI targeting, and documentation. e.g. [platform, prod]"
+    },
+    "depends_on": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 2
+      },
+      "uniqueItems": true,
+      "description": "List of stack names that must be applied before this stack. Terragrunt reads their declared root outputs while resolving the dependency graph."
+    },
+    "outputs": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional human-readable description emitted on the root OpenTofu output."
+          },
+          "value": {
+            "description": "Exported value. May contain deferred references to managed public component outputs."
+          },
+          "transform": {
+            "type": "object",
+            "required": [
+              "jinja"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional human-readable description of the stack output transform."
+              },
+              "jinja": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Jinja template applied during generation with `output.value` and `output.name` in scope."
+              }
+            },
+            "description": "Optional safe Jinja transform applied after component output binding."
+          },
+          "sensitive": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether OpenTofu should mark this root output as sensitive."
+          },
+          "mock": {
+            "description": "Optional pre-transform mock value used by dependent stacks during plan and validate before this stack has been applied."
+          }
+        }
+      },
+      "description": "Explicit root outputs exported by this stack for dependent stacks and external consumers."
+    },
+    "components": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Abstract component type that maps to a module in the tool configuration."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional human-readable description of this component instance."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true,
+            "description": "Optional tags used for tag-expression targeting."
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Properties passed as inputs to the module. Values may contain Jinja expressions, including deferred references to managed public component outputs."
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "description": "Component definitions. Keys are component names, values specify type and properties."
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "use"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "use": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of an operation approved in the tool configuration."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional human-readable description of this operation invocation."
+          },
+          "with": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Declared operation inputs. Values may contain Jinja expressions, including deferred references to managed public component outputs."
+          },
+          "rerun_token": {
+            "type": "string",
+            "description": "Optional value that deliberately creates a new operation execution identity."
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true,
+            "description": "Stack-local operations that must succeed before this operation runs."
+          }
+        }
+      },
+      "description": "Native operational actions requested by this stack."
+    }
+  }
+}

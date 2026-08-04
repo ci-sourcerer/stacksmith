@@ -1,0 +1,19 @@
+name: vpc
+
+components:
+  main-vpc:
+    type: aws_vpc
+    properties:
+      cidr_block: "10.0.0.0/16"
+
+outputs:
+  vpc_id:
+    value: "main-vpc"
+    transform:
+      jinja: "vpc://{{ output.value }}"
+    mock: "mock-vpc-id"
+  subnet_ids:
+    value: []
+    mock:
+      - "mock-subnet-1"
+      - "mock-subnet-2"

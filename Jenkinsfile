@@ -1,0 +1,436 @@
+import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
+
+boolean parseBoolean(value) {
+    if (!value) {
+        return false
+    }
+
+    return value.toString().trim().toLowerCase() in ['1', 'true', 'yes', 'on']
+}
+
+boolean parseBooleanWithDefault(value, boolean defaultValue) {
+    if (value == null || value.toString().trim() == '') {
+        return defaultValue
+    }
+    return parseBoolean(value)
+}
+
+String getStacksmithImage() {
+    return env.STACKSMITH_IMAGE ?:
+        "cisourcerer/stacksmith:${env.STACKSMITH_IMAGE_VERSION ?: 'latest'}"
+}
+
+void withStacksmithAgent(Closure body) {
+    if (parseBoolean(env.STACKSMITH_USE_K8S)) {
+        withStacksmithKubernetesAgent {
+            body()
+        }
+        return
+    }
+
+    if (env.STACKSMITH_NODE_LABEL) {
+        node(env.STACKSMITH_NODE_LABEL) {
+            body()
+        }
+        return
+    }
+
+    if (env.STACKSMITH_DOCKER_NODE) {
+        node(env.STACKSMITH_DOCKER_NODE) {
+            withStacksmithDockerAgent(body)
+        }
+        return
+    }
+
+    node {
+        withStacksmithDockerAgent(body)
+    }
+}
+
+void withStacksmithDockerAgent(Closure body) {
+    docker.image(getStacksmithImage()).inside('--entrypoint ""') {
+        body()
+    }
+}
+
+void withStacksmithKubernetesAgent(Closure body) {
+    podTemplate(
+        containers: [
+            containerTemplate(
+                name: 'stacksmith',
+                image: getStacksmithImage(),
+                command: 'sleep',
+                args: '99d'
+            )
+        ]
+    ) {
+        node(POD_LABEL) {
+            container('stacksmith') {
+                body()
+            }
+        }
+    }
+}
+
+String credentialVariable(Map<String, Object> entry, String credentialType, String suffix = '') {
+    String explicitName = entry.variable?.toString()?.trim()
+    if (explicitName) {
+        return explicitName
+    }
+
+    // Derive from credentialId: "my-secret" becomes STACKSMITH_MY_SECRET
+    String credentialId = entry.credentialId?.toString()?.trim()
+    if (credentialId) {
+        String idBased = credentialId.toUpperCase().replaceAll('-', '_')
+        return "STACKSMITH_${idBased}${suffix}"
+    }
+
+    // Fallback to type-based naming (should not normally occur)
+    return "STACKSMITH_${credentialType.toUpperCase()}${suffix}"
+}
+
+List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> credentials) {
+    List<Map<String, Object>> bindings = []
+
+    for (def entry : credentials) {
+        if (!(entry instanceof Map)) {
+            
+            continue
+        }
+
+        String id = entry.credentialId?.toString()?.trim()
+        if (!id) {
+            
+            continue
+        }
+
+        String type = entry.type?.toString()?.trim() ?: 'string'
+        
+
+        try {
+            switch (type) {
+                case 'usernamePassword':
+                case 'http_basic':
+                    
+                    def binding = usernamePassword(
+                        credentialsId: id,
+                        usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME'),
+                        passwordVariable: entry.passwordVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_PASSWORD')
+                    )
+                    
+                    bindings << binding
+                    break
+                case 'sshUserPrivateKey':
+                case 'git_ssh_key':
+                    
+                    def binding = sshUserPrivateKey(
+                        credentialsId: id,
+                        keyFileVariable: entry.keyFileVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_KEY'),
+                        usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME')
+                    )
+                    
+                    bindings << binding
+                    break
+                case 'string':
+                case 'secret_text':
+                case 'git_token':
+                case 'http_token':
+                    
+                    def binding = string(
+                        credentialsId: id,
+                        variable: credentialVariable(entry, type)
+                    )
+                    
+                    bindings << binding
+                    break
+                default:
+                    
+                    def binding = string(
+                        credentialsId: id,
+                        variable: credentialVariable(entry, type)
+                    )
+                    
+                    bindings << binding
+                    break
+            }
+        } catch (Exception e) {
+            echo("ERROR creating binding for ${id}: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+
+    
+    return bindings
+}
+
+int executeStacksmith() {
+    return sh(
+        script: '''#!/usr/bin/env bash
+            set -euo pipefail
+            stacksmith ci execute-from-env \
+                --provider jenkins \
+                --phase "$STACKSMITH_CI_PHASE"
+        ''',
+        returnStatus: true
+    )
+}
+
+void executeStacksmithMatrix(
+    String matrixJson,
+    String workdir,
+    String command,
+    String credentialsJson = ''
+) {
+    def matrix = readJSON(text: matrixJson, returnPojo: true)
+    Map<String, Closure> branches = [:]
+
+    for (row in matrix) {
+        def environment = row.environment
+        def artifactDir = "${workdir}/.stacksmith-ci/${environment}"
+        def archiveArtifactDir = artifactDir.replaceFirst('^\\./', '')
+
+        branches[environment] = {
+            List<Map<String, Object>> credentialsList = []
+            def parsedCredentialsJson = (credentialsJson ?: env.STACKSMITH_CREDENTIALS_JSON ?: '').toString().trim()
+            if (parsedCredentialsJson) {
+                try {
+                    def parsed = readJSON(text: parsedCredentialsJson, returnPojo: true)
+                    if (parsed instanceof List) {
+                        credentialsList = parsed
+                        echo("Loaded ${credentialsList.size()} credential(s) for environment ${environment}")
+                    } else if (parsed instanceof Map) {
+                        error("STACKSMITH_CREDENTIALS_JSON must be an array of credential objects, not a map")
+                    }
+                } catch (Exception e) {
+                    error("Invalid STACKSMITH_CREDENTIALS_JSON: ${e.message}")
+                }
+            }
+
+            List<Map<String, Object>> credentialBindings = buildCredentialBindings(credentialsList)
+            
+            if (credentialBindings) {
+                echo("Binding ${credentialBindings.size()} credential binding(s) for environment ${environment}")
+            }
+
+            withEnv([
+                "ENVIRONMENT=${environment}",
+                "STACKSMITH_CI_PHASE=${command}",
+                "VALIDATION_REPORT_PATH=${artifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
+            ]) {
+                int status
+                if (credentialBindings) {
+                    
+                    status = withCredentials(credentialBindings) {
+                        executeStacksmith()
+                    }
+                } else {
+                    
+                    status = executeStacksmith()
+                }
+
+                if (command == 'plan' && parseBoolean(env.STACKSMITH_UPLOAD_ARTIFACTS ?: 'true')) {
+                    List<String> artifacts = []
+
+                    if (fileExists("${artifactDir}/plan.json")) {
+                        artifacts << "${archiveArtifactDir}/plan.json"
+                    }
+
+                    if (fileExists("${artifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}")) {
+                        artifacts << "${archiveArtifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}"
+                    }
+
+                    if (artifacts) {
+                        archiveArtifacts(artifacts: artifacts.join(','))
+                    }
+                }
+
+                return status
+            }
+        }
+    }
+
+    def results = parallel(branches)
+    def failedEnvironments = results.findAll { environment, status -> status != 0 }.keySet()
+
+    if (failedEnvironments) {
+        error("Stacksmith ${command} failed in: ${failedEnvironments.join(', ')}")
+    }
+}
+
+withStacksmithAgent {
+    try {
+        ansiColor('xterm') {
+            properties([
+                parameters([
+                    choice(name: 'COMMAND', choices: ['plan', 'apply', 'plan-operation', 'operation'], description: 'Stacksmith command'),
+                    string(name: 'OPERATION_NAMES', description: 'comma-delimited stack-local operation names; empty selects all'),
+                    string(name: 'ENVIRONMENTS', description: 'comma-separated environments to target manually'),
+                    string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
+                    booleanParam(name: 'DEBUG', defaultValue: false, description: 'enable debug logs and print configured modules and policies'),
+                    booleanParam(name: 'FAIL_ON_CHANGES', defaultValue: false, description: 'fail if plan contains changes'),
+                    booleanParam(name: 'STRICT_VALIDATION_WARNINGS', defaultValue: false, description: 'treat validation warnings as failures'),
+                ]),
+                disableConcurrentBuilds(),
+            ])
+
+            checkout(scm)
+
+            env.COMMAND = (params.COMMAND ?: 'plan').toString().trim().toLowerCase()
+            env.OPERATION_NAMES = (params.OPERATION_NAMES ?: '').toString().trim()
+
+            withFolderProperties {
+
+                def manifestFile = '.stacksmith-ci/ci-execution-manifest.json'
+                def manifestOutput = withEnv([
+                    "INPUT_COMMAND=${env.COMMAND}",
+                    "INPUT_OPERATION_NAMES=${env.OPERATION_NAMES}",
+                    "STACKSMITH_MAX_PARALLEL_OPERATIONS=${env.STACKSMITH_MAX_PARALLEL_OPERATIONS ?: '10'}",
+                    "INPUT_CONFIG_REF=${env.STACKSMITH_CONFIG_REF}",
+                    "INPUT_WORKDIR=${params.WORKDIR}",
+                    "INPUT_ENV_FILE=${env.STACKSMITH_ENV_FILE ?: '/dev/null'}",
+                    "INPUT_STACKSMITH_ARGS_JSON=${env.STACKSMITH_ARGS_JSON ?: '[]'}",
+                    "INPUT_DEBUG=${parseBoolean(env.STACKSMITH_DEBUG) || params.DEBUG}",
+                    "INPUT_NO_CAS=${env.STACKSMITH_NO_CAS ?: 'false'}",
+                    "INPUT_LOCKED=${env.STACKSMITH_REQUIRE_LOCKFILE ?: 'false'}",
+                    "INPUT_OFFLINE=${env.STACKSMITH_OFFLINE ?: 'false'}",
+                    "INPUT_LOCKFILE=${env.STACKSMITH_LOCKFILE ?: ''}",
+                    "INPUT_FORCE_RERUN=${env.STACKSMITH_FORCE_RERUN ?: 'false'}",
+                    "INPUT_VALIDATION_REPORT_FORMAT=${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
+                    "INPUT_FAIL_ON_CHANGES=${params.FAIL_ON_CHANGES}",
+                    "INPUT_STRICT_VALIDATION_WARNINGS=${params.STRICT_VALIDATION_WARNINGS}",
+                    "INPUT_GITOPS_ROOT=${env.STACKSMITH_GITOPS_ROOT ?: params.WORKDIR}",
+                    "INPUT_DISCOVERY_MODE=${env.STACKSMITH_DISCOVERY_MODE ?: 'auto'}",
+                    "INPUT_ENVIRONMENTS=${params.ENVIRONMENTS}",
+                    "CALLER_EVENT_NAME=${env.CHANGE_ID ? 'pull_request' : 'push'}",
+                    "CALLER_BASE_REF=${env.CHANGE_TARGET ?: ''}",
+                    "CALLER_EVENT_BEFORE=${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: env.GIT_PREVIOUS_COMMIT ?: ''}",
+                    "CALLER_SHA=${env.GIT_COMMIT ?: ''}",
+                    "CALLER_REF_NAME=${env.BRANCH_NAME ?: ''}",
+                    "CALLER_DEFAULT_BRANCH=${env.STACKSMITH_DEFAULT_BRANCH ?: ''}",
+                    "CALLER_IS_PRIMARY_BRANCH=${parseBoolean(env.BRANCH_IS_PRIMARY) || env.BRANCH_NAME == env.STACKSMITH_DEFAULT_BRANCH ? 'true' : 'false'}",
+                    "SKIP_BRANCH_VALIDATION=${env.NO_VALIDATE_BRANCH_AND_OPERATION ?: 'false'}",
+                    "CI_MANIFEST_FILE=${manifestFile}",
+                ]) {
+                    sh(
+                        script: '''#!/usr/bin/env bash
+                            set -euo pipefail
+                            mkdir -p "$(dirname \"$CI_MANIFEST_FILE\")"
+                            stacksmith ci prepare-from-env \
+                                --provider jenkins \
+                                --manifest-file "$CI_MANIFEST_FILE"
+                        ''',
+                        returnStdout: true
+                    )
+                }
+
+                def manifest = readJSON(text: manifestOutput, returnPojo: true)
+                def matrix = manifest.matrix
+                env.SELECTED_ENVIRONMENTS = matrix.collect { it.environment }.join(',')
+                env.SELECTION_MATRIX = writeJSON(json: matrix, returnText: true)
+                env.CI_MANIFEST_FILE = "${env.WORKSPACE}/${manifestFile}"
+                env.SELECTED_OPERATIONS = manifest.operation_names.join(', ')
+
+                if (!env.SELECTED_ENVIRONMENTS) {
+                    echo "No environments selected; skipping ${params.COMMAND}."
+                    currentBuild.result = 'NOT_BUILT'
+                    return
+                }
+
+                echo("Selected environments: ${env.SELECTED_ENVIRONMENTS}")
+
+                stage('Plan') {
+                    if (!(env.SELECTED_ENVIRONMENTS && env.COMMAND in ['plan', 'apply'])) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        params.WORKDIR,
+                        'plan',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
+                    )
+                }
+
+                stage('Plan operation(s)') {
+                    if (!(
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND in ['plan', 'apply', 'plan-operation', 'operation']
+                    )) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        params.WORKDIR,
+                        'plan-operation',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
+                    )
+                }
+
+                stage('Approve') {
+                    if (!(env.SELECTED_ENVIRONMENTS && env.COMMAND in ['apply', 'operation'])) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
+
+                    try {
+                        input(
+                            message: env.COMMAND == 'operation'
+                                ? "Run Stacksmith ${env.SELECTED_OPERATIONS ?: 'all operations'} in ${env.SELECTED_ENVIRONMENTS}?"
+                                : "Apply Stacksmith changes to ${env.SELECTED_ENVIRONMENTS}?"
+                        )
+                    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+                        currentBuild.result = 'ABORTED'
+                        env.DO_NOT_EXECUTE_STACKSMITH = '1'
+                    }
+                }
+
+                if (env.DO_NOT_EXECUTE_STACKSMITH) {
+                    echo('Stacksmith execution aborted by user')
+                }
+
+                stage('Apply') {
+                    if (!(
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND == 'apply'
+                        && !env.DO_NOT_EXECUTE_STACKSMITH
+                    )) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        params.WORKDIR,
+                        'apply',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
+                    )
+                }
+
+                stage('Run operation(s)') {
+                    if (!(
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND == 'operation'
+                        && !env.DO_NOT_EXECUTE_STACKSMITH
+                    )) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        params.WORKDIR,
+                        'operation',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
+                    )
+                }
+
+            }
+
+        }
+    } finally {
+        cleanWs()
+    }
+}

@@ -1,0 +1,26 @@
+name: terraform-data
+description: Credential-free resources used to demonstrate a standalone stack.
+
+tags:
+  - stack
+  - example
+
+components:
+  first:
+    type: terraform_data
+    description: First placeholder resource.
+    properties:
+      input:
+        environment: "{{ inputs.environment }}"
+        message: "{{ inputs.message }}"
+        name: "{{ inputs.first_name }}"
+        project: "{{ inputs.project }}"
+  second:
+    type: terraform_data
+    description: Second placeholder resource.
+    properties:
+      input:
+        environment: "{{ inputs.environment }}"
+        message: "{{ inputs.message }}"
+        name: "{{ inputs.second_name }}"
+        project: "{{ inputs.project }}"

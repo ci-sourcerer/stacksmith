@@ -1,0 +1,36 @@
+name: terraform-data
+description: Credential-free resources used to demonstrate GitOps layering.
+
+tags:
+  - gitops
+  - example
+
+components:
+  first:
+    type: terraform_data
+    description: First placeholder resource.
+    properties:
+      input:
+        environment: "{{ inputs.environment }}"
+        message: "{{ inputs.message }}"
+        name: "{{ inputs.first_name }}"
+        project: "{{ inputs.project }}"
+  second:
+    type: terraform_data
+    description: Second placeholder resource.
+    properties:
+      input:
+        environment: "{{ inputs.environment }}"
+        message: "{{ inputs.message }}"
+        name: "{{ inputs.second_name }}"
+        project: "{{ inputs.project }}"
+
+operations:
+  announce_reconciliation:
+    description: Emit a harmless completion message after the stack applies.
+    use: echo_reconciliation
+    with:
+      environment: "{{ inputs.environment }}"
+      message: "{{ inputs.message }}"
+      project: "{{ inputs.project }}"
+      secret_token: "{{ inputs.reconciliation_secret_token }}"

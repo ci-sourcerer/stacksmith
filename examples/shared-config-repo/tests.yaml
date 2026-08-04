@@ -1,0 +1,59 @@
+description: Policy and transform tests for the shared example configuration.
+
+fixtures:
+  mode: per-test-case
+  setup:
+    inline: |
+      fixture_state["example_fixture"] = True
+  teardown:
+    inline: |
+      fixture_state.clear()
+
+var_validations:
+  aws_region:
+    - name: Accepts us-east-1
+      value: us-east-1
+      expect: pass
+    - name: Rejects eu-west-1
+      value: eu-west-1
+      expect: fail
+
+plan_validations:
+  ec2_requires_imdsv2:
+    - name: Passes when tokens are required
+      resources:
+        - type: aws_instance
+          after:
+            metadata_options:
+              http_tokens: required
+      expect: pass
+    - name: Fails when tokens are optional
+      resources:
+        - type: aws_instance
+          after:
+            metadata_options:
+              http_tokens: optional
+      expect: fail
+
+  ec2_t3_micro_warning:
+    - name: Warns with stack context
+      resources:
+        - type: aws_instance
+          after:
+            instance_type: t3.micro
+      context:
+        stack_name: production
+        tags:
+          - critical
+      expect: warn
+
+component_properties:
+  aws_s3_bucket:
+    bucket_name:
+      - name: Prefixes the environment and normalizes case
+        value: My_Bucket
+        inputs:
+          environment: prod
+        expect:
+          output_name: bucket
+          value: prod-my-bucket

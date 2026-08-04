@@ -1,0 +1,378 @@
+description: Shared platform configuration for the Stacksmith examples.
+
+# Configure the AWS provider instances available to mapped modules.
+provider_mappings:
+  aws:
+    source:
+      source: registry
+      data:
+        address: hashicorp/aws
+        version: ">= 6.39, < 7.0"
+    instances:
+      default:
+        description: Primary AWS region used by most example resources.
+        # The default provider targets the primary example region.
+        config:
+          data:
+            region: us-east-1
+      secondary:
+        description: Secondary AWS region used to demonstrate provider aliases.
+        # The secondary alias demonstrates cross-provider module wiring.
+        alias: secondary
+        config:
+          script:
+            source: local
+            data:
+              path: scripts/providers/configure_aws_secondary_provider.py
+
+# Validate reusable inputs before a stack is planned.
+var_validations:
+  aws_region:
+    description: Require the primary AWS region used by the examples.
+    script:
+      source: local
+      data:
+        path: scripts/validations/validate_aws_region.py
+  instance_type:
+    description: Allow only the EC2 instance types approved for the examples.
+    script:
+      source: local
+      data:
+        path: scripts/validations/validate_ec2_instance_type.py
+  subnet_id:
+    description: Require an AWS subnet identifier.
+    inline: |
+      import re
+
+      def validate(value, **context):
+          return (
+              "pass"
+              if bool(re.fullmatch(r"subnet-[0-9a-f]{8,17}", str(value)))
+              else "fail"
+          )
+  bucket_name:
+    description: Require a valid lowercase S3 bucket name.
+    inline: |
+      import re
+
+      def validate(value, **context):
+          return (
+              "pass"
+              if bool(re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", value))
+              else "fail"
+          )
+  ssh_ingress_cidrs:
+    description: Require a comma-separated list of valid network CIDR blocks.
+    inline: |
+      import ipaddress
+
+      def validate(value, **context):
+          if not isinstance(value, str) or not value.strip():
+              return "fail"
+          cidrs = [item.strip() for item in value.split(",") if item.strip()]
+          if not cidrs:
+              return "fail"
+          try:
+              for cidr in cidrs:
+                  ipaddress.ip_network(cidr, strict=False)
+          except ValueError:
+              return "fail"
+          return "pass"
+
+# Apply checks to the generated plan, including policy and security checks.
+plan_validations:
+  ec2_requires_imdsv2:
+    description: Ensure all EC2 instances require IMDSv2 tokens.
+    rule:
+      script:
+        source: local
+        data:
+          path: scripts/validations/validate_ec2_requires_imdsv2.py
+  ec2_t3_micro_warning:
+    description: Warn when plans include t3.micro so teams can rightsize before production.
+    rule:
+      script:
+        source: local
+        data:
+          path: scripts/validations/validate_ec2_t3_micro_warning.py
+  s3_public_access_block_enabled:
+    description: Ensure S3 public access block controls are enabled.
+    rule:
+      script:
+        source: local
+        data:
+          path: scripts/validations/validate_s3_no_public_access.py
+  s3_write_policy_is_scoped:
+    description: Ensure any PutObject allow statements are principal and object scoped.
+    rule:
+      script:
+        source: local
+        data:
+          path: scripts/validations/validate_s3_write_policy_scope.py
+# Use the convention-based repository for component types without an explicit mapping.
+
+default_module_mapping:
+  description: Convention-based fallback for component types without an explicit mapping.
+  source:
+    source: git
+    data:
+      repo: https://github.com/my-org/{{ component.type | replace("-", "_") }}
+      ref: latest
+  auto_inject_inputs: true
+  auto_expose_outputs: true
+
+# Map component types to their Terraform or local module implementations.
+module_mappings:
+  aws_s3_bucket:
+    description: AWS S3 bucket
+    source:
+      source: git
+      data:
+        repo: https://github.com/terraform-aws-modules/terraform-aws-s3-bucket.git
+        ref: "v5.12.0"
+    auto_inject_inputs: true
+    # Route this module through the aliased provider to demonstrate provider selection.
+    providers:
+      aws: aws.secondary
+    outputs:
+      id:
+        description: Bucket identifier used in policies and operations.
+        mapped_from: s3_bucket_id
+      arn:
+        description: Bucket ARN used in IAM policies.
+        mapped_from: s3_bucket_id
+        transform:
+          description: Adapt the module's bucket identifier into an ARN.
+          jinja: "arn:aws:s3:::{{ output.value }}"
+    properties:
+      bucket_name:
+        description: Friendly bucket name supplied by the stack author.
+        mapped_to: bucket
+        transform:
+          description: Prefix the bucket name with the environment and normalize it.
+          script:
+            source: local
+            data:
+              path: scripts/transforms/transform_bucket_name.py
+      aws_region:
+        mapped_to: region
+      versioning_enabled:
+        description: Whether object versioning is enabled for the bucket.
+        mapped_to: versioning
+        transform:
+          description: Convert common truthy strings into the module's versioning object.
+          inline: |
+            def transform(value, **context):
+                normalized = value
+                if isinstance(normalized, str):
+                    normalized = normalized.strip().lower() in {"1", "true", "yes", "on"}
+                return {"enabled": bool(normalized)}
+      lifecycle_rules:
+        description: Compact lifecycle rules supplied by the stack author.
+        mapped_to: lifecycle_rule
+        transform:
+          description: Expand compact lifecycle rules into the module's expected structure.
+          script:
+            source: local
+            data:
+              path: scripts/transforms/transform_lifecycle_rules.py
+      writer_principal_arn:
+        description: IAM principal allowed to write objects to the bucket.
+        mapped_to: policy
+        transform:
+          description: Build a scoped S3 write policy for the configured principal.
+          script:
+            source: local
+            data:
+              path: scripts/transforms/transform_s3_write_policy.py
+      tags:
+        transform:
+          description: Merge standard Stacksmith tags with user-supplied tags.
+          script:
+            source: local
+            data:
+              path: scripts/transforms/transform_tags.py
+  aws_ec2_instance:
+    description: AWS EC2 instance
+    source:
+      source: git
+      data:
+        repo: https://github.com/terraform-aws-modules/terraform-aws-ec2-instance.git
+        ref: "v6.4.0"
+    auto_inject_inputs: true
+    outputs:
+      role_arn:
+        description: IAM role created for the instance.
+        mapped_from: iam_role_arn
+    properties:
+      name:
+        transform:
+          description: Prefix the instance name with the environment when needed.
+          inline: |
+            def transform(value, **context):
+                inputs = context.get("inputs") or {}
+                base = str(value).strip().lower().replace("_", "-")
+                environment = str(inputs.get("environment", "dev")).strip().lower()
+                return base if base.startswith(f"{environment}-") else f"{environment}-{base}"
+      aws_region:
+        mapped_to: region
+      ssh_ingress_cidrs:
+        description: Networks allowed to reach the instance over SSH.
+        mapped_to: security_group_ingress_rules
+        transform:
+          description: Convert CIDR values into security-group ingress rules.
+          script:
+            source: local
+            data:
+              path: scripts/transforms/transform_security_group_ingress_rules.py
+      tags:
+        transform:
+          description: Merge standard Stacksmith tags with user-supplied tags.
+          script:
+            source: local
+            data:
+              path: scripts/transforms/transform_tags.py
+  aws_iam_role:
+    description: AWS IAM role
+    source:
+      source: git
+      data:
+        repo: https://github.com/terraform-aws-modules/terraform-aws-iam.git
+        path: modules/iam-role
+        ref: "v6.6.0"
+    auto_inject_inputs: true
+    properties:
+      name:
+        transform:
+          description: Prefix the role name with the environment when needed.
+          inline: |
+            def transform(value, **context):
+                inputs = context.get("inputs") or {}
+                base = str(value).strip().lower().replace("_", "-")
+                environment = str(inputs.get("environment", "dev")).strip().lower()
+                return base if base.startswith(f"{environment}-") else f"{environment}-{base}"
+      tags:
+        transform:
+          description: Merge standard Stacksmith tags with user-supplied tags.
+          script:
+            source: local
+            data:
+              path: scripts/transforms/transform_tags.py
+
+  helm_app:
+    description: Helm-style app deployment
+    source:
+      source: local
+      data:
+        path: ../modules/helm_app
+    auto_inject_inputs: true
+    # The local module's release_name output is exposed by introspection.
+    auto_expose_outputs: true
+    properties:
+      version:
+        mapped_to: chart_version
+
+  k8s_app:
+    description: Kubernetes manifest delivery
+    source:
+      source: local
+      data:
+        path: ../modules/kubernetes_app
+    auto_inject_inputs: true
+
+  terraform_data:
+    description: Credential-free placeholder component
+    source:
+      source: local
+      data:
+        path: ../modules/terraform_data
+    auto_inject_inputs: true
+    outputs:
+      id:
+        description: Identifier of the placeholder resource.
+
+# Expose approved operational commands to stack users.
+operations:
+  echo_reconciliation:
+    description: Echo completion of a simple GitOps reconciliation.
+    runner: local
+    trigger: after_apply
+    stream_output: true
+    output_masking:
+      inputs:
+        - secret_token
+      literals:
+        - DO-NOT-LEAK
+    command:
+      - sh
+      - -c
+      - 'echo "Stacksmith simple GitOps reconciliation completed: environment=$STACKSMITH_OPERATION_ENVIRONMENT message=$STACKSMITH_OPERATION_MESSAGE project=$STACKSMITH_OPERATION_PROJECT token=$STACKSMITH_OPERATION_SECRET_TOKEN"'
+    environment:
+      STACKSMITH_OPERATION_ENVIRONMENT: environment
+      STACKSMITH_OPERATION_MESSAGE: message
+      STACKSMITH_OPERATION_PROJECT: project
+      STACKSMITH_OPERATION_SECRET_TOKEN: secret_token
+    inputs:
+      environment:
+        description: Deployment environment being reconciled.
+        required: true
+      message:
+        description: Message declared by the environment manifest.
+        required: true
+      project:
+        description: Project declared by the common manifest.
+        required: true
+      secret_token:
+        description: Sensitive token shown in streamed output for masking demonstration.
+        required: true
+        secret: true
+
+  deploy:
+    description: Run the platform-approved deployment command
+    runner: local
+    trigger: after_apply
+    command:
+      - echo
+      - "approved command: deploy"
+    environment:
+      APP_ENV: environment
+      RELEASE_TAG: release_tag
+      DEPLOYMENT_TAGS: deployment_tags
+      LOGS_BUCKET_ID: logs_bucket_id
+    inputs:
+      environment:
+        description: Deployment environment passed to the approved command.
+        required: true
+      release_tag:
+        description: Immutable application release identifier.
+        required: true
+      deployment_tags:
+        description: Optional deployment tags serialized for the command.
+      logs_bucket_id:
+        description: Bucket identifier produced by the stack.
+        required: true
+
+  jenkins_deploy:
+    description: Trigger the platform-approved Jenkins deployment job
+    runner: jenkins
+    trigger: after_apply
+    url: https://jenkins.example.com
+    job_name: deployments/application
+    username_env: STACKSMITH_JENKINS_USERNAME
+    api_token_env: STACKSMITH_JENKINS_API_TOKEN
+    poll_interval_seconds: 5
+    timeout_seconds: 3600
+    parameters:
+      ENVIRONMENT: environment
+      RELEASE_TAG: release_tag
+      GIT_COMMIT: commit_id
+    inputs:
+      environment:
+        description: Deployment environment passed to Jenkins.
+        required: true
+      release_tag:
+        description: Immutable application release identifier.
+        required: true
+      commit_id:
+        description: Immutable application Git commit to deploy.
+        required: true
