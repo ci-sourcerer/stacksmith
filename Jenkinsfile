@@ -94,15 +94,18 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
 
     for (def entry : credentials) {
         if (!(entry instanceof Map)) {
+            echo("DEBUG: Credential entry is not a Map: ${entry?.getClass()?.getName()}")
             continue
         }
 
         String id = entry.credentialId?.toString()?.trim()
         if (!id) {
+            echo("DEBUG: Credential entry has no credentialId: ${entry}")
             continue
         }
 
         String type = entry.type?.toString()?.trim() ?: 'string'
+        echo("DEBUG: Processing credential: id=${id}, type=${type}")
 
         switch (type) {
             case 'usernamePassword':
@@ -134,6 +137,7 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
         }
     }
 
+    echo("DEBUG: buildCredentialBindings() returning ${bindings.size()} binding(s)")
     return bindings
 }
 
@@ -181,6 +185,7 @@ void executeStacksmithMatrix(
             }
 
             List<Map<String, Object>> credentialBindings = buildCredentialBindings(credentialsList)
+            echo("DEBUG: After buildCredentialBindings() - credentialBindings=${credentialBindings}, size=${credentialBindings?.size()}, truthy=${(boolean)credentialBindings}")
             if (credentialBindings) {
                 echo("Binding ${credentialBindings.size()} credential binding(s) for environment ${environment}")
             }
@@ -190,11 +195,16 @@ void executeStacksmithMatrix(
                 "STACKSMITH_CI_PHASE=${command}",
                 "VALIDATION_REPORT_PATH=${artifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
             ]) {
-                int status = credentialBindings
-                    ? withCredentials(credentialBindings) {
+                int status
+                if (credentialBindings) {
+                    echo("DEBUG: Calling withCredentials with ${credentialBindings.size()} binding(s)")
+                    status = withCredentials(credentialBindings) {
                         executeStacksmith()
                     }
-                    : executeStacksmith()
+                } else {
+                    echo("DEBUG: No credential bindings, calling executeStacksmith() directly")
+                    status = executeStacksmith()
+                }
 
                 if (command == 'plan' && parseBoolean(env.STACKSMITH_UPLOAD_ARTIFACTS ?: 'true')) {
                     List<String> artifacts = []
