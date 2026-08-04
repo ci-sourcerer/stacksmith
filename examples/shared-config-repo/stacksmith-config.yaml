@@ -293,6 +293,29 @@ module_mappings:
 
 # Expose approved operational commands to stack users.
 operations:
+  echo_reconciliation:
+    description: Echo completion of a simple GitOps reconciliation.
+    runner: local
+    trigger: after_apply
+    command:
+      - sh
+      - -c
+      - 'echo "Stacksmith simple GitOps reconciliation completed: environment=$STACKSMITH_OPERATION_ENVIRONMENT message=$STACKSMITH_OPERATION_MESSAGE project=$STACKSMITH_OPERATION_PROJECT"'
+    environment:
+      STACKSMITH_OPERATION_ENVIRONMENT: environment
+      STACKSMITH_OPERATION_MESSAGE: message
+      STACKSMITH_OPERATION_PROJECT: project
+    inputs:
+      environment:
+        description: Deployment environment being reconciled.
+        required: true
+      message:
+        description: Message declared by the environment manifest.
+        required: true
+      project:
+        description: Project declared by the common manifest.
+        required: true
+
   deploy:
     description: Run the platform-approved deployment command
     runner: local

@@ -320,6 +320,42 @@ def test_jenkins_operation_spec_configures_completion_polling():
     assert spec["timeout_seconds"] == 600
 
 
+def test_local_operation_runner_echoes_spec_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+    tmp_path: Path,
+):
+    monkeypatch.setenv(
+        "STACKSMITH_OPERATION_SPEC",
+        json.dumps(
+            {
+                "runner": "local",
+                "command": [
+                    "sh",
+                    "-c",
+                    'echo "Stacksmith simple GitOps reconciliation completed: environment=$STACKSMITH_OPERATION_ENVIRONMENT message=$STACKSMITH_OPERATION_MESSAGE project=$STACKSMITH_OPERATION_PROJECT"',
+                ],
+                "environment": {
+                    "STACKSMITH_OPERATION_ENVIRONMENT": "dev",
+                    "STACKSMITH_OPERATION_MESSAGE": "Hello from development",
+                    "STACKSMITH_OPERATION_PROJECT": "stacksmith",
+                },
+                "working_directory": str(tmp_path),
+            }
+        ),
+    )
+
+    runner_path = (
+        Path(__file__).parents[1] / "src/stacksmith/assets/operation_runner/local.py"
+    )
+    runpy.run_path(str(runner_path))
+
+    assert capfd.readouterr().out == (
+        "Stacksmith simple GitOps reconciliation completed: environment=dev "
+        "message=Hello from development project=stacksmith\n"
+    )
+
+
 class _JenkinsResponse(io.BytesIO):
     def __init__(
         self,

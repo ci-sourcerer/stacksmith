@@ -1,8 +1,10 @@
 # Simple GitOps Example
 
-This credential-free example creates two Terraform `terraform_data` instances. It uses the same hybrid `env-files` discovery layout as the canonical GitOps example.
+This credential-free example creates two Terraform `terraform_data` instances and a harmless local echo operation. It uses the same hybrid `env-files` discovery layout as the canonical GitOps example.
 
 The common runfile loads the credential-free config from the shared config repo, the stack, and `vars/vars.common.yaml`. The discovered `dev` and `prod` environment files add their matching environment-specific vars.
+
+The stack also declares `announce_reconciliation`, which selects the platform-approved `echo_reconciliation` operation. Its explicit `after_apply` trigger makes an apply print a completion message after the Terraform resources converge when the operation is first created or its specification changes. The operation receives the declared environment, message, and project values and has no external side effects. For `dev`, it prints `Stacksmith simple GitOps reconciliation completed: environment=dev message=Hello from development project=stacksmith`. This simulates a real-world GitOps workflow where an application-level operation is triggered after a successful apply.
 
 ## Discover the environments
 

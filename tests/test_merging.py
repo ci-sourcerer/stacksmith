@@ -318,3 +318,36 @@ def test_gitops_example_wires_pinned_commit_to_jenkins_operation():
         "RELEASE_TAG": "app-artifacts-dev",
         "GIT_COMMIT": application_commit,
     }
+
+
+def test_simple_gitops_example_wires_after_apply_echo_operation():
+    examples_root = Path(__file__).parents[1] / "examples"
+    runfile = load_runfile(examples_root / "gitops-simple-repo/common/stacksmith.yaml")
+    stack = load_stacks(
+        [Path(reference.data.path) for reference in runfile.stacks],
+        template_context={
+            "inputs": {
+                "environment": "dev",
+                "message": "Hello from development",
+                "project": "stacksmith",
+                "first_name": "first",
+                "second_name": "second",
+            }
+        },
+    )
+
+    config = load_config([Path(reference.data.path) for reference in runfile.configs])
+    spec = build_operation_module_spec(stack, config, "announce_reconciliation")
+
+    assert config.operations["echo_reconciliation"].trigger == "after_apply"
+    assert spec["runner"] == "local"
+    assert spec["command"] == [
+        "sh",
+        "-c",
+        'echo "Stacksmith simple GitOps reconciliation completed: environment=$STACKSMITH_OPERATION_ENVIRONMENT message=$STACKSMITH_OPERATION_MESSAGE project=$STACKSMITH_OPERATION_PROJECT"',
+    ]
+    assert spec["environment"] == {
+        "STACKSMITH_OPERATION_ENVIRONMENT": "dev",
+        "STACKSMITH_OPERATION_MESSAGE": "Hello from development",
+        "STACKSMITH_OPERATION_PROJECT": "stacksmith",
+    }

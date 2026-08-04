@@ -24,3 +24,12 @@ components:
         message: "{{ inputs.message }}"
         name: "{{ inputs.second_name }}"
         project: "{{ inputs.project }}"
+
+operations:
+  announce_reconciliation:
+    description: Emit a harmless completion message after the stack applies.
+    use: echo_reconciliation
+    with:
+      environment: "{{ inputs.environment }}"
+      message: "{{ inputs.message }}"
+      project: "{{ inputs.project }}"
