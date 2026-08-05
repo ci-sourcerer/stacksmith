@@ -81,13 +81,16 @@ class CiExecutionManifest(BaseModel):
     def _validate_manifest(self) -> CiExecutionManifest:
         if not self.config_ref.strip():
             raise ValueError("config_ref must be a non-empty string")
-        if self.command not in {"plan-operation", "apply-operation"} and self.operation_names:
+        if (
+            self.command not in {"plan-operation", "apply-operation"}
+            and self.operation_names
+        ):
             raise ValueError(
                 "operation names are only supported when command is "
                 "'plan-operation' or 'apply-operation'"
             )
         if (
-            self.command not in {"plan-operation", "operation"}
+            self.command not in {"plan-operation", "apply-operation"}
             and self.offline
             and not self.locked
         ):

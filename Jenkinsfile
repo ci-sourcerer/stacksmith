@@ -412,7 +412,7 @@ withStacksmithAgent {
                 stage('Run operation(s)') {
                     if (!(
                         env.SELECTED_ENVIRONMENTS
-                        && env.COMMAND == 'operation'
+                        && env.COMMAND in ['apply', 'apply-operation']
                         && !env.DO_NOT_EXECUTE_STACKSMITH
                     )) {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)

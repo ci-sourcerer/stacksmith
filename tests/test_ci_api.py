@@ -569,7 +569,10 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert "phase: apply" in actions_workflow
     assert "phase: plan-operation" in actions_workflow
     assert "inputs.command == 'plan-operation'" in actions_workflow
-    assert "env.COMMAND in ['plan', 'apply', 'plan-operation', 'apply-operation']" in jenkins_pipeline
+    assert (
+        "env.COMMAND in ['plan', 'apply', 'plan-operation', 'apply-operation']"
+        in jenkins_pipeline
+    )
     assert "      max_parallel_operations:" not in actions_workflow
     assert "STACKSMITH_MAX_PARALLEL_OPERATIONS" in actions_workflow
     assert "inputs.phase || fromJson(inputs.ci_manifest).command" in actions_executor
@@ -731,6 +734,3 @@ def test_prepare_ci_execution_accepts_colon_delimited_config_refs(tmp_path: Path
     assert manifest.config_ref == f"{base_config}:{overlay_config}"
     argv = build_ci_execution_argv(manifest, "dev")
     assert "--config" in argv
-
-
-
