@@ -204,7 +204,7 @@ def test_prepare_ci_execution_builds_version_two_operation_batch(
     monkeypatch.setenv("STACKSMITH_MAX_PARALLEL_OPERATIONS", "2")
 
     manifest = prepare_ci_execution(
-        command="operation",
+        command="apply-operation",
         operation_names="publish, deploy,verify",
         config_ref=str(_REMOTE_BACKEND_CONFIG),
         gitops_root=str(tmp_path),
@@ -227,7 +227,7 @@ def test_prepare_ci_execution_builds_version_two_operation_batch(
 
 def test_ci_manifest_accepts_single_operation():
     manifest = CiExecutionManifest(
-        command="operation",
+        command="apply-operation",
         operation_names=["deploy"],
         config_ref="platform/stacksmith-config.yaml",
         matrix=[CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")],
@@ -243,7 +243,7 @@ def test_ci_manifest_accepts_single_operation():
     ]
 
 
-@pytest.mark.parametrize("command", ["plan-operation", "operation"])
+@pytest.mark.parametrize("command", ["plan-operation", "apply-operation"])
 def test_ci_operation_commands_select_all_when_names_are_omitted(
     command: str,
     tmp_path: Path,
@@ -278,7 +278,7 @@ def test_prepare_ci_execution_rejects_invalid_operation_batch(
 
     with pytest.raises(StacksmithConfigError, match="Operation names"):
         prepare_ci_execution(
-            command="operation",
+            command="apply-operation",
             operation_names=operation_names,
             config_ref=str(_REMOTE_BACKEND_CONFIG),
             gitops_root=str(tmp_path),
@@ -439,7 +439,7 @@ def test_prepare_ci_manifest_from_env_reads_operation_batch(
     monkeypatch, tmp_path: Path
 ):
     _create_env_files_layout(tmp_path)
-    monkeypatch.setenv("INPUT_COMMAND", "operation")
+    monkeypatch.setenv("INPUT_COMMAND", "apply-operation")
     monkeypatch.setenv("INPUT_OPERATION_NAMES", "publish, deploy")
     monkeypatch.setenv("STACKSMITH_MAX_PARALLEL_OPERATIONS", "4")
     monkeypatch.setenv("INPUT_CONFIG_REF", str(_REMOTE_BACKEND_CONFIG))
@@ -563,16 +563,13 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert '"STACKSMITH_CI_PHASE=${command}"' in jenkins_pipeline
     assert '--phase "$STACKSMITH_CI_PHASE"' in jenkins_pipeline
     assert "inputs.command == 'plan' || inputs.command == 'apply'" in actions_workflow
-    assert "needs: [discover, plan, plan-operation]" in actions_workflow
+    assert "needs: [discover, plan, plan-operation, run-operation]" in actions_workflow
     assert "needs: [discover, plan-operation]" in actions_workflow
     assert "phase: plan" in actions_workflow
     assert "phase: apply" in actions_workflow
     assert "phase: plan-operation" in actions_workflow
     assert "inputs.command == 'plan-operation'" in actions_workflow
-    assert (
-        "env.COMMAND in ['plan', 'apply', 'plan-operation', 'operation']"
-        in jenkins_pipeline
-    )
+    assert "env.COMMAND in ['plan', 'apply', 'plan-operation', 'apply-operation']" in jenkins_pipeline
     assert "      max_parallel_operations:" not in actions_workflow
     assert "STACKSMITH_MAX_PARALLEL_OPERATIONS" in actions_workflow
     assert "inputs.phase || fromJson(inputs.ci_manifest).command" in actions_executor
@@ -646,7 +643,7 @@ def test_ci_apply_manifest_supports_plan_then_apply_phases():
 
 def test_ci_operation_manifest_supports_plan_then_run_phases():
     manifest = CiExecutionManifest(
-        command="operation",
+        command="apply-operation",
         operation_names=["deploy"],
         config_ref="platform/stacksmith-config.yaml",
         force_rerun=True,

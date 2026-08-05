@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from ..enums import ValidationReportFormat
 from ..exceptions import StacksmithConfigError, StacksmithError
 
-CiCommand = Literal["plan", "apply", "plan-operation", "operation"]
+CiCommand = Literal["plan", "apply", "plan-operation", "apply-operation"]
 
 
 class CiExecutionRow(BaseModel):
@@ -81,10 +81,10 @@ class CiExecutionManifest(BaseModel):
     def _validate_manifest(self) -> CiExecutionManifest:
         if not self.config_ref.strip():
             raise ValueError("config_ref must be a non-empty string")
-        if self.command not in {"plan-operation", "operation"} and self.operation_names:
+        if self.command not in {"plan-operation", "apply-operation"} and self.operation_names:
             raise ValueError(
                 "operation names are only supported when command is "
-                "'plan-operation' or 'operation'"
+                "'plan-operation' or 'apply-operation'"
             )
         if (
             self.command not in {"plan-operation", "operation"}
@@ -175,20 +175,20 @@ def validate_ci_policy(
     Raises:
         StacksmithConfigError: If command or branch policy is invalid.
     """
-    if command not in {"plan", "apply", "plan-operation", "operation"}:
+    if command not in {"plan", "apply", "plan-operation", "apply-operation"}:
         raise StacksmithConfigError(
             f"Invalid command '{command}'. Expected 'plan', 'apply', "
-            "'plan-operation', or 'operation'."
+            "'plan-operation', or 'apply-operation'."
         )
-    if command not in {"plan-operation", "operation"} and operation_names:
+    if command not in {"plan-operation", "apply-operation"} and operation_names:
         raise StacksmithConfigError(
             "Operation names are only supported when command is "
-            "'plan-operation' or 'operation'."
+            "'plan-operation' or 'apply-operation'."
         )
     if skip_branch_validation:
         return
     if event_name == "pull_request":
-        if command in {"apply", "operation"}:
+        if command in {"apply", "apply-operation"}:
             raise StacksmithConfigError(
                 f"'{command}' is not allowed on pull requests. Use 'plan' instead."
             )
@@ -224,14 +224,16 @@ def resolve_ci_execution_phase(
     Raises:
         StacksmithError: If the phase is not valid for the manifest command.
     """
-    resolved_phase = phase or manifest.command
+    resolved_phase = phase or (
+        "operation" if manifest.command == "apply-operation" else manifest.command
+    )
     if (
         resolved_phase
         not in {
             "plan": {"plan", "plan-operation"},
-            "apply": {"plan", "plan-operation", "apply"},
+            "apply": {"plan", "plan-operation", "apply", "operation"},
             "plan-operation": {"plan-operation"},
-            "operation": {"plan-operation", "operation"},
+            "apply-operation": {"plan-operation", "operation"},
         }[manifest.command]
     ):
         raise StacksmithError(

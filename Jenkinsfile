@@ -262,7 +262,7 @@ withStacksmithAgent {
         ansiColor('xterm') {
             properties([
                 parameters([
-                    choice(name: 'COMMAND', choices: ['plan', 'apply', 'plan-operation', 'operation'], description: 'Stacksmith command'),
+                    choice(name: 'COMMAND', choices: ['plan', 'apply', 'plan-operation', 'apply-operation'], description: 'Stacksmith command'),
                     string(name: 'OPERATION_NAMES', description: 'comma-delimited stack-local operation names; empty selects all'),
                     string(name: 'ENVIRONMENTS', description: 'comma-separated environments to target manually'),
                     string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
@@ -355,7 +355,7 @@ withStacksmithAgent {
                 stage('Plan operation(s)') {
                     if (!(
                         env.SELECTED_ENVIRONMENTS
-                        && env.COMMAND in ['plan', 'apply', 'plan-operation', 'operation']
+                        && env.COMMAND in ['plan', 'apply', 'plan-operation', 'apply-operation']
                     )) {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
                         return
@@ -370,14 +370,14 @@ withStacksmithAgent {
                 }
 
                 stage('Approve') {
-                    if (!(env.SELECTED_ENVIRONMENTS && env.COMMAND in ['apply', 'operation'])) {
+                    if (!(env.SELECTED_ENVIRONMENTS && env.COMMAND in ['apply', 'apply-operation'])) {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
                         return
                     }
 
                     try {
                         input(
-                            message: env.COMMAND == 'operation'
+                            message: env.COMMAND == 'apply-operation'
                                 ? "Run Stacksmith ${env.SELECTED_OPERATIONS ?: 'all operations'} in ${env.SELECTED_ENVIRONMENTS}?"
                                 : "Apply Stacksmith changes to ${env.SELECTED_ENVIRONMENTS}?"
                         )

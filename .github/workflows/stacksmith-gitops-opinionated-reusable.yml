@@ -4,11 +4,11 @@ on:
   workflow_call:
     inputs:
       command:
-        description: Stacksmith command to run. Supported values are plan, apply, plan-operation, and operation.
+        description: Stacksmith command to run. Supported values are plan, apply, plan-operation, and apply-operation.
         required: true
         type: string
       operation_names:
-        description: Comma-delimited stack-local native operation names. Empty selects all for plan-operation and operation.
+        description: Comma-delimited stack-local native operation names. Empty selects all for plan-operation and apply-operation.
         required: false
         type: string
         default: ""
@@ -114,7 +114,7 @@ jobs:
 
   apply:
     name: apply
-    needs: [discover, plan, plan-operation]
+    needs: [discover, plan, plan-operation, run-operation]
     if: ${{ inputs.command == 'apply' && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false
@@ -131,7 +131,7 @@ jobs:
   plan-operation:
     name: plan-operation
     needs: discover
-    if: ${{ (inputs.command == 'plan' || inputs.command == 'apply' || inputs.command == 'plan-operation' || inputs.command == 'operation') && needs.discover.outputs.count != '0' }}
+    if: ${{ (inputs.command == 'plan' || inputs.command == 'apply' || inputs.command == 'plan-operation' || inputs.command == 'apply-operation') && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false
       matrix:
@@ -144,10 +144,10 @@ jobs:
       image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
     secrets: inherit
 
-  operation:
-    name: operation
+  run-operation:
+    name: run-operation
     needs: [discover, plan-operation]
-    if: ${{ inputs.command == 'operation' && needs.discover.outputs.count != '0' }}
+    if: ${{ (inputs.command == 'apply' || inputs.command == 'apply-operation') && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false
       matrix:
