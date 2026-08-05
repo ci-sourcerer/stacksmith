@@ -107,55 +107,50 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
         String type = entry.type?.toString()?.trim() ?: 'string'
         
 
-        try {
-            switch (type) {
-                case 'usernamePassword':
-                case 'http_basic':
-                    
-                    def binding = usernamePassword(
-                        credentialsId: id,
-                        usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME'),
-                        passwordVariable: entry.passwordVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_PASSWORD')
-                    )
-                    
-                    bindings << binding
-                    break
-                case 'sshUserPrivateKey':
-                case 'git_ssh_key':
-                    
-                    def binding = sshUserPrivateKey(
-                        credentialsId: id,
-                        keyFileVariable: entry.keyFileVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_KEY'),
-                        usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME')
-                    )
-                    
-                    bindings << binding
-                    break
-                case 'string':
-                case 'secret_text':
-                case 'git_token':
-                case 'http_token':
-                    
-                    def binding = string(
-                        credentialsId: id,
-                        variable: credentialVariable(entry, type)
-                    )
-                    
-                    bindings << binding
-                    break
-                default:
-                    
-                    def binding = string(
-                        credentialsId: id,
-                        variable: credentialVariable(entry, type)
-                    )
-                    
-                    bindings << binding
-                    break
-            }
-        } catch (Exception e) {
-            echo("ERROR creating binding for ${id}: ${e.message}")
-            e.printStackTrace()
+        switch (type) {
+            case 'usernamePassword':
+            case 'http_basic':
+                
+                def binding = usernamePassword(
+                    credentialsId: id,
+                    usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME'),
+                    passwordVariable: entry.passwordVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_PASSWORD')
+                )
+                
+                bindings << binding
+                break
+            case 'sshUserPrivateKey':
+            case 'git_ssh_key':
+                
+                def binding = sshUserPrivateKey(
+                    credentialsId: id,
+                    keyFileVariable: entry.keyFileVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_KEY'),
+                    usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME')
+                )
+                
+                bindings << binding
+                break
+            case 'string':
+            case 'secret_text':
+            case 'git_token':
+            case 'http_token':
+                
+                def binding = string(
+                    credentialsId: id,
+                    variable: credentialVariable(entry, type)
+                )
+                
+                bindings << binding
+                break
+            default:
+                
+                def binding = string(
+                    credentialsId: id,
+                    variable: credentialVariable(entry, type)
+                )
+                
+                bindings << binding
+                break
         }
     }
 
@@ -208,10 +203,6 @@ void executeStacksmithMatrix(
 
             List<Map<String, Object>> credentialBindings = buildCredentialBindings(credentialsList)
             
-            if (credentialBindings) {
-                echo("Binding ${credentialBindings.size()} credential binding(s) for environment ${environment}")
-            }
-
             withEnv([
                 "ENVIRONMENT=${environment}",
                 "STACKSMITH_CI_PHASE=${command}",
