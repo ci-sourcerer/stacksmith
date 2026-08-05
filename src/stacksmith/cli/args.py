@@ -254,6 +254,16 @@ def add_apply_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Path or directory to a pre-generated execution plan to apply.",
     )
+    parser.add_argument(
+        "--no-after-apply",
+        action="store_true",
+        default=False,
+        help=(
+            "When applying infrastructure, do not automatically reconcile "
+            "operations configured with trigger: after_apply. "
+            "Use a separate operation run phase instead."
+        ),
+    )
 
 
 def add_target_selection_args(

@@ -698,6 +698,20 @@ def test_ci_apply_manifest_supports_after_apply_operation_plan_phase():
     assert "--after-apply" in operation_plan_argv
 
 
+def test_ci_apply_manifest_uses_no_after_apply_in_apply_phase():
+    manifest = CiExecutionManifest(
+        command="apply",
+        config_ref="platform/stacksmith-config.yaml",
+        matrix=[CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")],
+    )
+
+    apply_argv = build_ci_execution_argv(manifest, "dev", "apply")
+
+    assert apply_argv[0] == "apply"
+    assert "--auto-approve" in apply_argv
+    assert "--no-after-apply" in apply_argv
+
+
 def test_ci_manifest_rejects_unapproved_execution_phase():
     manifest = CiExecutionManifest(
         command="plan",

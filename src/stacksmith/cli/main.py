@@ -648,6 +648,7 @@ def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
         locked=getattr(args, "locked", False),
         offline=getattr(args, "offline", False),
         runfiles=_runfile_refs_for_lock(args),
+        skip_after_apply=getattr(args, "no_after_apply", False),
     )
 
 

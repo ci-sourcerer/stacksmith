@@ -323,7 +323,7 @@ def build_ci_execution_argv(
             ),
         ]
     if execution_phase == "apply":
-        return ["apply", *common_args, "--auto-approve"]
+        return ["apply", *common_args, "--auto-approve", "--no-after-apply"]
     if execution_phase == "plan-operation":
         return [
             "operation",

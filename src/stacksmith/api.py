@@ -1734,6 +1734,7 @@ def run_stack_action(
     locked: bool = False,
     offline: bool = False,
     runfiles: Sequence[str | Path | FileReference] | None = None,
+    skip_after_apply: bool = False,
 ) -> int:
     """Generate files for a stack and run a Terragrunt action.
 
@@ -1769,6 +1770,8 @@ def run_stack_action(
         locked: Whether to enforce lockfile verification before runtime actions.
         offline: Whether to require offline-only artifact usage before runtime actions.
         runfiles: Optional runfile references used for lock verification.
+        skip_after_apply: When `True`, skip any after-apply operations that would normally
+            be executed after a successful apply.
 
     Returns:
         Process-style exit code from the Terragrunt action.
@@ -1896,6 +1899,7 @@ def run_stack_action(
         terragrunt_exit_code == 0
         and action_enum == TerragruntAction.APPLY
         and not destroy
+        and not skip_after_apply
         and (operation_names := select_after_apply_operations(stack, loaded_config))
     ):
         LOGGER.info(
