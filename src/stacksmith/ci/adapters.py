@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -7,6 +8,8 @@ from ..formatters import compact_json
 from ..utils import parse_bool
 from .contracts import CiExecutionManifest, resolve_ci_execution_phase
 from .service import prepare_ci_execution
+
+LOGGER = logging.getLogger(__name__)
 
 
 def optional_env_bool(name: str) -> bool | None:
@@ -88,6 +91,11 @@ def write_github_output_manifest(
         output_stream.write(f"manifest={manifest_output_json(manifest)}\n")
         output_stream.write(f"matrix={compact_json(matrix)}\n")
         output_stream.write(f"count={len(matrix)}\n")
+    LOGGER.debug(
+        "Wrote CI manifest outputs for %d environment(s) to %s",
+        len(matrix),
+        github_output_path,
+    )
 
 
 def load_ci_execution_manifest(path: Path) -> CiExecutionManifest:
@@ -102,6 +110,7 @@ def load_ci_execution_manifest(path: Path) -> CiExecutionManifest:
     Raises:
         StacksmithError: If the manifest cannot be read or validated.
     """
+    LOGGER.debug("Loading CI execution manifest from %s", path)
     try:
         return CiExecutionManifest.model_validate_json(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -129,6 +138,7 @@ def write_ssh_key_material(environment: str) -> Path | None:
     path.chmod(0o600)
     path.write_text(f"{key_material.rstrip()}\n", encoding="utf-8")
     os.environ["STACKSMITH_GIT_SSH_KEY"] = str(path)
+    LOGGER.debug("Wrote temporary SSH key material for CI environment %s", environment)
     return path
 
 

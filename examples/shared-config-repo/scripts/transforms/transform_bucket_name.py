@@ -37,5 +37,5 @@ def transform(value: Any, **context: Any) -> str:
     if len(candidate) < 3:
         candidate = f"{candidate}-bucket"[:63].rstrip("-")
 
-    LOGGER.info("Transformed bucket name to %r", candidate)
+    LOGGER.debug("Transformed bucket name to %r", candidate)
     return candidate

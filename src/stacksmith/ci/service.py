@@ -327,6 +327,11 @@ def prepare_ci_execution(
         matrix=[CiExecutionRow.model_validate(row) for row in selection["matrix"]],
     )
     _validate_ci_backends(manifest)
+    LOGGER.info(
+        "Prepared CI execution manifest for command=%s and environments=%s",
+        manifest.command,
+        [row.environment for row in manifest.matrix],
+    )
     return manifest
 
 

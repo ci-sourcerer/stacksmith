@@ -114,5 +114,5 @@ def validate(value: Any, **context: Any) -> str:
                     )
                     return "fail"
 
-    LOGGER.info("Validation passed: S3 write policy statements are properly scoped")
+    LOGGER.debug("Validation passed: S3 write policy statements are properly scoped")
     return "pass"

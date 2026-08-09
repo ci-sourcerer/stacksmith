@@ -60,7 +60,7 @@ def validate(value: Any, **context: Any) -> str | dict[str, str]:
     addresses = sorted(set(_collect_t3_micro_addresses(value)))
     LOGGER.debug("Collected t3.micro addresses: %r", addresses)
     if not addresses:
-        LOGGER.info("Validation passed: no t3.micro instances detected")
+        LOGGER.debug("Validation passed: no t3.micro instances detected")
         return "pass"
 
     LOGGER.info("Validation warning: detected t3.micro instances in plan")

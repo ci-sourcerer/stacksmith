@@ -74,7 +74,7 @@ def _get_aws_account_id() -> str | None:
     try:
         sts = boto3.client("sts")
         account_id = sts.get_caller_identity().get("Account")
-        LOGGER.info("Fetched AWS account id for example policy helper")
+        LOGGER.debug("Fetched AWS account id for example policy helper")
         LOGGER.debug("Fetched AWS account id value=%r", account_id)
         return account_id
     except Exception:
@@ -140,7 +140,7 @@ def transform(value: Any, **context: Any) -> str:
         ],
     }
 
-    LOGGER.info(
+    LOGGER.debug(
         "Generated S3 write policy for %d principal(s) and bucket %s",
         len(principals),
         bucket_arn,

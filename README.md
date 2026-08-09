@@ -974,6 +974,8 @@ Both implementations reserve the command selector, operation selection, operatio
 
 Set the reusable workflow's `debug` input, the Jenkins `DEBUG` parameter, or `STACKSMITH_DEBUG=1` to enable debug logging. Debug CI executions also run `stacksmith info modules-and-policies` with the selected environment's managed config and layered runfiles before the requested command.
 
+The `--log` category filter matches logger names exactly; parent names do not automatically include submodules. For example, use `--log stacksmith.ci.service=DEBUG` for logs emitted by `stacksmith.ci.service`, rather than `--log stacksmith.ci=DEBUG`.
+
 Plan and apply executions read Stacksmith's source-locking controls exclusively from repository-, organization-, job-, or folder-managed environment settings. Set `STACKSMITH_REQUIRE_LOCKFILE` to require resolved inputs to match a lockfile, optionally set `STACKSMITH_LOCKFILE` to choose a non-default path, and combine `STACKSMITH_OFFLINE` with locked mode to prohibit network resolution. Native operations do not currently accept Stacksmith lock-policy flags.
 
 Plan artifacts produced by the managed GitHub Actions and Jenkins entrypoints are redacted in memory before Stacksmith writes them. The archive profile replaces schema-marked sensitive values with `<sensitive>` and omits input variables, configuration expressions, check problem messages, import details, generated configuration, replacement paths, and unrecognized fields because those locations do not consistently carry sensitivity metadata. The resulting JSON is intended for review and diagnostics, not as a complete substitute for raw `tofu show -json` output.

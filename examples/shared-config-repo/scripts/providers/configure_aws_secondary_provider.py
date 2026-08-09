@@ -22,7 +22,7 @@ def _load_identity_helpers() -> ModuleType:
 
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
-    LOGGER.info("Loaded AWS identity helper module")
+    LOGGER.debug("Loaded AWS identity helper module")
     return module
 
 

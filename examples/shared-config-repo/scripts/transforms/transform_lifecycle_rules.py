@@ -32,5 +32,5 @@ def transform(value: Any, **context: Any) -> list[Any]:
         len(user_rules),
     )
     merged_rules = _DEFAULT_RULES + user_rules
-    LOGGER.info("Built lifecycle rules list with %d total entries", len(merged_rules))
+    LOGGER.debug("Built lifecycle rules list with %d total entries", len(merged_rules))
     return merged_rules

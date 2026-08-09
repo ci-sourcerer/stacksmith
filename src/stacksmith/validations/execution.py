@@ -578,7 +578,7 @@ def evaluate_plan_validations_with_results(
             stack_name=stack_name,
         )
     else:
-        LOGGER.info(
+        LOGGER.debug(
             "No enabled plan validations for stack: {stack_name}",
             stack_name=stack_name,
         )

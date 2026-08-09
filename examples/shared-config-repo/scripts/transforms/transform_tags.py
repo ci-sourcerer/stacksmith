@@ -19,5 +19,5 @@ def transform(value: Any, **context: Any) -> dict[str, Any]:
     LOGGER.debug("Default tags: %r", default_tags)
     LOGGER.debug("Incoming tags: %r", incoming_tags)
     merged_tags = {**default_tags, **incoming_tags}
-    LOGGER.info("Merged tags with %d total key(s)", len(merged_tags))
+    LOGGER.debug("Merged tags with %d total key(s)", len(merged_tags))
     return merged_tags

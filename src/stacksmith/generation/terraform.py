@@ -306,7 +306,7 @@ def _generate_module_blocks(
                 )
             },
         )
-        LOGGER.info(
+        LOGGER.debug(
             "Generating module block for component '{component_name}' of type '{component_type}' using module {source}@{version}",
             component_name=component_name,
             component_type=component.type,

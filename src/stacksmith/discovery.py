@@ -1,6 +1,8 @@
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
+from loguru import logger as LOGGER
+
 from .constants import DEFAULT_STACK_FILES
 from .exceptions import StacksmithConfigError
 from .loading import load_stack_metadata
@@ -29,6 +31,7 @@ def discover_stacks(root: Path) -> dict[str, StackDefinition]:
     if not root.is_dir():
         raise FileNotFoundError(f"Root directory not found: {root}")
 
+    LOGGER.debug("Discovering stacks under {root}", root=root)
     stacks = {}
     duplicates = []
 
@@ -40,6 +43,7 @@ def discover_stacks(root: Path) -> dict[str, StackDefinition]:
 
             stack = load_stack_metadata(path)
             name = stack.name
+            LOGGER.debug("Discovered stack '{name}' from {path}", name=name, path=path)
             if name in stacks:
                 duplicates.append(
                     f"  '{name}' defined in both {stacks[name].source_path} and {path}"
@@ -52,6 +56,12 @@ def discover_stacks(root: Path) -> dict[str, StackDefinition]:
             f"Duplicate stack names found:\n {'\n'.join(duplicates)}"
         )
 
+    LOGGER.debug(
+        "Discovered {count} stack(s) under {root}: {names}",
+        count=len(stacks),
+        root=root,
+        names=sorted(stacks),
+    )
     return stacks
 
 

@@ -50,5 +50,5 @@ def validate(value: Any, **context: Any) -> str:
             "IMDSv2 validation does not apply"
         )
     else:
-        LOGGER.info("Validation passed: all aws_instance resources require IMDSv2")
+        LOGGER.debug("Validation passed: all aws_instance resources require IMDSv2")
     return "pass"

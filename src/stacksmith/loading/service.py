@@ -1,6 +1,9 @@
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
+
+from loguru import logger as LOGGER
 
 from ..component_references import (
     validate_component_reference_locations,
@@ -72,11 +75,13 @@ def _render_runfile_stage_one_templates(
 def _merge_config_layers_with_locations(
     config_paths: list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> tuple[dict[str, Any], dict[tuple[str, ...], str]]:
+    LOGGER.debug("Merging config layers with mode {mode}", mode=merge_mode)
     merged: dict[str, Any] = {}
     merged_locations: dict[tuple[str, ...], str] = {}
     merger = AddressAwareMerger(merge_mode, "config")
     for config_path in config_paths:
         resolved_path = config_path.resolve()
+        LOGGER.debug("Loading config layer: {path}", path=resolved_path)
         layer, locations = load_object_file_with_locations(resolved_path)
         validate_fragment(
             layer,
@@ -115,10 +120,12 @@ def _merge_config_locations(
 def _merge_config_layers(
     config_paths: list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> dict[str, Any]:
+    LOGGER.debug("Merging config layers with mode {mode}", mode=merge_mode)
     merged: dict[str, Any] = {}
     merger = AddressAwareMerger(merge_mode, "config")
     for config_path in config_paths:
         resolved_path = config_path.resolve()
+        LOGGER.debug("Loading config layer: {path}", path=resolved_path)
         layer = load_object_file(resolved_path)
         validate_fragment(
             layer,
@@ -175,6 +182,11 @@ def _build_stack(data: dict[str, Any], stack_paths: list[Path]) -> StackDefiniti
         stack_paths,
     )
     stack.source_path = stack_paths[-1].resolve()
+    LOGGER.debug(
+        "Loaded stack definition '{name}' from {path}",
+        name=stack.name,
+        path=stack.source_path,
+    )
     return stack
 
 
@@ -193,6 +205,7 @@ def _merge_stack_layers(
     template_context: Mapping[str, Any] | None = None,
     strict_template_context: bool = False,
 ) -> dict[str, Any]:
+    LOGGER.debug("Merging stack layers with mode {mode}", mode=merge_mode)
     merged: dict[str, Any] = {}
     merger = AddressAwareMerger(merge_mode, "stack")
     template_context = _with_git_repository_template_context(
@@ -202,6 +215,7 @@ def _merge_stack_layers(
     template_context = with_component_reference_context(template_context)
     for stack_path in stack_paths:
         resolved_path = stack_path.resolve()
+        LOGGER.debug("Loading stack layer: {path}", path=resolved_path)
         layer = load_object_file(
             resolved_path,
             template_context=template_context,
@@ -232,6 +246,7 @@ def _build_config(data: dict[str, Any], config_paths: list[Path]) -> ToolConfig:
         config_paths,
     )
     config.source_path = config_paths[-1].resolve()
+    LOGGER.debug("Loaded Stacksmith config from layers: {paths}", paths=config_paths)
     return config
 
 
@@ -401,10 +416,12 @@ def load_config_with_locations(
 def _merge_runfile_layers(
     runfile_paths: list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> dict[str, Any]:
+    LOGGER.debug("Merging runfile layers with mode {mode}", mode=merge_mode)
     merged: dict[str, Any] = {}
     merger = AddressAwareMerger(merge_mode, "runfile")
     for runfile_path in runfile_paths:
         resolved_path = runfile_path.resolve()
+        LOGGER.debug("Loading runfile layer: {path}", path=resolved_path)
         loaded_layer = load_object_file(resolved_path)
         rendered_layer = _render_runfile_stage_one_templates(
             loaded_layer,
@@ -427,10 +444,12 @@ def _merge_runfile_layers(
 def _merge_test_manifest_layers(
     manifest_paths: list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> dict[str, Any]:
+    LOGGER.debug("Merging test manifest layers with mode {mode}", mode=merge_mode)
     merged: dict[str, Any] = {}
     merger = AddressAwareMerger(merge_mode, "config")
     for manifest_path in manifest_paths:
         resolved_path = manifest_path.resolve()
+        LOGGER.debug("Loading test manifest layer: {path}", path=resolved_path)
         loaded_layer = load_object_file(resolved_path)
         validate_fragment(
             loaded_layer,
@@ -552,9 +571,11 @@ def load_runfiles(
         "runfile",
         runfile_paths,
     )
-    return build_validated_model(
+    runfile = build_validated_model(
         RunFile,
         data,
         "runfile",
         runfile_paths,
     )
+    LOGGER.debug("Loaded runfile from layers: {paths}", paths=runfile_paths)
+    return runfile

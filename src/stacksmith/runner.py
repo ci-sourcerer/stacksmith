@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -121,14 +122,6 @@ def _resolve_plan_json_output_path(
     return base_path
 
 
-def _resolve_plan_binary_output_path(
-    base_path: Path, stack_name: str, multiple: bool = False
-) -> Path:
-    if multiple or base_path.is_dir():
-        return base_path / f"{stack_name}.tfplan"
-    return base_path
-
-
 def _has_plan_changes(plan_data: dict[str, Any]) -> bool:
     changes = plan_data.get("resource_changes", [])
     if not isinstance(changes, list):
@@ -144,6 +137,32 @@ def _has_plan_changes(plan_data: dict[str, Any]) -> bool:
     return False
 
 
+def _command_action(command: list[str]) -> str:
+    for argument in command[1:]:
+        if argument in {action.value for action in TerragruntAction}:
+            return argument
+    return "command"
+
+
+def _format_command(command: list[str]) -> str:
+    formatted = []
+    mask_next = False
+    for argument in command:
+        if mask_next:
+            formatted.append("***")
+            mask_next = False
+            continue
+        if argument in {"-var", "--var"}:
+            formatted.append(argument)
+            mask_next = True
+            continue
+        if argument.startswith(("-var=", "--var=")):
+            formatted.append(f"{argument.split('=', 1)[0]}=***")
+            continue
+        formatted.append(argument)
+    return shlex.join(formatted)
+
+
 def _run_terragrunt(
     cmd: list[str],
     working_dir: Path,
@@ -157,7 +176,13 @@ def _run_terragrunt(
 
     if capture_output:
         kwargs.update({"capture_output": True, "text": True})
-        return subprocess.run(cmd, **kwargs)  # noqa: PLW1510
+        result = subprocess.run(cmd, **kwargs)  # noqa: PLW1510
+        LOGGER.debug(
+            "Terragrunt command exited with code {return_code}: {command}",
+            return_code=result.returncode,
+            command=_format_command(cmd),
+        )
+        return result
 
     return subprocess.run(  # noqa: PLW1510
         cmd,
@@ -170,15 +195,19 @@ def _run_terragrunt(
 def _run_terragrunt_streaming(
     cmd: list[str], working_dir: Path, auth_config: RemoteAuthConfig | None = None
 ) -> int:
-    return int(
-        subprocess.run(  # noqa: PLW1510
-            cmd,
-            cwd=working_dir,
-            env=_build_env(auth_config),
-            stdout=sys.stderr,
-            stderr=sys.stderr,
-        ).returncode
+    result = subprocess.run(  # noqa: PLW1510
+        cmd,
+        cwd=working_dir,
+        env=_build_env(auth_config),
+        stdout=sys.stderr,
+        stderr=sys.stderr,
     )
+    LOGGER.debug(
+        "Terragrunt command exited with code {return_code}: {command}",
+        return_code=result.returncode,
+        command=_format_command(cmd),
+    )
+    return int(result.returncode)
 
 
 def _run_terragrunt_capture_text(
@@ -277,8 +306,12 @@ def run_terragrunt(
         no_cas=no_cas,
     )
 
-    LOGGER.info("Running: {command}", command=" ".join(cmd))
-    LOGGER.debug("Working dir: {working_dir}", working_dir=working_dir)
+    LOGGER.info(
+        "Running {action} in {working_dir}",
+        action=_command_action(cmd),
+        working_dir=working_dir,
+    )
+    LOGGER.debug("Terragrunt command: {command}", command=_format_command(cmd))
 
     if _should_run_plan_validation_flow(
         args,
@@ -393,8 +426,12 @@ def _run_plan_validations(
             str(plan_path),
         ]
         LOGGER.info(
-            "Running plan for JSON validation: {command}",
-            command=" ".join(plan_with_out_cmd),
+            "Running plan for JSON validation in {working_dir}",
+            working_dir=working_dir,
+        )
+        LOGGER.debug(
+            "Plan validation command: {command}",
+            command=_format_command(plan_with_out_cmd),
         )
         LOGGER.debug("Temporary plan output path: {plan_path}", plan_path=plan_path)
         plan_result_code = _run_terragrunt_streaming(
@@ -406,7 +443,10 @@ def _run_plan_validations(
             return plan_result_code
 
         show_cmd = [*plan_cmd_prefix, "show", "-json", str(plan_path)]
-        LOGGER.debug("Rendering plan JSON: {command}", command=" ".join(show_cmd))
+        LOGGER.debug(
+            "Rendering plan JSON: {command}",
+            command=_format_command(show_cmd),
+        )
         show_result = _run_terragrunt_capture_text(
             show_cmd,
             working_dir,
@@ -421,7 +461,11 @@ def _run_plan_validations(
         )
         if show_result.returncode != 0:
             if show_result.stderr:
-                LOGGER.error(show_result.stderr.strip())
+                LOGGER.error(
+                    "Terragrunt show failed in {working_dir}: {stderr}",
+                    working_dir=working_dir,
+                    stderr=show_result.stderr.strip(),
+                )
             return show_result.returncode
 
         try:

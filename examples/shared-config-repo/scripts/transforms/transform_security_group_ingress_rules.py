@@ -43,5 +43,5 @@ def transform(value: Any, **context: Any) -> dict[str, dict[str, str | int]]:
         rules[key] = rule
         LOGGER.debug("Built ingress rule key=%s rule=%r", key, rule)
 
-    LOGGER.info("Generated %d SSH ingress rule(s)", len(rules))
+    LOGGER.debug("Generated %d SSH ingress rule(s)", len(rules))
     return rules

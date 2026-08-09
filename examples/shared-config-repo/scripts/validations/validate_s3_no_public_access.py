@@ -49,5 +49,5 @@ def validate(value: Any, **context: Any) -> str:
                 )
                 return "fail"
 
-    LOGGER.info("Validation passed: no public S3 exposure detected")
+    LOGGER.debug("Validation passed: no public S3 exposure detected")
     return "pass"

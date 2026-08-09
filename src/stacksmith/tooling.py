@@ -126,6 +126,11 @@ def _resolve_single_tool_unlocked(
 ) -> str:
     if cached := _find_cached_tool_binary(tool_name, tool_cfg.version, cache_root):
         if _is_usable_tool_binary(cached, tool_name, subprocess_module):
+            LOGGER.debug(
+                "Using cached {tool_name} binary at {path}",
+                tool_name=tool_name,
+                path=cached,
+            )
             return str(cached)
         LOGGER.warning(
             "Removing unusable cached {tool_name} binary at {path}",
@@ -141,6 +146,10 @@ def _resolve_single_tool_unlocked(
     ):
         return local
 
+    LOGGER.debug(
+        "No compatible cached or local {tool_name} binary found; downloading it",
+        tool_name=tool_name,
+    )
     return str(
         _download_and_install_tool(
             tool_name,

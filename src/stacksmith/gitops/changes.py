@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import yaml
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
+from loguru import logger as LOGGER
 from pydantic import ValidationError as PydanticValidationError
 
 from ..exceptions import StacksmithConfigError
@@ -184,12 +185,27 @@ class _GitRepository:
                 "Specify branch when committing from a detached HEAD."
             )
 
+        LOGGER.info(
+            "Committing {count} selected path(s) on branch {branch}",
+            count=len(relative_paths),
+            branch=destination_branch,
+        )
         self._run(self.root, "commit", "--only", "-m", message, "--", *relative_paths)
         commit_sha = self.head()
         if push:
+            LOGGER.info(
+                "Pushing commit {commit_sha} to remote {remote}",
+                commit_sha=commit_sha,
+                remote=remote,
+            )
             self._run(
                 self.root, "push", remote, f"HEAD:refs/heads/{destination_branch}"
             )
+        LOGGER.info(
+            "Created commit {commit_sha} on branch {branch}",
+            commit_sha=commit_sha,
+            branch=destination_branch,
+        )
         return CommitPushResult(
             commit_sha=commit_sha,
             branch=destination_branch,
@@ -353,6 +369,7 @@ def _write_stack_update(
 ) -> DocumentChange:
     if original_text == updated_text:
         return DocumentChange(path=path.resolve(), changed=False)
+    LOGGER.debug("Updating stack document: {path}", path=path.resolve())
     path.write_text(updated_text, encoding="utf-8")
     try:
         validate_stack_document(path)
@@ -363,8 +380,13 @@ def _write_stack_update(
         json.JSONDecodeError,
         yaml.YAMLError,
     ):
+        LOGGER.warning(
+            "Reverting invalid stack document update: {path}",
+            path=path.resolve(),
+        )
         path.write_text(original_text, encoding="utf-8")
         raise
+    LOGGER.info("Updated stack document: {path}", path=path.resolve())
     return DocumentChange(path=path.resolve(), changed=True)
 
 
