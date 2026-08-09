@@ -1512,9 +1512,9 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
                           -q] [--validation-report-format {json}] [--destroy]
                           [--save-plan-json SAVE_PLAN_JSON |
                           --save-redacted-plan-json SAVE_REDACTED_PLAN_JSON] [--out OUT] [--fail-on-changes]
-                          [--plan PLAN] [--tag TAG] [--tag-expr TAG_EXPR] [--include-tag INCLUDE_TAG]
-                          [--exclude-tag EXCLUDE_TAG] [--clean] [--auto-approve] [--dry-run]
-                          [--format {table,json}]
+                          [--plan PLAN] [--no-after-apply] [--tag TAG] [--tag-expr TAG_EXPR]
+                          [--include-tag INCLUDE_TAG] [--exclude-tag EXCLUDE_TAG] [--clean] [--auto-approve]
+                          [--dry-run] [--format {table,json}]
                           {init,plan,apply,destroy}
 ```
 
@@ -1545,6 +1545,7 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
 | `--out` | Save generated execution plan to the given file or directory. |
 | `--fail-on-changes` | Return a non-zero exit code if the plan contains any resource changes. |
 | `--plan` | Path or directory to a pre-generated execution plan to apply. |
+| `--no-after-apply` | When applying infrastructure, do not automatically reconcile operations configured with trigger: after_apply. Use a separate operation run phase instead. |
 | `--tag` | Select components by tag. Repeat to require multiple tags. Supported for run-all plan/apply/destroy. |
 | `--tag-expr` | JMESPath expression used to select resource targets. Supported for run-all plan/apply/destroy. |
 | `--include-tag` | Include stacks that have this tag. Repeatable. |
@@ -1638,8 +1639,9 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
                         [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                         [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
-                        [--use-local-modules | --no-local-modules] [--debug | -q] [--plan PLAN] [--tag TAG]
-                        [--tag-expr TAG_EXPR] [--auto-approve] [--locked] [--offline] [--lockfile LOCKFILE]
+                        [--use-local-modules | --no-local-modules] [--debug | -q] [--plan PLAN]
+                        [--no-after-apply] [--tag TAG] [--tag-expr TAG_EXPR] [--auto-approve] [--locked]
+                        [--offline] [--lockfile LOCKFILE]
                         [stack_file]
 ```
 
@@ -1663,6 +1665,7 @@ stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-fil
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 | `--plan` | Path or directory to a pre-generated execution plan to apply. |
+| `--no-after-apply` | When applying infrastructure, do not automatically reconcile operations configured with trigger: after_apply. Use a separate operation run phase instead. |
 | `--tag` | Select components by tag. Repeat to require multiple tags. |
 | `--tag-expr` | JMESPath expression used to select resource targets. |
 | `--auto-approve` | Skip interactive approval |
