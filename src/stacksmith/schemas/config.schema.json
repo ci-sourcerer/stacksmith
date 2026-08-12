@@ -321,6 +321,64 @@
     "providerSourceReference": {
       "$ref": "#/$defs/registryReference"
     },
+    "backendConfig": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OpenTofu backend type, such as s3, local, azurerm, gcs, or oss."
+        }
+      }
+    },
+    "backendSpec": {
+      "description": "Platform-owned backend policy as static data, inline Python, or a Python script reference.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "inline"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "inline": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Inline Python defining `config(**context)` and returning a backend mapping."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "script"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "script": {
+              "$ref": "#/$defs/fileReference",
+              "description": "Structured reference to a Python backend resolver defining `config(**context)`."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/backendConfig"
+            }
+          }
+        }
+      ]
+    },
     "validationSpec": {
       "oneOf": [
         {
@@ -950,19 +1008,8 @@
       "description": "Optional post-plan validation rules keyed by name. Rules run against parsed OpenTofu JSON plan output unless disabled."
     },
     "backend": {
-      "description": "Backend configuration with explicit backend type and freeform backend-specific settings.",
-      "type": "object",
-      "required": [
-        "type"
-      ],
-      "properties": {
-        "type": {
-          "type": "string",
-          "minLength": 1,
-          "description": "OpenTofu backend type (for example: s3, local, azurerm, gcs, oss)."
-        }
-      },
-      "additionalProperties": true
+      "$ref": "#/$defs/backendSpec",
+      "description": "Platform-owned backend policy."
     },
     "tools": {
       "$ref": "#/$defs/toolsConfig",

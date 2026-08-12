@@ -1,5 +1,6 @@
 from .configuration import (
     BackendConfig,
+    BackendSpec,
     DefaultModuleMapping,
     FileReference,
     GitReference,
@@ -82,6 +83,7 @@ from .testing import (
 
 __all__ = [
     "BackendConfig",
+    "BackendSpec",
     "ComponentDefinition",
     "ComponentPropertyExpectation",
     "ComponentPropertyTestCase",

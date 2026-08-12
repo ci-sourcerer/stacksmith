@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from stacksmith.loading.validation import load_fragment_schema
 from stacksmith.models import (
     BackendConfig,
+    BackendSpec,
     ComponentDefinition,
     ComponentPropertyExpectation,
     ComponentPropertyTestCase,
@@ -165,11 +166,13 @@ def test_tool_config_fields_match_config_schema():
     }
 
     assert _field_names(BackendConfig) == {"type"}
+    assert _field_names(BackendSpec) == {"inline", "script", "data"}
     backend_schema = schema["properties"]["backend"]
-    assert backend_schema["type"] == "object"
-    assert set(backend_schema["required"]) == {"type"}
-    assert backend_schema["properties"]["type"]["type"] == "string"
-    assert backend_schema["additionalProperties"] is True
+    assert backend_schema["$ref"] == "#/$defs/backendSpec"
+    backend_spec_schema = schema["$defs"]["backendSpec"]
+    assert len(backend_spec_schema["oneOf"]) == 3
+    backend_config_schema = schema["$defs"]["backendConfig"]
+    assert set(backend_config_schema["required"]) == {"type"}
 
     assert _field_names(ToolsConfig) == {"tofu", "terragrunt"}
     assert _field_names(ToolBinaryConfig) == {"version", "download"}

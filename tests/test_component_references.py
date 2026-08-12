@@ -15,7 +15,12 @@ def _config(
 ) -> ToolConfig:
     return ToolConfig.model_validate(
         {
-            "backend": {"type": "local", "path": ".state"},
+            "backend": {
+                "data": {
+                    "type": "local",
+                    "path": ".state",
+                }
+            },
             "module_mappings": {
                 "producer": {
                     "source": {

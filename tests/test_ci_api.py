@@ -293,11 +293,48 @@ def test_prepare_ci_execution_rejects_local_backend(tmp_path: Path):
 
     with pytest.raises(
         StacksmithConfigError,
-        match="CI prepare rejected environment 'dev': the local backend",
+        match="CI prepare rejected environment 'dev'.*the local backend",
     ):
         prepare_ci_execution(
             command="plan",
             config_ref=str(_LOCAL_BACKEND_CONFIG),
+            gitops_root=str(tmp_path),
+            discovery_mode="env-files",
+            environments="dev",
+            skip_branch_validation=True,
+        )
+
+
+def test_prepare_ci_execution_rejects_dynamic_local_backend(tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+    config_path = tmp_path / "stacksmith-config.yaml"
+    config_path.write_text(
+        """
+backend:
+  inline: |
+    def config(**context):
+        environment = context["inputs"]["environment"]
+        return {
+            "type": "local",
+            "path": ".state",
+        }
+default_module_mapping:
+  source:
+    source: registry
+    data:
+      address: example/default
+      version: "1.0.0"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        StacksmithConfigError,
+        match="stack '<unspecified>'.*local backend",
+    ):
+        prepare_ci_execution(
+            command="plan",
+            config_ref=str(config_path),
             gitops_root=str(tmp_path),
             discovery_mode="env-files",
             environments="dev",
@@ -728,7 +765,7 @@ def test_prepare_ci_execution_accepts_colon_delimited_config_refs(tmp_path: Path
     base_config = tmp_path / "base" / "stacksmith-config.yaml"
     base_config.parent.mkdir()
     base_config.write_text(
-        "backend:\n  type: remote\nmodule_mappings: {}\n"
+        "backend:\n  data:\n    type: remote\nmodule_mappings: {}\n"
         "default_module_mapping:\n  source:\n"
         "    source: local\n    data:\n      path: ./modules\n"
     )

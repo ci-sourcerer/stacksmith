@@ -1,8 +1,9 @@
 description: Base platform configuration for the Stacksmith examples.
 
 backend:
-  type: local
-  path: .stacksmith-state
+  data:
+    type: local
+    path: .stacksmith-state
 
 tools:
   tofu:

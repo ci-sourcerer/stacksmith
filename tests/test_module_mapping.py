@@ -12,7 +12,12 @@ def _config(
 ) -> ToolConfig:
     return ToolConfig.model_validate(
         {
-            "backend": {"type": "local", "path": ".state"},
+            "backend": {
+                "data": {
+                    "type": "local",
+                    "path": ".state",
+                }
+            },
             "tools": {
                 "tofu": {"version": "1.11.6"},
                 "terragrunt": {"version": "1.0.6"},

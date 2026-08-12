@@ -1,7 +1,8 @@
 backend:
-  type: s3
-  bucket: test-state-bucket
-  region: us-east-1
+  data:
+    type: s3
+    bucket: test-state-bucket
+    region: us-east-1
 
 
 tools:

@@ -167,10 +167,11 @@ class TestGenerateTfJson:
         config_path.write_text(
             textwrap.dedent("""
                 backend:
-                    type: azurerm
-                    storage_account_name: testaccount
-                    container_name: testcontainer
-                    resource_group_name: testrg
+                    data:
+                        type: azurerm
+                        storage_account_name: testaccount
+                        container_name: testcontainer
+                        resource_group_name: testrg
 
                 tools:
                     tofu:
@@ -231,8 +232,9 @@ class TestGenerateTfJson:
         config_path.write_text(
             textwrap.dedent("""
                                 backend:
-                                    type: local
-                                    path: .state
+                                    data:
+                                        type: local
+                                        path: .state
 
                                 tools:
                                     tofu:
@@ -296,8 +298,9 @@ class TestGenerateTfJson:
         config_path.write_text(
             textwrap.dedent("""
                                 backend:
-                                    type: local
-                                    path: .state
+                                    data:
+                                        type: local
+                                        path: .state
 
                                 tools:
                                     tofu:
@@ -356,8 +359,9 @@ class TestGenerateTfJson:
         config_path.write_text(
             textwrap.dedent("""
                                 backend:
-                                    type: local
-                                    path: .state
+                                    data:
+                                        type: local
+                                        path: .state
 
                                 tools:
                                     tofu:
@@ -843,9 +847,10 @@ class TestPropertyValidation:
         config_file = tmp_path / "stacksmith-config.yaml"
         config_file.write_text(
             "backend:\n"
-            "  type: s3\n"
-            "  bucket: test-state-bucket\n"
-            "  region: us-east-1\n"
+            "  data:\n"
+            "    type: s3\n"
+            "    bucket: test-state-bucket\n"
+            "    region: us-east-1\n"
             "tools:\n"
             "  tofu:\n"
             "    version: '1.8.0'\n"
@@ -1027,9 +1032,10 @@ def transform(value, **context):
         config_file = tmp_path / "stacksmith-config.yaml"
         config_file.write_text(
             "backend:\n"
-            "  type: s3\n"
-            "  bucket: test-state-bucket\n"
-            "  region: us-east-1\n"
+            "  data:\n"
+            "    type: s3\n"
+            "    bucket: test-state-bucket\n"
+            "    region: us-east-1\n"
             "tools:\n"
             "  tofu:\n"
             "    version: '1.8.0'\n"

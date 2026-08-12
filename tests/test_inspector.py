@@ -255,8 +255,9 @@ def test_inspect_component_type_transform_script_path_is_relative(tmp_path):
     config_path.write_text(
         textwrap.dedent("""
             backend:
-                type: local
-                path: /tmp/state
+                data:
+                    type: local
+                    path: /tmp/state
 
             tools:
                 tofu:
@@ -318,8 +319,9 @@ def test_inspect_component_type_policy_metadata_renders(tmp_path):
     config_path.write_text(
         textwrap.dedent("""
             backend:
-                type: local
-                path: /tmp/state
+                data:
+                    type: local
+                    path: /tmp/state
 
             tools:
                 tofu:
@@ -381,8 +383,9 @@ def test_load_config_with_locations_reports_validation_block(tmp_path):
     config_path.write_text(
         textwrap.dedent("""
             backend:
-                type: local
-                path: /tmp/state
+                data:
+                    type: local
+                    path: /tmp/state
 
             tools:
                 tofu:
@@ -439,8 +442,9 @@ def test_load_config_with_locations_reports_var_validation_block(tmp_path):
     config_path.write_text(
         textwrap.dedent("""
             backend:
-                type: local
-                path: /tmp/state
+                data:
+                    type: local
+                    path: /tmp/state
 
             tools:
                 tofu:
@@ -495,8 +499,9 @@ def test_inspect_component_type_uses_var_validation_script_location(tmp_path):
     config_path.write_text(
         textwrap.dedent("""
             backend:
-                type: local
-                path: /tmp/state
+                data:
+                    type: local
+                    path: /tmp/state
 
             tools:
                 tofu:

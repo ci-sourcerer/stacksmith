@@ -13,6 +13,7 @@ import yaml
 from jsonschema import exceptions as jsonschema_exceptions
 from loguru import logger as LOGGER
 
+from .backends import resolve_backend, with_resolved_backend
 from .ci.service import (
     inspect_environments,
     prepare_ci_execution,
@@ -648,6 +649,16 @@ def _resolve_stack_inputs(
     )
 
 
+def _with_stack_backend(
+    config: ToolConfig,
+    stack: StackDefinition,
+    inputs: dict[str, Any],
+    cache_dir: Path | None,
+) -> ToolConfig:
+    backend = resolve_backend(config, stack, inputs, cache_dir=cache_dir)
+    return with_resolved_backend(config, backend)
+
+
 def _generate_single_stack(
     stack: StackDefinition,
     config: ToolConfig,
@@ -665,21 +676,22 @@ def _generate_single_stack(
     if stack.source_path is None:
         raise RuntimeError("Loaded stack is missing a source path")
     output_dir = _resolve_build_dir(stack.source_path, build_dir)
+    resolved_config = _with_stack_backend(config, stack, resolved_inputs, cache_dir)
 
     write_tf_json(
         stack,
-        config,
+        resolved_config,
         resolved_inputs,
         output_dir,
         cache_dir=cache_dir,
-        auth_config=config.remote_auth or None,
+        auth_config=resolved_config.remote_auth or None,
         use_local_modules=use_local_modules,
     )
-    write_terragrunt_json(stack, config, resolved_inputs, output_dir)
-    if operation_names := select_after_apply_operations(stack, config):
+    write_terragrunt_json(stack, resolved_config, resolved_inputs, output_dir)
+    if operation_names := select_after_apply_operations(stack, resolved_config):
         _generate_operation_stack(
             stack,
-            config,
+            resolved_config,
             output_dir,
             operation_names,
             cache_dir=cache_dir,
@@ -915,39 +927,45 @@ def _validate_prepared_stacks(
     use_local_modules: bool,
 ) -> None:
     for name, stack in prepared.stacks.items():
+        resolved_config = _with_stack_backend(
+            config,
+            stack,
+            prepared.resolved_inputs[name],
+            cache_dir,
+        )
         dependency_stacks, dependency_build_dirs = _dependency_generation_context(
             name,
             prepared,
         )
         generate_tf_json(
             stack,
-            config,
+            resolved_config,
             prepared.resolved_inputs[name],
             cache_dir=cache_dir,
-            auth_config=config.remote_auth or None,
+            auth_config=resolved_config.remote_auth or None,
             use_local_modules=use_local_modules,
             root=prepared.state_root,
         )
         generate_terragrunt_json(
             stack,
-            config,
+            resolved_config,
             prepared.resolved_inputs[name],
             dependency_stacks,
             dependency_build_dirs,
             root=prepared.state_root,
         )
-        if operation_names := select_after_apply_operations(stack, config):
+        if operation_names := select_after_apply_operations(stack, resolved_config):
             generate_operations_tf_json(
                 stack,
-                config,
+                resolved_config,
                 operation_names,
                 cache_dir=cache_dir,
-                auth_config=config.remote_auth or None,
+                auth_config=resolved_config.remote_auth or None,
                 root=prepared.state_root,
             )
             generate_operations_terragrunt_json(
                 stack,
-                config,
+                resolved_config,
                 root=prepared.state_root,
             )
 
@@ -985,33 +1003,39 @@ def _write_prepared_stacks(
     use_local_modules: bool,
 ) -> None:
     for name, stack in prepared.stacks.items():
+        resolved_config = _with_stack_backend(
+            config,
+            stack,
+            prepared.resolved_inputs[name],
+            cache_dir,
+        )
         dependency_stacks, dependency_build_dirs = _dependency_generation_context(
             name,
             prepared,
         )
         write_tf_json(
             stack,
-            config,
+            resolved_config,
             prepared.resolved_inputs[name],
             prepared.stack_build_dirs[name],
             cache_dir=cache_dir,
-            auth_config=config.remote_auth or None,
+            auth_config=resolved_config.remote_auth or None,
             use_local_modules=use_local_modules,
             root=prepared.state_root,
         )
         write_terragrunt_json(
             stack,
-            config,
+            resolved_config,
             prepared.resolved_inputs[name],
             prepared.stack_build_dirs[name],
             dependency_stacks,
             dependency_build_dirs,
             root=prepared.state_root,
         )
-        if operation_names := select_after_apply_operations(stack, config):
+        if operation_names := select_after_apply_operations(stack, resolved_config):
             _generate_operation_stack(
                 stack,
-                config,
+                resolved_config,
                 prepared.stack_build_dirs[name],
                 operation_names,
                 cache_dir=cache_dir,

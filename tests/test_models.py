@@ -6,8 +6,10 @@ from stacksmith.models import ModuleMapping, ProviderConfigSpec, ToolConfig
 def _base_tool_config_payload() -> dict:
     return {
         "backend": {
-            "type": "local",
-            "path": ".state",
+            "data": {
+                "type": "local",
+                "path": ".state",
+            }
         },
         "tools": {
             "tofu": {

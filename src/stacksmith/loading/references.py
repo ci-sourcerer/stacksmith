@@ -80,6 +80,9 @@ def resolve_config_local_references(
     """
     result = deepcopy(data)
 
+    if isinstance(backend := result.get("backend"), dict):
+        _absolutize_local_reference(backend.get("script"), config_dir)
+
     if isinstance(var_validations := result.get("var_validations"), dict):
         for spec in var_validations.values():
             if isinstance(spec, dict):

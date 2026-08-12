@@ -509,6 +509,48 @@ class BackendConfig(BaseModel):
         return config
 
 
+class BackendSpec(BaseModel):
+    """Platform-owned backend policy defined as data or executable code."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    inline: str | None = None
+    script: FileReference | None = None
+    data: BackendConfig | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> "BackendSpec":
+        if (
+            sum(source is not None for source in (self.inline, self.script, self.data))
+            != 1
+        ):
+            raise ValueError(
+                "Exactly one of 'inline', 'script', or 'data' must be set for a backend"
+            )
+        return self
+
+    @property
+    def static_backend(self) -> BackendConfig:
+        """Return the static backend or explain why backend resolution is required."""
+        if self.data is None:
+            raise ValueError("Backend must be resolved before it can be generated")
+        return self.data
+
+    @property
+    def type(self) -> str:
+        """Return the selected backend type for static backend policies."""
+        return self.static_backend.type
+
+    @property
+    def config(self) -> dict[str, Any]:
+        """Return static backend settings without the backend type."""
+        return self.static_backend.config
+
+    def config_with_state_key(self, state_key: str) -> dict[str, Any]:
+        """Return static backend settings augmented with a state key."""
+        return self.static_backend.config_with_state_key(state_key)
+
+
 class ToolDownloadSpec(BaseModel):
     """Tool download metadata for missing binaries."""
 
@@ -814,7 +856,7 @@ class ToolConfig(BaseModel):
     """Complete tool configuration loaded from .config.yaml."""
 
     description: str | None = None
-    backend: BackendConfig
+    backend: BackendSpec
     tools: ToolsConfig | None = None
     provider_mappings: dict[str, ProviderFamily] = Field(default_factory=dict)
     module_mappings: dict[str, ModuleMapping] = Field(default_factory=dict)

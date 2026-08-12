@@ -1,6 +1,7 @@
 backend:
-  type: local
-  path: "/tmp/stacksmith-state"
+  data:
+    type: local
+    path: "/tmp/stacksmith-state"
 
 
 tools:

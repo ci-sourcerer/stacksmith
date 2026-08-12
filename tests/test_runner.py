@@ -213,9 +213,10 @@ def test_check_plan_validations_uses_config_base_path(tmp_path):
     config_file = tmp_path / "stacksmith-config.yaml"
     config_file.write_text(
         "backend:\n"
-        "  type: s3\n"
-        "  bucket: test-state-bucket\n"
-        "  region: us-east-1\n"
+        "  data:\n"
+        "    type: s3\n"
+        "    bucket: test-state-bucket\n"
+        "    region: us-east-1\n"
         "tools:\n"
         "  tofu:\n"
         "    version: '1.8.0'\n"

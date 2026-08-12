@@ -156,6 +156,26 @@ The same rendering pass handles ordinary values, so existing property expression
 
 The S3 state key is derived automatically from the stack file's path relative to the repo root. For example `networking/vpc/stack.yaml` produces key `networking/vpc/terraform.tfstate`. For standalone stacks (single-stack commands without a `--root`), the key is simply `<name>/terraform.tfstate`. Native operations use a separate `<stack-path>/operations/terraform.tfstate` key.
 
+Backend policy is platform-owned and uses one of `data`, `inline`, or `script`. `data` contains a fixed backend mapping, while executable forms define `config(**context)` and return one. The resolver runs after a stack's inputs are resolved, so it can select state from values such as `inputs["environment"]` or inspect its trusted execution environment (for example, with AWS STS). Stack authors can influence ordinary input values but cannot supply resolver code.
+
+```yaml
+backend:
+  script:
+    source: local
+    data:
+      path: scripts/resolve_backend.py
+```
+
+```python
+def config(**context):
+    environment = context["inputs"]["environment"]
+    return {
+        "type": "s3",
+        "bucket": f"platform-state-{environment}",
+        "region": "us-east-1",
+    }
+```
+
 ### Configuration
 
 This section shows managed config authoring details.
@@ -164,9 +184,10 @@ This section shows managed config authoring details.
 # stacksmith-config.yaml: maintained by the platform team
 
 backend:
-  type: s3
-  bucket: my-org-state
-  region: us-east-1
+  data:
+    type: s3
+    bucket: my-org-state
+    region: us-east-1
 
 tools:
   tofu:

@@ -140,7 +140,7 @@ class TestGenerateOperationsTerragruntJson:
     ):
         stack = load_stack(sample_stack_yaml)
         config = load_config(sample_config_local_yaml)
-        config.backend.path = ".state"
+        config.backend.data.path = ".state"
 
         doc = generate_operations_terragrunt_json(stack, config)
 

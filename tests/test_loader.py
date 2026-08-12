@@ -38,9 +38,10 @@ def _s3_config_yaml(
     )
     return (
         "backend:\n"
-        "  type: s3\n"
-        f"  bucket: {backend_bucket}\n"
-        f"  region: {backend_region}\n"
+        "  data:\n"
+        "    type: s3\n"
+        f"    bucket: {backend_bucket}\n"
+        f"    region: {backend_region}\n"
         "tools:\n"
         "  tofu:\n"
         "    version: '1.8.0'\n"
@@ -72,8 +73,9 @@ def _local_config_yaml(
 ) -> str:
     return (
         "backend:\n"
-        "  type: local\n"
-        "  path: .state\n"
+        "  data:\n"
+        "    type: local\n"
+        "    path: .state\n"
         "tools:\n"
         "  tofu:\n"
         "    version: '1.8.0'\n"
@@ -781,7 +783,8 @@ class TestLoadConfig:
         base_file = tmp_path / "base-config.yaml"
         base_file.write_text(
             "backend:\n"
-            "  path: .state\n"
+            "  data:\n"
+            "    path: .state\n"
             "tools:\n"
             "  tofu:\n"
             "    version: '1.8.0'\n"
@@ -794,7 +797,8 @@ class TestLoadConfig:
         overlay_file = tmp_path / "overlay-config.yaml"
         overlay_file.write_text(
             "backend:\n"
-            "  type: local\n"
+            "  data:\n"
+            "    type: local\n"
             "tools:\n"
             "  terragrunt:\n"
             "    version: '1.0.6'\n"
@@ -845,7 +849,7 @@ class TestLoadConfig:
     ):
         config_file = tmp_path / "stacksmith-config.yaml"
         config_file.write_text(
-            "backend:\n  type: local\n",
+            "backend:\n  data:\n    type: local\n",
             encoding="utf-8",
         )
 
@@ -1090,8 +1094,9 @@ class TestLoadConfig:
         config_file = config_dir / "stacksmith-config.yaml"
         config_file.write_text(
             "backend:\n"
-            "  type: local\n"
-            "  path: .state\n"
+            "  data:\n"
+            "    type: local\n"
+            "    path: .state\n"
             "tools:\n"
             "  tofu:\n"
             "    version: '1.8.0'\n"

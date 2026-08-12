@@ -8,14 +8,16 @@ from typing import Any
 
 from stacksmith.utils import parse_bool, stacksmith_env_int
 
+from ..backends import resolve_backend
 from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME
 from ..enums import MergeMode, ValidationReportFormat
 from ..exceptions import StacksmithConfigError
 from ..gitops import evaluate_environment_selection
 from ..input_parsing import parse_operation_names
-from ..loading import load_config, load_runfiles
-from ..models import MergeConfig, MergePolicy, RunFile
+from ..loading import load_config, load_runfiles, load_stack_metadata
+from ..models import MergeConfig, MergePolicy, RunFile, StackDefinition, ToolConfig
 from ..remote import is_remote_url, resolve_references
+from ..variables import resolve_inputs
 from .contracts import (
     CiExecutionManifest,
     CiExecutionRow,
@@ -103,9 +105,56 @@ def _ci_config_references(config_ref: str, workdir: str) -> list[str | Path]:
     return results
 
 
-def _effective_ci_backend_type(
+def _ci_input_layers(
+    arguments: Sequence[str],
+    runfile: RunFile,
+    environment: str,
+) -> list[tuple[str, object]]:
+    layers: list[tuple[str, object]] = [("vars", value) for value in runfile.vars]
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in {"--var", "--vars"}:
+            if index + 1 >= len(arguments):
+                raise StacksmithConfigError(f"{argument} requires a value")
+            layers.append((argument.removeprefix("--"), arguments[index + 1]))
+            index += 2
+            continue
+        if argument.startswith("--var="):
+            layers.append(("var", argument.partition("=")[2]))
+        elif argument.startswith("--vars="):
+            layers.append(("vars", argument.partition("=")[2]))
+        index += 1
+    layers.append(("var", f"environment={environment}"))
+    return layers
+
+
+def _resolve_ci_inputs(
+    config: ToolConfig,
+    manifest: CiExecutionManifest,
+    row: CiExecutionRow,
+    runfile: RunFile,
+    cache_dir: Path,
+) -> dict[str, Any]:
+    return resolve_inputs(
+        input_layers=_ci_input_layers(
+            manifest.stacksmith_args,
+            runfile,
+            row.environment,
+        ),
+        config_validations=config.var_validations or None,
+        config_validation_base_path=(
+            config.source_path.parent if config.source_path is not None else None
+        ),
+        cache_dir=cache_dir,
+        auth_config=config.remote_auth or None,
+        merge_mode=_ci_merge_config(manifest.stacksmith_args, runfile),
+    )
+
+
+def _effective_ci_backends(
     manifest: CiExecutionManifest, row: CiExecutionRow
-) -> str:
+) -> list[tuple[str, str]]:
     runfile = load_runfiles(
         [
             Path(row.runfile).expanduser(),
@@ -125,14 +174,27 @@ def _effective_ci_backend_type(
     all_config_refs = [*runfile.configs, *ci_config_refs]
     resolved_refs = resolve_references(all_config_refs, workdir_path)
 
-    return (
-        load_config(
-            resolved_refs,
-            merge_mode=_ci_merge_config(manifest.stacksmith_args, runfile),
-        )
-        .backend.type.strip()
-        .lower()
+    config = load_config(
+        resolved_refs,
+        merge_mode=_ci_merge_config(manifest.stacksmith_args, runfile),
     )
+    stack_paths = resolve_references(runfile.stacks, workdir_path)
+    inputs = _resolve_ci_inputs(config, manifest, row, runfile, workdir_path)
+    if not stack_paths:
+        backend = resolve_backend(
+            config,
+            StackDefinition(name="<unspecified>"),
+            inputs,
+            cache_dir=workdir_path,
+        )
+        return [("<unspecified>", backend.type.lower())]
+
+    results = []
+    for stack_path in stack_paths:
+        stack = load_stack_metadata(stack_path)
+        backend = resolve_backend(config, stack, inputs, cache_dir=workdir_path)
+        results.append((stack.name, backend.type.lower()))
+    return results
 
 
 def _ci_merge_config(arguments: Sequence[str], runfile: RunFile) -> MergeConfig:
@@ -161,12 +223,13 @@ def _validate_ci_backends(manifest: CiExecutionManifest) -> None:
         return
 
     for row in manifest.matrix:
-        if _effective_ci_backend_type(manifest, row) == "local":
-            raise StacksmithConfigError(
-                f"CI prepare rejected environment '{row.environment}': "
-                "the local backend is not supported. "
-                "Configure a remote backend for CI."
-            )
+        for stack_name, backend_type in _effective_ci_backends(manifest, row):
+            if backend_type == "local":
+                raise StacksmithConfigError(
+                    f"CI prepare rejected environment '{row.environment}' for stack "
+                    f"'{stack_name}': the local backend is not supported. Configure "
+                    "a remote backend for CI."
+                )
 
 
 def inspect_environments(
