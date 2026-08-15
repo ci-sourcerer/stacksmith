@@ -48,9 +48,7 @@ help = "Check that generated partial-layer schemas are current"
 
 [tool.poe.env]
 CONTAINER_ENV = "TF_PLUGIN_CACHE_DIR=/workspace/.stacksmith/providers STACKSMITH_TOOL_CACHE_DIR=/workspace/.stacksmith/.cache/tools STACKSMITH_VENDOR_DIR=/workspace/.stacksmith/modules"
-CONTAINER_BUILD_ARGS = """
-APT_PACKAGES="git jq"
-"""
+CONTAINER_APT_PACKAGES = "git jq"
 CONTAINER_DEPS_FILE = "Dockerfile.deps"
 CONTAINER_DEPS_MOVE_SCRIPT_PATH = "scripts/move_deps.sh"
 
@@ -72,7 +70,7 @@ stacksmith = "stacksmith.testing.pytest_plugin"
 [dependency-groups]
 debug = ["debugpy (>=1.8.16,<2.0.0)", "jmespath (>=1.1.0,<2.0.0)"]
 dev = [
-    "common-python-tasks (==0.7.0)",
+    "common-python-tasks==0.8.0",
     "boto3 (>=1.43.14,<2.0.0)",
     "botocore[crt] (>=1.43.15,<2.0.0)",
 ]
