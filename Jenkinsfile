@@ -17,7 +17,7 @@ boolean parseBooleanWithDefault(value, boolean defaultValue) {
 
 String getStacksmithImage() {
     return env.STACKSMITH_IMAGE ?:
-        "cisourcerer/stacksmith:${env.STACKSMITH_IMAGE_VERSION ?: 'latest'}"
+        "docker.io/cisourcerer/stacksmith:${env.STACKSMITH_IMAGE_VERSION ?: 'latest'}"
 }
 
 void withStacksmithAgent(Closure body) {
@@ -94,67 +94,59 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
 
     for (def entry : credentials) {
         if (!(entry instanceof Map)) {
-            
             continue
         }
 
         String id = entry.credentialId?.toString()?.trim()
         if (!id) {
-            
             continue
         }
 
         String type = entry.type?.toString()?.trim() ?: 'string'
-        
 
         switch (type) {
             case 'usernamePassword':
             case 'http_basic':
-                
                 def binding = usernamePassword(
                     credentialsId: id,
                     usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME'),
                     passwordVariable: entry.passwordVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_PASSWORD')
                 )
-                
+
                 bindings << binding
                 break
             case 'sshUserPrivateKey':
             case 'git_ssh_key':
-                
                 def binding = sshUserPrivateKey(
                     credentialsId: id,
                     keyFileVariable: entry.keyFileVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_KEY'),
                     usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME')
                 )
-                
+
                 bindings << binding
                 break
             case 'string':
             case 'secret_text':
             case 'git_token':
             case 'http_token':
-                
                 def binding = string(
                     credentialsId: id,
                     variable: credentialVariable(entry, type)
                 )
-                
+
                 bindings << binding
                 break
             default:
-                
                 def binding = string(
                     credentialsId: id,
                     variable: credentialVariable(entry, type)
                 )
-                
+
                 bindings << binding
                 break
         }
     }
 
-    
     return bindings
 }
 
@@ -168,6 +160,25 @@ int executeStacksmith() {
         ''',
         returnStatus: true
     )
+}
+
+List<Object> buildPipelineParameters(boolean testPipeline) {
+    List<Object> sharedParameters = [
+        booleanParam(name: 'DEBUG', defaultValue: false, description: 'enable debug logs and print configured modules and policies'),
+    ]
+    if (testPipeline) {
+        return sharedParameters
+    }
+
+    return [
+        string(name: 'ENVIRONMENTS', description: 'comma-separated environments to target manually'),
+        string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
+        choice(name: 'COMMAND', choices: ['plan', 'apply', 'plan-operation', 'apply-operation'], description: 'Stacksmith command'),
+        string(name: 'OPERATION_NAMES', description: 'comma-delimited stack-local operation names; empty selects all'),
+    ] + sharedParameters + [
+        booleanParam(name: 'FAIL_ON_CHANGES', defaultValue: false, description: 'fail if plan contains changes'),
+        booleanParam(name: 'STRICT_VALIDATION_WARNINGS', defaultValue: false, description: 'treat validation warnings as failures'),
+    ]
 }
 
 void executeStacksmithMatrix(
@@ -202,7 +213,7 @@ void executeStacksmithMatrix(
             }
 
             List<Map<String, Object>> credentialBindings = buildCredentialBindings(credentialsList)
-            
+
             withEnv([
                 "ENVIRONMENT=${environment}",
                 "STACKSMITH_CI_PHASE=${command}",
@@ -210,12 +221,10 @@ void executeStacksmithMatrix(
             ]) {
                 int status
                 if (credentialBindings) {
-                    
                     status = withCredentials(credentialBindings) {
                         executeStacksmith()
                     }
                 } else {
-                    
                     status = executeStacksmith()
                 }
 
@@ -249,27 +258,20 @@ void executeStacksmithMatrix(
 }
 
 withStacksmithAgent {
-    try {
-        ansiColor('xterm') {
-            properties([
-                parameters([
-                    choice(name: 'COMMAND', choices: ['plan', 'apply', 'plan-operation', 'apply-operation'], description: 'Stacksmith command'),
-                    string(name: 'OPERATION_NAMES', description: 'comma-delimited stack-local operation names; empty selects all'),
-                    string(name: 'ENVIRONMENTS', description: 'comma-separated environments to target manually'),
-                    string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
-                    booleanParam(name: 'DEBUG', defaultValue: false, description: 'enable debug logs and print configured modules and policies'),
-                    booleanParam(name: 'FAIL_ON_CHANGES', defaultValue: false, description: 'fail if plan contains changes'),
-                    booleanParam(name: 'STRICT_VALIDATION_WARNINGS', defaultValue: false, description: 'treat validation warnings as failures'),
-                ]),
-                disableConcurrentBuilds(),
-            ])
+    withFolderProperties {
+        try {
+            ansiColor('xterm') {
+                boolean testPipeline = parseBoolean(env.STACKSMITH_TEST_PIPELINE)
+                properties([
+                    parameters(buildPipelineParameters(testPipeline)),
+                    disableConcurrentBuilds(),
+                ])
 
-            checkout(scm)
+                checkout(scm)
 
-            env.COMMAND = (params.COMMAND ?: 'plan').toString().trim().toLowerCase()
-            env.OPERATION_NAMES = (params.OPERATION_NAMES ?: '').toString().trim()
-
-            withFolderProperties {
+                env.COMMAND = testPipeline ? 'test' : (params.COMMAND ?: 'plan').toString().trim().toLowerCase()
+                env.OPERATION_NAMES = testPipeline ? '' : (params.OPERATION_NAMES ?: '').toString().trim()
+                String workdir = (params.WORKDIR ?: '.').toString()
 
                 def manifestFile = '.stacksmith-ci/ci-execution-manifest.json'
                 def manifestOutput = withEnv([
@@ -277,7 +279,7 @@ withStacksmithAgent {
                     "INPUT_OPERATION_NAMES=${env.OPERATION_NAMES}",
                     "STACKSMITH_MAX_PARALLEL_OPERATIONS=${env.STACKSMITH_MAX_PARALLEL_OPERATIONS ?: '10'}",
                     "INPUT_CONFIG_REF=${env.STACKSMITH_CONFIG_REF}",
-                    "INPUT_WORKDIR=${params.WORKDIR}",
+                    "INPUT_WORKDIR=${workdir}",
                     "INPUT_ENV_FILE=${env.STACKSMITH_ENV_FILE ?: '/dev/null'}",
                     "INPUT_STACKSMITH_ARGS_JSON=${env.STACKSMITH_ARGS_JSON ?: '[]'}",
                     "INPUT_DEBUG=${parseBoolean(env.STACKSMITH_DEBUG) || params.DEBUG}",
@@ -287,11 +289,11 @@ withStacksmithAgent {
                     "INPUT_LOCKFILE=${env.STACKSMITH_LOCKFILE ?: ''}",
                     "INPUT_FORCE_RERUN=${env.STACKSMITH_FORCE_RERUN ?: 'false'}",
                     "INPUT_VALIDATION_REPORT_FORMAT=${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
-                    "INPUT_FAIL_ON_CHANGES=${params.FAIL_ON_CHANGES}",
-                    "INPUT_STRICT_VALIDATION_WARNINGS=${params.STRICT_VALIDATION_WARNINGS}",
-                    "INPUT_GITOPS_ROOT=${env.STACKSMITH_GITOPS_ROOT ?: params.WORKDIR}",
+                    "INPUT_FAIL_ON_CHANGES=${testPipeline ? 'false' : params.FAIL_ON_CHANGES}",
+                    "INPUT_STRICT_VALIDATION_WARNINGS=${testPipeline ? 'false' : params.STRICT_VALIDATION_WARNINGS}",
+                    "INPUT_GITOPS_ROOT=${env.STACKSMITH_GITOPS_ROOT ?: workdir}",
                     "INPUT_DISCOVERY_MODE=${env.STACKSMITH_DISCOVERY_MODE ?: 'auto'}",
-                    "INPUT_ENVIRONMENTS=${params.ENVIRONMENTS}",
+                    "INPUT_ENVIRONMENTS=${params.ENVIRONMENTS ?: ''}",
                     "CALLER_EVENT_NAME=${env.CHANGE_ID ? 'pull_request' : 'push'}",
                     "CALLER_BASE_REF=${env.CHANGE_TARGET ?: ''}",
                     "CALLER_EVENT_BEFORE=${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: env.GIT_PREVIOUS_COMMIT ?: ''}",
@@ -322,12 +324,24 @@ withStacksmithAgent {
                 env.SELECTED_OPERATIONS = manifest.operation_names.join(', ')
 
                 if (!env.SELECTED_ENVIRONMENTS) {
-                    echo "No environments selected; skipping ${params.COMMAND}."
+                    echo "No environments selected; skipping ${env.COMMAND}."
                     currentBuild.result = 'NOT_BUILT'
                     return
                 }
 
                 echo("Selected environments: ${env.SELECTED_ENVIRONMENTS}")
+
+                if (testPipeline) {
+                    stage('Test') {
+                        executeStacksmithMatrix(
+                            env.SELECTION_MATRIX,
+                            workdir,
+                            'test',
+                            env.STACKSMITH_CREDENTIALS_JSON ?: ''
+                        )
+                    }
+                    return
+                }
 
                 stage('Plan') {
                     if (!(env.SELECTED_ENVIRONMENTS && env.COMMAND in ['plan', 'apply'])) {
@@ -337,7 +351,7 @@ withStacksmithAgent {
 
                     executeStacksmithMatrix(
                         env.SELECTION_MATRIX,
-                        params.WORKDIR,
+                        workdir,
                         'plan',
                         env.STACKSMITH_CREDENTIALS_JSON ?: ''
                     )
@@ -354,7 +368,7 @@ withStacksmithAgent {
 
                     executeStacksmithMatrix(
                         env.SELECTION_MATRIX,
-                        params.WORKDIR,
+                        workdir,
                         'plan-operation',
                         env.STACKSMITH_CREDENTIALS_JSON ?: ''
                     )
@@ -394,7 +408,7 @@ withStacksmithAgent {
 
                     executeStacksmithMatrix(
                         env.SELECTION_MATRIX,
-                        params.WORKDIR,
+                        workdir,
                         'apply',
                         env.STACKSMITH_CREDENTIALS_JSON ?: ''
                     )
@@ -412,16 +426,15 @@ withStacksmithAgent {
 
                     executeStacksmithMatrix(
                         env.SELECTION_MATRIX,
-                        params.WORKDIR,
+                        workdir,
                         'operation',
                         env.STACKSMITH_CREDENTIALS_JSON ?: ''
                     )
                 }
 
             }
-
+        } finally {
+            cleanWs()
         }
-    } finally {
-        cleanWs()
     }
 }

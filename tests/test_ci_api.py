@@ -305,6 +305,42 @@ def test_prepare_ci_execution_rejects_local_backend(tmp_path: Path):
         )
 
 
+def test_prepare_ci_test_execution_allows_local_backend_and_feature_branch(
+    tmp_path: Path,
+):
+    _create_env_files_layout(tmp_path)
+
+    manifest = prepare_ci_execution(
+        command="test",
+        config_ref=str(_LOCAL_BACKEND_CONFIG),
+        gitops_root=str(tmp_path),
+        discovery_mode="env-files",
+        environments="dev",
+        event_name="push",
+        ref_name="feature/config-tests",
+        default_branch="main",
+        stacksmith_args_json='["tests.yaml", "--", "-k", "policy"]',
+        debug=True,
+        no_cas=True,
+        offline=True,
+        lockfile="stacksmith.lock.yaml",
+    )
+
+    argv = build_ci_execution_argv(manifest, "dev")
+
+    assert argv[0] == "test"
+    assert argv[argv.index("--config") + 1] == str(_LOCAL_BACKEND_CONFIG)
+    assert argv[argv.index("--var") + 1] == "environment=dev"
+    assert argv[argv.index("--env-file") + 1] == "/dev/null"
+    assert argv[argv.index("--runfile") + 1].endswith("common/stacksmith.yaml")
+    assert argv[argv.index("--build-dir") + 1] == ".stacksmith-ci/dev"
+    assert argv[-3:] == ["--", "-k", "policy"]
+    assert "--debug" in argv
+    assert "--no-cas" in argv
+    assert "--offline" not in argv
+    assert "--lockfile" not in argv
+
+
 def test_prepare_ci_execution_rejects_dynamic_local_backend(tmp_path: Path):
     _create_env_files_layout(tmp_path)
     config_path = tmp_path / "stacksmith-config.yaml"
@@ -616,6 +652,21 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert '--phase "$STACKSMITH_CI_PHASE"' in actions_executor
 
 
+def test_jenkins_pipeline_uses_environment_controlled_test_mode():
+    jenkins_pipeline = (Path(__file__).parents[1] / "Jenkinsfile").read_text()
+
+    assert "'apply-operation', 'test']" not in jenkins_pipeline
+    assert "parseBoolean(env.STACKSMITH_TEST_PIPELINE)" in jenkins_pipeline
+    assert "parameters(buildPipelineParameters(testPipeline))" in jenkins_pipeline
+    assert "if (testPipeline) {\n        return sharedParameters" in jenkins_pipeline
+    assert "env.COMMAND = testPipeline ? 'test'" in jenkins_pipeline
+    assert "if (testPipeline)" in jenkins_pipeline
+    assert "stage('Test')" in jenkins_pipeline
+    assert "'test'," in jenkins_pipeline
+    assert "stacksmith test" not in jenkins_pipeline
+    assert "poe test" not in jenkins_pipeline
+
+
 def test_ci_plan_execution_only_writes_redacted_plan_json():
     argv = build_ci_execution_argv(
         CiExecutionManifest(
@@ -758,6 +809,9 @@ def test_ci_manifest_rejects_unapproved_execution_phase():
 
     with pytest.raises(StacksmithError, match="cannot execute phase 'apply'"):
         build_ci_execution_argv(manifest, "dev", "apply")
+
+    with pytest.raises(StacksmithError, match="cannot execute phase 'test'"):
+        build_ci_execution_argv(manifest, "dev", "test")
 
 
 def test_prepare_ci_execution_accepts_colon_delimited_config_refs(tmp_path: Path):

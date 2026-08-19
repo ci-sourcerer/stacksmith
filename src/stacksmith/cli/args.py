@@ -736,7 +736,7 @@ def configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
         "--command",
         dest="ci_execution_command",
         required=True,
-        choices=["plan", "apply", "plan-operation", "operation"],
+        choices=["test", "plan", "apply", "plan-operation", "apply-operation"],
         help="Stacksmith command to execute for each selected environment.",
     )
     parser.add_argument(
@@ -744,7 +744,7 @@ def configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
         default="",
         help=(
             "Comma-delimited stack-local operation names. Empty selects all for "
-            "plan-operation and operation commands."
+            "plan-operation and apply-operation commands."
         ),
     )
     parser.add_argument(
@@ -875,11 +875,12 @@ def configure_ci_execute_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--phase",
-        choices=["plan", "apply", "plan-operation", "operation"],
+        choices=["test", "plan", "apply", "plan-operation", "operation"],
         default="",
         help=(
-            "Lifecycle phase to execute. Apply and operation manifests support "
-            "their corresponding dry-run and execution phases."
+            "Lifecycle phase to execute. CI manifests prepared with command test "
+            "only support test; apply and operation manifests also support their "
+            "corresponding dry-run and execution phases."
         ),
     )
     parser.add_argument(
@@ -959,11 +960,12 @@ def configure_ci_execute_from_env_parser(parser: argparse.ArgumentParser) -> Non
     )
     parser.add_argument(
         "--phase",
-        choices=["plan", "apply", "plan-operation", "operation"],
+        choices=["test", "plan", "apply", "plan-operation", "operation"],
         default="",
         help=(
             "Optional lifecycle phase override. When omitted, "
-            "STACKSMITH_CI_PHASE or the manifest command is used."
+            "STACKSMITH_CI_PHASE or the manifest command is used. CI manifests "
+            "prepared with command test only support the test phase."
         ),
     )
     parser.add_argument(

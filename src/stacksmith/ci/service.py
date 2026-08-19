@@ -219,7 +219,9 @@ def _ci_merge_config(arguments: Sequence[str], runfile: RunFile) -> MergeConfig:
 
 
 def _validate_ci_backends(manifest: CiExecutionManifest) -> None:
-    if parse_bool(os.getenv("STACKSMITH_CI_SKIP_BACKEND_VALIDATION")):
+    if manifest.command == "test" or parse_bool(
+        os.getenv("STACKSMITH_CI_SKIP_BACKEND_VALIDATION")
+    ):
         return
 
     for row in manifest.matrix:
