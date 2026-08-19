@@ -70,7 +70,7 @@ stacksmith = "stacksmith.testing.pytest_plugin"
 [dependency-groups]
 debug = ["debugpy (>=1.8.16,<2.0.0)", "jmespath (>=1.1.0,<2.0.0)"]
 dev = [
-    "common-python-tasks==0.8.0",
+    "common-python-tasks==0.9.0",
     "boto3 (>=1.43.14,<2.0.0)",
     "botocore[crt] (>=1.43.15,<2.0.0)",
 ]
