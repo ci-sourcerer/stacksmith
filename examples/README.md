@@ -61,9 +61,9 @@ When adapting the plan template, update its defaults and choose path filters tha
 
 A reusable Jenkins pipeline is available in `Jenkinsfile`. It is designed to be consumed by vendoring this repository as a git submodule and exposes the same GitOps selection behavior as the GitHub Actions wrappers.
 
-For consuming repositories, set `STACKSMITH_AGENT_LABEL` and use `withEnv` in your Pipeline step to pass the required GitOps variables.
+For consuming repositories, use the Jenkins folder properties or job environment described in the main README to select an agent and pass Stacksmith settings.
 
-Use `Jenkinsfile` as the Jenkins GitOps entrypoint. It mirrors the GitHub Actions workflow's discovery, execution flags, approval, and artifact behavior using Jenkins-native features. Plan requests run a `Plan` stage, while apply requests run `Plan`, `Approve`, and `Apply` in order.
+Use `Jenkinsfile` as the Jenkins GitOps entrypoint. It mirrors the GitHub Actions workflow's discovery, execution flags, approval, and artifact behavior using Jenkins-native features. Set `STACKSMITH_TEST_PIPELINE` to a truthy value on a job or folder to make it a test-only pipeline that runs managed-configuration tests through `stacksmith test`. Without that setting, plan requests run a `Plan` stage and apply requests run `Plan`, `Approve`, and `Apply` in order.
 
 ## Example stack
 

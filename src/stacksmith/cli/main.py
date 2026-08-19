@@ -1099,6 +1099,8 @@ def _execute_ci_manifest(
             return _cmd_operation_plan(execution_args)
         if execution_phase == "operation":
             return _cmd_operation_run(execution_args)
+        if execution_phase == "test":
+            return _cmd_test(execution_args)
         return _cmd_terragrunt_action(execution_args, execution_phase)
     finally:
         os.chdir(original_directory)

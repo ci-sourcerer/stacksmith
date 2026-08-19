@@ -2212,6 +2212,59 @@ def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path)
     assert calls["args"].fail_on_changes is True
 
 
+def test_cmd_ci_execute_reuses_stacksmith_test_handler(
+    monkeypatch, parser, tmp_path: Path
+):
+    from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
+
+    env_file = tmp_path / "ci.env"
+    env_file.write_text("STACKSMITH_TEST_VALUE=from-ci-env\n", encoding="utf-8")
+    monkeypatch.delenv("STACKSMITH_TEST_VALUE", raising=False)
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        CiExecutionManifest(
+            command="test",
+            config_ref="platform/stacksmith-config.yaml",
+            workdir=str(tmp_path),
+            env_file=str(env_file),
+            stacksmith_args=["tests.yaml", "--", "-k", "policy"],
+            matrix=[
+                CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")
+            ],
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+    calls = {}
+
+    def _fake_test_handler(args):
+        calls["args"] = args
+        calls["cwd"] = Path.cwd()
+        calls["environment_value"] = os.getenv("STACKSMITH_TEST_VALUE")
+        return 0
+
+    monkeypatch.setattr(cli_main, "_cmd_test", _fake_test_handler)
+    args = parser.parse_args(
+        [
+            "ci",
+            "execute",
+            "--manifest",
+            str(manifest_path),
+            "--environment",
+            "dev",
+            "--phase",
+            "test",
+        ]
+    )
+
+    assert cli_main._cmd_ci_execute(args) == 0
+    assert calls["args"].config == ["platform/stacksmith-config.yaml"]
+    assert calls["args"].runfile == ["common/stacksmith.yaml"]
+    assert calls["args"].vars == ["environment=dev"]
+    assert calls["args"].test_path == [Path("tests.yaml"), Path("-k"), Path("policy")]
+    assert calls["cwd"] == tmp_path
+    assert calls["environment_value"] == "from-ci-env"
+
+
 def test_cmd_ci_execute_skips_modules_and_policies_tables_in_debug_mode(
     monkeypatch, parser, tmp_path: Path
 ):

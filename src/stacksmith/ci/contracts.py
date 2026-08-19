@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from ..enums import ValidationReportFormat
 from ..exceptions import StacksmithConfigError, StacksmithError
 
-CiCommand = Literal["plan", "apply", "plan-operation", "apply-operation"]
+CiCommand = Literal["test", "plan", "apply", "plan-operation", "apply-operation"]
+CiExecutionPhase = Literal["test", "plan", "apply", "plan-operation", "operation"]
 
 
 class CiExecutionRow(BaseModel):
@@ -89,11 +90,7 @@ class CiExecutionManifest(BaseModel):
                 "operation names are only supported when command is "
                 "'plan-operation' or 'apply-operation'"
             )
-        if (
-            self.command not in {"plan-operation", "apply-operation"}
-            and self.offline
-            and not self.locked
-        ):
+        if self.command in {"plan", "apply"} and self.offline and not self.locked:
             raise ValueError("offline CI execution requires locked execution")
         ValidationReportFormat(self.validation_report_format)
         return self
@@ -178,9 +175,15 @@ def validate_ci_policy(
     Raises:
         StacksmithConfigError: If command or branch policy is invalid.
     """
-    if command not in {"plan", "apply", "plan-operation", "apply-operation"}:
+    if command not in {
+        "test",
+        "plan",
+        "apply",
+        "plan-operation",
+        "apply-operation",
+    }:
         raise StacksmithConfigError(
-            f"Invalid command '{command}'. Expected 'plan', 'apply', "
+            f"Invalid command '{command}'. Expected 'test', 'plan', 'apply', "
             "'plan-operation', or 'apply-operation'."
         )
     if command not in {"plan-operation", "apply-operation"} and operation_names:
@@ -189,6 +192,8 @@ def validate_ci_policy(
             "'plan-operation' or 'apply-operation'."
         )
     if skip_branch_validation:
+        return
+    if command == "test":
         return
     if event_name == "pull_request":
         if command in {"apply", "apply-operation"}:
@@ -214,7 +219,7 @@ def validate_ci_policy(
 
 def resolve_ci_execution_phase(
     manifest: CiExecutionManifest, phase: str = ""
-) -> CiCommand:
+) -> CiExecutionPhase:
     """Resolve and validate a lifecycle phase for a CI manifest.
 
     Args:
@@ -233,6 +238,7 @@ def resolve_ci_execution_phase(
     if (
         resolved_phase
         not in {
+            "test": {"test"},
             "plan": {"plan", "plan-operation"},
             "apply": {"plan", "plan-operation", "apply", "operation"},
             "plan-operation": {"plan-operation"},
@@ -243,7 +249,7 @@ def resolve_ci_execution_phase(
             f"CI manifest command '{manifest.command}' cannot execute "
             f"phase '{resolved_phase}'."
         )
-    return cast(CiCommand, resolved_phase)
+    return cast(CiExecutionPhase, resolved_phase)
 
 
 def build_ci_execution_argv(
@@ -280,6 +286,23 @@ def build_ci_execution_argv(
     runfiles = ["--runfile", row.runfile]
     if row.environment_runfile:
         runfiles.extend(["--runfile", row.environment_runfile])
+    if execution_phase == "test":
+        test_args = [
+            "--config",
+            manifest.config_ref,
+            "--var",
+            f"environment={row.environment}",
+            "--env-file",
+            manifest.env_file,
+            *runfiles,
+            "--build-dir",
+            f".stacksmith-ci/{row.environment}",
+        ]
+        if manifest.debug:
+            test_args.append("--debug")
+        if manifest.no_cas:
+            test_args.append("--no-cas")
+        return ["test", *test_args, *manifest.stacksmith_args]
     common_args = [
         "--config",
         manifest.config_ref,
@@ -296,7 +319,7 @@ def build_ci_execution_argv(
         common_args.append("--debug")
     if manifest.no_cas:
         common_args.append("--no-cas")
-    if execution_phase not in {"plan-operation", "operation"}:
+    if execution_phase in {"plan", "apply"}:
         if manifest.locked:
             common_args.append("--locked")
         if manifest.offline:
