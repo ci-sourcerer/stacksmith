@@ -240,6 +240,23 @@ ModuleSourceReference: TypeAlias = Annotated[
 ]
 
 
+def _render_local_module_path(
+    path: str,
+    options: Mapping[str, Any] | None = None,
+    *,
+    expand_user: bool = False,
+) -> str:
+    package_path, separator, module_path = path.partition("//")
+    local_path = Path(package_path)
+    if expand_user:
+        local_path = local_path.expanduser()
+    if options is not None and options.get("base_path") is not None:
+        base_path = Path(options["base_path"])
+        if not local_path.is_absolute():
+            local_path = (base_path / local_path).resolve()
+    return f"{local_path}{separator}{module_path}"
+
+
 class RegistrySourceTemplateData(BaseModel):
     """Template-capable registry module source payload."""
 
@@ -332,12 +349,9 @@ def render_module_source_identity(
             in_repo_path = f"//{data.path}" if data.path else ""
             return f"{data.repo}{in_repo_path}", data.ref
         case LocalModuleSourceReference(data=data):
-            local_path = Path(data.path).expanduser()
-            if options is not None and options.get("base_path") is not None:
-                base_path = Path(options["base_path"])
-                if not local_path.is_absolute():
-                    local_path = (base_path / local_path).resolve()
-            return str(local_path), "local"
+            return _render_local_module_path(
+                data.path, options, expand_user=True
+            ), "local"
 
     raise ValueError(f"Unsupported module source: {source!r}")
 
@@ -372,12 +386,7 @@ def render_module_source_fields(
                 )
             }
         case LocalModuleSourceReference(data=data):
-            local_path = Path(data.path)
-            if options is not None and options.get("base_path") is not None:
-                base_path = Path(options["base_path"])
-                if not local_path.is_absolute():
-                    local_path = (base_path / local_path).resolve()
-            return {"source": str(local_path)}
+            return {"source": _render_local_module_path(data.path, options)}
 
     raise ValueError(f"Unsupported module source: {source!r}")
 

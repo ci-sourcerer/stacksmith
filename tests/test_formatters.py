@@ -16,6 +16,7 @@ from stacksmith.models import (
     ModuleGitSourceReference,
     ProviderSourceReference,
     RegistrySourceReference,
+    render_module_source_identity,
 )
 
 
@@ -108,6 +109,35 @@ def test_render_module_source_for_terraform_local_source_with_base_path():
 
     assert rendered == {"source": str(Path("examples/modules/helm_app").resolve())}
     assert "version" not in rendered
+
+
+def test_render_module_source_for_terraform_local_package_subdir_with_base_path():
+    rendered = render_module_source_for(
+        "terraform",
+        LocalModuleSourceReference(
+            source="local",
+            data={"path": "../modules//cert-manager"},
+        ),
+        options={"base_path": "examples/envs/prod"},
+    )
+
+    assert rendered == {
+        "source": f"{Path('examples/envs/modules').resolve()}//cert-manager"
+    }
+    assert "version" not in rendered
+
+
+def test_render_module_source_identity_preserves_local_package_subdir():
+    source, version = render_module_source_identity(
+        LocalModuleSourceReference(
+            source="local",
+            data={"path": "../modules//cert-manager"},
+        ),
+        options={"base_path": "examples/envs/prod"},
+    )
+
+    assert source == f"{Path('examples/envs/modules').resolve()}//cert-manager"
+    assert version == "local"
 
 
 def test_render_provider_source_for_terraform_registry_source():
