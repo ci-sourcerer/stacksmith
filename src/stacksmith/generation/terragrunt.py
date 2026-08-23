@@ -143,6 +143,8 @@ def generate_operations_terragrunt_json(
         config: Tool configuration.
         root: Optional monorepo root used for state key derivation.
         operation_inputs: Infrastructure bridge inputs consumed by operations.
+            Retained for caller compatibility; operation roots read these from
+            `terraform_remote_state`.
 
     Returns:
         Terragrunt configuration backed by the operation-only state key.
@@ -160,21 +162,7 @@ def generate_operations_terragrunt_json(
             ),
         },
         "terraform_binary": "tofu",
-        "inputs": {
-            name: f"${{dependency.infrastructure.outputs.{name}}}"
-            for name in operation_inputs or []
-        },
     }
-    if operation_inputs:
-        doc["dependency"] = {
-            "infrastructure": {
-                "config_path": "..",
-                "mock_outputs": {
-                    name: "stacksmith-operation-plan-mock" for name in operation_inputs
-                },
-                "mock_outputs_allowed_terraform_commands": ["plan", "validate"],
-            }
-        }
     return doc
 
 

@@ -41,7 +41,9 @@ _OPERATION_RUNNER_ASSETS = ("main.tf", "local.py", "jenkins.py")
 _MODULE_REFERENCE_PATTERN = re.compile(
     r"\$\{module\.([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\}"
 )
-_OPERATION_INPUT_PATTERN = re.compile(r"\$\{var\.([A-Za-z_][A-Za-z0-9_]*)\}")
+_OPERATION_BRIDGE_OUTPUT_PATTERN = re.compile(
+    r"data\.terraform_remote_state\.infrastructure\.outputs\.([A-Za-z_][A-Za-z0-9_]*)"
+)
 
 
 def operation_module_name(name: str) -> str:
@@ -130,11 +132,19 @@ def _operation_bridge_output_name(component_name: str, output_name: str) -> str:
     return f"stacksmith_operation_bridge_{component_name}_{output_name}"
 
 
+def _operation_bridge_output_reference(component_name: str, output_name: str) -> str:
+    return (
+        "${data.terraform_remote_state.infrastructure.outputs."
+        f"{_operation_bridge_output_name(component_name, output_name)}}}"
+    )
+
+
 def _rewrite_operation_component_references(value: Any) -> Any:
     if isinstance(value, str):
         return _MODULE_REFERENCE_PATTERN.sub(
-            lambda match: (
-                f"${{var.{_operation_bridge_output_name(match.group(1), match.group(2))}}}"
+            lambda match: _operation_bridge_output_reference(
+                match.group(1),
+                match.group(2),
             ),
             value,
         )
@@ -232,6 +242,24 @@ def _generate_operations_terraform_block(
             )
         }
     return block
+
+
+def _generate_operations_infrastructure_state_data(
+    config: ToolConfig,
+    stack: StackDefinition,
+    root: Path | None,
+) -> dict[str, Any]:
+    return {
+        "terraform_remote_state": {
+            "infrastructure": {
+                "backend": config.backend.type,
+                "config": _backend_config_from_child_directory(
+                    config,
+                    derive_stack_state_key(stack.name, stack.source_path, root),
+                ),
+            }
+        }
+    }
 
 
 def _stack_context(stack: StackDefinition) -> dict[str, Any]:
@@ -571,16 +599,12 @@ def generate_operations_tf_json(
         "terraform": _generate_operations_terraform_block(config, stack, root),
         "module": modules,
     }
-    if operation_inputs := sorted(
-        set(_OPERATION_INPUT_PATTERN.findall(json.dumps(modules)))
-    ):
-        doc["variable"] = {
-            name: {
-                "type": "any",
-                "sensitive": True,
-            }
-            for name in operation_inputs
-        }
+    if _OPERATION_BRIDGE_OUTPUT_PATTERN.search(json.dumps(modules)):
+        doc["data"] = _generate_operations_infrastructure_state_data(
+            config,
+            stack,
+            root,
+        )
     return doc
 
 
