@@ -1047,6 +1047,40 @@ class TestLoadConfig:
             (config_dir / "../scripts/transform_output.py").resolve()
         )
 
+    def test_local_module_package_subdir_source_resolves_relative_to_config(
+        self,
+        sample_config_yaml: Path,
+        tmp_path: Path,
+    ):
+        config_dir = tmp_path / "shared"
+        config_dir.mkdir()
+        config_file = config_dir / "stacksmith-config.yaml"
+        config_data = yaml.safe_load(sample_config_yaml.read_text(encoding="utf-8"))
+        config_data["module_mappings"]["aws_s3_bucket"]["source"] = {
+            "source": "local",
+            "data": {"path": "../modules//aws_s3_bucket"},
+        }
+        config_data["default_module_mapping"] = {
+            "source": {
+                "source": "local",
+                "data": {"path": "../modules//{{ component.type }}"},
+            },
+        }
+        config_file.write_text(
+            yaml.safe_dump(config_data, sort_keys=False),
+            encoding="utf-8",
+        )
+
+        config = load_config(config_file)
+
+        assert config.module_mappings["aws_s3_bucket"].source.data.path == (
+            f"{(config_dir / '../modules').resolve()}//aws_s3_bucket"
+        )
+        assert config.default_module_mapping is not None
+        assert config.default_module_mapping.source.data.path == (
+            f"{(config_dir / '../modules').resolve()}//{{{{ component.type }}}}"
+        )
+
     def test_load_config_accepts_provider_config_spec(self, tmp_path: Path):
         config_file = tmp_path / "stacksmith-config.yaml"
         config_file.write_text(

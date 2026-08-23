@@ -148,7 +148,7 @@ class TestGenerateOperationsTerragruntJson:
             "../.state/my-stack/operations/terraform.tfstate"
         )
 
-    def test_component_inputs_use_read_only_infrastructure_dependency(
+    def test_component_inputs_are_not_passed_through_terragrunt(
         self, sample_stack_yaml: Path, sample_config_yaml: Path
     ):
         stack = load_stack(sample_stack_yaml)
@@ -160,14 +160,8 @@ class TestGenerateOperationsTerragruntJson:
             operation_inputs=["stacksmith_operation_bridge_app_release_name"],
         )
 
-        assert doc["dependency"]["infrastructure"]["config_path"] == ".."
-        assert doc["inputs"]["stacksmith_operation_bridge_app_release_name"] == (
-            "${dependency.infrastructure.outputs."
-            "stacksmith_operation_bridge_app_release_name}"
-        )
-        assert doc["dependency"]["infrastructure"][
-            "mock_outputs_allowed_terraform_commands"
-        ] == ["plan", "validate"]
+        assert "dependency" not in doc
+        assert "inputs" not in doc
 
 
 class TestWriteTerragruntJson:

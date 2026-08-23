@@ -282,7 +282,8 @@ def test_operation_input_preserves_component_output_reference(tmp_path: Path):
     module = generated["module"]["stacksmith_operation_deploy_app"]
     assert module["spec"]["environment"] == {
         "RELEASE_TAG": (
-            "production-release/${var.stacksmith_operation_bridge_app_release_name}"
+            "production-release/${data.terraform_remote_state.infrastructure.outputs."
+            "stacksmith_operation_bridge_app_release_name}"
         )
     }
     assert "depends_on" not in module
@@ -295,10 +296,11 @@ def test_operation_input_preserves_component_output_reference(tmp_path: Path):
     assert generated["terraform"]["backend"]["local"]["path"] == (
         "../.state/application/operations/terraform.tfstate"
     )
-    assert generated["variable"]["stacksmith_operation_bridge_app_release_name"] == {
-        "type": "any",
-        "sensitive": True,
+    assert generated["data"]["terraform_remote_state"]["infrastructure"] == {
+        "backend": "local",
+        "config": {"path": "../.state/application/terraform.tfstate"},
     }
+    assert "variable" not in generated
 
 
 def test_infrastructure_bridge_outputs_exist_before_operations_are_declared():

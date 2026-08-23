@@ -3,7 +3,12 @@ from pathlib import Path
 from typing import Any
 
 
-def _absolutize_local_reference(reference: Any, base_dir: Path) -> None:
+def _absolutize_local_reference(
+    reference: Any,
+    base_dir: Path,
+    *,
+    preserve_package_subdir: bool = False,
+) -> None:
     if not isinstance(reference, dict) or reference.get("source") != "local":
         return
 
@@ -15,9 +20,16 @@ def _absolutize_local_reference(reference: Any, base_dir: Path) -> None:
     if not isinstance(path_value, str) or not path_value:
         return
 
-    path = Path(path_value).expanduser()
-    if not path.is_absolute():
-        payload["path"] = str((base_dir / path).resolve())
+    path_root, separator, path_suffix = (
+        path_value.partition("//") if preserve_package_subdir else (path_value, "", "")
+    )
+    path = Path(path_root).expanduser()
+    if path.is_absolute():
+        if separator:
+            payload["path"] = f"{path}{separator}{path_suffix}"
+        return
+
+    payload["path"] = f"{(base_dir / path).resolve()}{separator}{path_suffix}"
 
 
 def resolve_runfile_local_references(
@@ -46,7 +58,11 @@ def _resolve_module_mapping_references(module: Any, config_dir: Path) -> None:
     if not isinstance(module, dict):
         return
 
-    _absolutize_local_reference(module.get("source"), config_dir)
+    _absolutize_local_reference(
+        module.get("source"),
+        config_dir,
+        preserve_package_subdir=True,
+    )
     properties = module.get("properties")
     if isinstance(properties, dict):
         for property_spec in properties.values():
