@@ -285,6 +285,34 @@ Each provider instance `config` must use exactly one top-level source key to def
 
 Stacksmith can also introspect remote module sources to discover which OpenTofu `variable` inputs the module actually exposes. When `auto_inject_inputs: true` is enabled for a module mapping, stacksmith uses that discovery data to inject same-name resolved inputs automatically, without requiring empty `{}` property declarations for every module input. This means that only module variables that actually exist are auto-injected, unmapped stack inputs that might be organizational like `environment` are not leaked into a module that does not declare them, and explicit `mapped_to` mappings and property overrides still work as before.
 
+Managed configs can define reusable `module_input_sets` for inputs that every selected module must receive. This is useful for organizational context such as `environment`, `business_unit`, or ownership tags that should be passed consistently across modules. Add set names to top-level `required_module_input_sets` to apply them to every generated module, or to a module mapping's `required_input_sets` to apply them only to components of that type. Required input sets are stricter than auto-injection: Stacksmith fails before planning if a required input value is missing. Stacksmith also generates matching Terraform variable declarations into generated module packages so the source module does not need to declare those repeated shared inputs itself.
+
+```yaml
+module_input_sets:
+  organization:
+    description: Required organizational metadata.
+    inputs:
+      environment:
+        type: string
+        description: Deployment environment.
+      business_unit:
+        type: string
+        description: Owning business unit.
+
+required_module_input_sets:
+  - organization
+
+module_mappings:
+  app:
+    source:
+      source: git
+      data:
+        repo: https://github.com/my-org/terraform-app.git
+        ref: v1.2.3
+    required_input_sets:
+      - organization
+```
+
 Output introspection follows the same source-resolution rules. With `auto_expose_outputs: true`, only identifier-style names declared by the module can be referenced automatically. Outputs with names that require special OpenTofu traversal syntax need an explicit managed alias. Stacksmith does not execute the module during discovery, and explicit output mappings and transforms continue to define the managed aliases and adapters.
 
 A few things to note about the config are as follows.

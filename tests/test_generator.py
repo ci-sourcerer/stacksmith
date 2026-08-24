@@ -16,8 +16,11 @@ from stacksmith.generation import generate_tf_json, write_tf_json
 from stacksmith.loading import load_config, load_stack
 from stacksmith.models import (
     DefaultModuleMapping,
+    ModuleInputSet,
+    ModuleInputSpec,
     ModuleMapping,
     ModulePropertySpec,
+    ToolConfig,
     TransformSpec,
     ValidationSpec,
     render_module_source_fields,
@@ -1277,6 +1280,146 @@ class TestAutoInjectVars:
 
         assert "environment" not in result["module"]["my-bucket"]
         assert "bucket_name" not in result["module"]["my-bucket"]
+
+    def test_required_module_input_sets_inject_without_auto_inject_inputs(
+        self, sample_config_yaml: Path, tmp_path: Path
+    ):
+        stack_file = tmp_path / "stack.yaml"
+        stack_file.write_text(
+            "name: test-stack\ncomponents:\n  my-bucket:\n    type: aws_s3_bucket\n"
+        )
+        stack = load_stack(stack_file)
+        config = load_config(sample_config_yaml)
+        config.module_input_sets["organization"] = ModuleInputSet(
+            inputs={
+                "environment": ModuleInputSpec(type="string"),
+                "business_unit": ModuleInputSpec(type="string"),
+            }
+        )
+        config.required_module_input_sets = ["organization"]
+
+        with patch(
+            self._DISCOVER,
+            return_value={"environment", "business_unit", "bucket_acl"},
+        ):
+            result = generate_tf_json(
+                stack,
+                config,
+                {
+                    "environment": "prod",
+                    "business_unit": "platform",
+                },
+            )
+
+        assert result["module"]["my-bucket"]["environment"] == "prod"
+        assert result["module"]["my-bucket"]["business_unit"] == "platform"
+
+    def test_required_module_input_sets_require_resolved_input(
+        self, sample_config_yaml: Path, tmp_path: Path
+    ):
+        stack_file = tmp_path / "stack.yaml"
+        stack_file.write_text(
+            "name: test-stack\ncomponents:\n  my-bucket:\n    type: aws_s3_bucket\n"
+        )
+        stack = load_stack(stack_file)
+        config = load_config(sample_config_yaml)
+        config.module_input_sets["organization"] = ModuleInputSet(
+            inputs={
+                "environment": ModuleInputSpec(type="string"),
+                "business_unit": ModuleInputSpec(type="string"),
+            }
+        )
+        config.required_module_input_sets = ["organization"]
+
+        with (
+            patch(
+                self._DISCOVER,
+                return_value={"environment", "business_unit", "bucket_acl"},
+            ),
+            pytest.raises(StacksmithConfigError, match="business_unit"),
+        ):
+            generate_tf_json(stack, config, {"environment": "prod"})
+
+    def test_required_module_input_sets_generate_declared_module_variable(
+        self, sample_config_yaml: Path, tmp_path: Path
+    ):
+        stack_file = tmp_path / "stack.yaml"
+        stack_file.write_text(
+            "name: test-stack\ncomponents:\n  my-bucket:\n    type: aws_s3_bucket\n"
+        )
+        stack = load_stack(stack_file)
+        config = load_config(sample_config_yaml)
+        config.module_input_sets["organization"] = ModuleInputSet(
+            inputs={"environment": ModuleInputSpec(type="string")}
+        )
+        config.required_module_input_sets = ["organization"]
+
+        with patch(self._DISCOVER, return_value={"bucket_acl"}):
+            result = generate_tf_json(stack, config, {"environment": "prod"})
+
+        assert result["module"]["my-bucket"]["environment"] == "prod"
+
+    def test_required_module_input_sets_write_generated_module_variables(
+        self, tmp_path: Path
+    ):
+        module_dir = tmp_path / "module"
+        module_dir.mkdir()
+        (module_dir / "main.tf").write_text(
+            'output "name" { value = var.environment }\n',
+            encoding="utf-8",
+        )
+        stack_file = tmp_path / "stack.yaml"
+        stack_file.write_text(
+            "name: test-stack\ncomponents:\n  app:\n    type: app\n",
+            encoding="utf-8",
+        )
+        stack = load_stack(stack_file)
+        config = ToolConfig.model_validate(
+            {
+                "backend": {"data": {"type": "local", "path": ".state"}},
+                "module_input_sets": {
+                    "organization": {
+                        "inputs": {
+                            "environment": {
+                                "type": "string",
+                                "description": "Deployment environment.",
+                            }
+                        }
+                    }
+                },
+                "module_mappings": {
+                    "app": {
+                        "source": {
+                            "source": "local",
+                            "data": {"path": str(module_dir)},
+                        },
+                        "required_input_sets": ["organization"],
+                    }
+                },
+            }
+        )
+
+        output_path = write_tf_json(
+            stack,
+            config,
+            {"environment": "prod"},
+            tmp_path / "out",
+        )
+        generated = json.loads(output_path.read_text(encoding="utf-8"))
+        generated_module_dir = Path(generated["module"]["app"]["source"])
+        generated_variables = json.loads(
+            (generated_module_dir / "stacksmith.generated_variables.tf.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        assert generated_module_dir != module_dir
+        assert (module_dir / "stacksmith.generated_variables.tf.json").exists() is False
+        assert generated["module"]["app"]["environment"] == "prod"
+        assert generated_variables["variable"]["environment"] == {
+            "type": "string",
+            "description": "Deployment environment.",
+        }
 
 
 class TestLocalModuleVendoring:

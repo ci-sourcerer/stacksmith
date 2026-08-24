@@ -19,6 +19,8 @@ from stacksmith.models import (
     JenkinsOperationDefinition,
     LocalOperationDefinition,
     MergeRule,
+    ModuleInputSet,
+    ModuleInputSpec,
     ModuleMapping,
     ModuleOutputSpec,
     ModulePropertySpec,
@@ -145,6 +147,8 @@ def test_tool_config_fields_match_config_schema():
         "backend",
         "tools",
         "provider_mappings",
+        "module_input_sets",
+        "required_module_input_sets",
         "module_mappings",
         "default_module_mapping",
         "operations",
@@ -157,6 +161,8 @@ def test_tool_config_fields_match_config_schema():
         "backend",
         "tools",
         "provider_mappings",
+        "module_input_sets",
+        "required_module_input_sets",
         "module_mappings",
         "default_module_mapping",
         "operations",
@@ -201,6 +207,7 @@ def test_tool_config_fields_match_config_schema():
         "description",
         "source",
         "auto_inject_inputs",
+        "required_input_sets",
         "auto_expose_outputs",
         "tags",
         "providers",
@@ -211,6 +218,7 @@ def test_tool_config_fields_match_config_schema():
         "description",
         "source",
         "auto_inject_inputs",
+        "required_input_sets",
         "auto_expose_outputs",
         "tags",
         "providers",
@@ -221,6 +229,7 @@ def test_tool_config_fields_match_config_schema():
         "description",
         "source",
         "auto_inject_inputs",
+        "required_input_sets",
         "auto_expose_outputs",
         "tags",
         "providers",
@@ -233,6 +242,7 @@ def test_tool_config_fields_match_config_schema():
         "description",
         "source",
         "auto_inject_inputs",
+        "required_input_sets",
         "auto_expose_outputs",
         "tags",
         "providers",
@@ -247,6 +257,28 @@ def test_tool_config_fields_match_config_schema():
         "transform",
         "validation",
         "auto_inject_inputs",
+    }
+    assert _field_names(ModuleInputSet) == {
+        "description",
+        "inputs",
+    }
+    assert set(schema["$defs"]["moduleInputSet"]["properties"]) == {
+        "description",
+        "inputs",
+    }
+    assert _field_names(ModuleInputSpec) == {
+        "type",
+        "description",
+        "sensitive",
+        "nullable",
+        "default",
+    }
+    assert set(schema["$defs"]["moduleInputSpec"]["properties"]) == {
+        "type",
+        "description",
+        "sensitive",
+        "nullable",
+        "default",
     }
     assert set(schema["$defs"]["modulePropertySpec"]["properties"]) == {
         "description",
@@ -483,6 +515,8 @@ def test_vscode_associates_mergeable_documents_with_layer_schemas():
                 "backend",
                 "tools",
                 "provider_mappings",
+                "module_input_sets",
+                "required_module_input_sets",
                 "module_mappings",
                 "default_module_mapping",
                 "operations",

@@ -337,3 +337,66 @@ class TestModuleProviderMappingValidation:
             config.provider_mappings["aws"].instances["default"].config,
             ProviderConfigSpec,
         )
+
+
+class TestModuleInputSetValidation:
+    def test_global_required_input_set_reference_is_accepted(self):
+        payload = _base_tool_config_payload()
+        payload["module_input_sets"] = {
+            "organization": {
+                "inputs": {
+                    "environment": {"type": "string"},
+                    "business_unit": {"type": "string"},
+                }
+            }
+        }
+        payload["required_module_input_sets"] = ["organization"]
+
+        config = ToolConfig.model_validate(payload)
+
+        assert config.required_module_input_sets == ["organization"]
+
+    def test_mapping_required_input_set_reference_is_accepted(self):
+        payload = _base_tool_config_payload()
+        payload["module_input_sets"] = {
+            "organization": {
+                "inputs": {
+                    "environment": {"type": "string"},
+                    "business_unit": {"type": "string"},
+                }
+            }
+        }
+        payload["module_mappings"]["aws_s3_bucket"]["required_input_sets"] = [
+            "organization"
+        ]
+
+        config = ToolConfig.model_validate(payload)
+
+        assert config.module_mappings["aws_s3_bucket"].required_input_sets == [
+            "organization"
+        ]
+
+    def test_module_input_set_list_inputs_are_rejected(self):
+        payload = _base_tool_config_payload()
+        payload["module_input_sets"] = {
+            "organization": {"inputs": ["environment", "business_unit"]}
+        }
+
+        with pytest.raises(ValueError, match="Input should be a valid dictionary"):
+            ToolConfig.model_validate(payload)
+
+    def test_unknown_global_required_input_set_reference_is_rejected(self):
+        payload = _base_tool_config_payload()
+        payload["required_module_input_sets"] = ["organization"]
+
+        with pytest.raises(ValueError, match="unknown module_input_sets"):
+            ToolConfig.model_validate(payload)
+
+    def test_unknown_mapping_required_input_set_reference_is_rejected(self):
+        payload = _base_tool_config_payload()
+        payload["module_mappings"]["aws_s3_bucket"]["required_input_sets"] = [
+            "organization"
+        ]
+
+        with pytest.raises(ValueError, match="unknown module_input_sets"):
+            ToolConfig.model_validate(payload)

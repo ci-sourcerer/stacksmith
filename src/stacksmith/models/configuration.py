@@ -466,6 +466,53 @@ class ModulePropertySpec(BaseModel):
 _COMPONENT_OUTPUT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+class ModuleInputSpec(BaseModel):
+    """Typed input declaration generated into modules by input sets."""
+
+    type: str
+    description: str | None = None
+    sensitive: bool = False
+    nullable: bool | None = None
+    default: Any | None = None
+
+    @field_validator("type")
+    @classmethod
+    def _validate_type(cls, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise ValueError("Module input spec type must be a non-empty string")
+        return normalized_value
+
+
+class ModuleInputSet(BaseModel):
+    """Reusable set of resolved inputs required by module mappings."""
+
+    description: str | None = None
+    inputs: dict[str, ModuleInputSpec]
+
+    @field_validator("inputs")
+    @classmethod
+    def _validate_inputs(
+        cls, values: dict[str, ModuleInputSpec]
+    ) -> dict[str, ModuleInputSpec]:
+        normalized_values = {
+            name.strip(): specification for name, specification in values.items()
+        }
+        invalid_values = [
+            name
+            for name in normalized_values
+            if not _COMPONENT_OUTPUT_NAME_RE.fullmatch(name)
+        ]
+        if invalid_values:
+            raise ValueError(
+                "Module input set values must contain only letters, numbers, "
+                f"and underscores: {', '.join(invalid_values)}"
+            )
+        if not normalized_values:
+            raise ValueError("Module input sets must include at least one input")
+        return normalized_values
+
+
 class ModuleOutputSpec(BaseModel):
     """Public component output mapped from an underlying module output."""
 
@@ -672,11 +719,22 @@ class _ModuleMappingBase(BaseModel):
     description: str | None = None
     source: ModuleSourceReference
     auto_inject_inputs: bool = False
+    required_input_sets: list[str] = Field(default_factory=list)
     auto_expose_outputs: bool = False
     tags: set[str] = Field(default_factory=set)
     properties: dict[str, "ModulePropertySpec"] = Field(default_factory=dict)
     outputs: dict[str, "ModuleOutputSpec"] = Field(default_factory=dict)
     providers: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("required_input_sets")
+    @classmethod
+    def _validate_required_input_sets(cls, values: list[str]) -> list[str]:
+        normalized_values = [value.strip() for value in values]
+        if any(not value for value in normalized_values):
+            raise ValueError("Required module input set names must be non-empty")
+        if len(set(normalized_values)) != len(normalized_values):
+            raise ValueError("Required module input set names must be unique")
+        return normalized_values
 
     @model_validator(mode="after")
     def _validate_output_names(self) -> "_ModuleMappingBase":
@@ -868,6 +926,8 @@ class ToolConfig(BaseModel):
     backend: BackendSpec
     tools: ToolsConfig | None = None
     provider_mappings: dict[str, ProviderFamily] = Field(default_factory=dict)
+    module_input_sets: dict[str, ModuleInputSet] = Field(default_factory=dict)
+    required_module_input_sets: list[str] = Field(default_factory=list)
     module_mappings: dict[str, ModuleMapping] = Field(default_factory=dict)
     default_module_mapping: DefaultModuleMapping | None = None
     operations: dict[str, OperationDefinition] = Field(default_factory=dict)
@@ -875,6 +935,16 @@ class ToolConfig(BaseModel):
     plan_validations: dict[str, PlanValidation] = Field(default_factory=dict)
     remote_auth: dict[str, RemoteAuthEntry] = Field(default_factory=dict)
     source_path: Path | None = Field(default=None, exclude=True)
+
+    @field_validator("required_module_input_sets")
+    @classmethod
+    def _validate_required_module_input_sets(cls, values: list[str]) -> list[str]:
+        normalized_values = [value.strip() for value in values]
+        if any(not value for value in normalized_values):
+            raise ValueError("Required module input set names must be non-empty")
+        if len(set(normalized_values)) != len(normalized_values):
+            raise ValueError("Required module input set names must be unique")
+        return normalized_values
 
     @model_validator(mode="after")
     def _validate_module_provider_references(self) -> "ToolConfig":
@@ -887,7 +957,9 @@ class ToolConfig(BaseModel):
         if self.default_module_mapping is not None:
             mappings.append(("default", self.default_module_mapping))
 
+        required_input_sets = set(self.required_module_input_sets)
         for module_name, module in mappings:
+            required_input_sets.update(module.required_input_sets)
             for child_provider_name, provider_reference in module.providers.items():
                 provider_name, instance_name = parse_provider_instance_reference(
                     provider_reference
@@ -903,4 +975,11 @@ class ToolConfig(BaseModel):
                         f"Module '{module_name}' provider '{child_provider_name}' "
                         f"references unknown provider instance '{provider_reference}'"
                     )
+
+        unknown_input_sets = sorted(required_input_sets - set(self.module_input_sets))
+        if unknown_input_sets:
+            raise ValueError(
+                "Required module input sets reference unknown module_input_sets: "
+                f"{', '.join(unknown_input_sets)}"
+            )
         return self
