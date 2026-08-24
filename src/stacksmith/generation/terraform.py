@@ -12,6 +12,7 @@ from ..constants import GENERATED_TF_JSON
 from ..exceptions import StacksmithConfigError
 from ..formatters import render_module_source_for
 from ..introspection import (
+    _split_module_source,
     discover_module_outputs,
     discover_module_variables,
     resolve_module_dir,
@@ -371,16 +372,18 @@ def _write_generated_variable_declarations(
 
 
 def _write_generated_module_package(
+    source: str,
     source_dir: Path,
     generated_module_dir: Path,
     component_name: str,
     variable_specs: Mapping[str, ModuleInputSpec],
-) -> Path:
+) -> str:
     module_dir = _generated_module_package_path(generated_module_dir, component_name)
     if module_dir.exists():
         shutil.rmtree(module_dir)
+    package_dir, module_subdir = _source_package_dir(source, source_dir)
     shutil.copytree(
-        source_dir,
+        package_dir,
         module_dir,
         ignore=shutil.ignore_patterns(
             ".git",
@@ -389,8 +392,27 @@ def _write_generated_module_package(
             _GENERATED_VARIABLES_FILENAME,
         ),
     )
-    _write_generated_variable_declarations(module_dir, variable_specs)
-    return module_dir
+    _write_generated_variable_declarations(module_dir / module_subdir, variable_specs)
+    if module_subdir == Path("."):
+        return str(module_dir)
+    return f"{module_dir}//{module_subdir.as_posix()}"
+
+
+def _source_package_dir(source: str, source_dir: Path) -> tuple[Path, Path]:
+    _, module_subdir = _split_module_source(source)
+    if module_subdir == Path("."):
+        return source_dir, module_subdir
+
+    package_dir = source_dir
+    for _ in module_subdir.parts:
+        package_dir = package_dir.parent
+
+    if (package_dir / module_subdir).resolve() != source_dir.resolve():
+        raise StacksmithConfigError(
+            f"Resolved module directory {source_dir} does not match module "
+            f"subdirectory '{module_subdir}' from source {source}"
+        )
+    return package_dir, module_subdir
 
 
 def _generated_variable_specs(
@@ -536,19 +558,18 @@ def _generate_module_blocks(
             property_renderer,
         )
         if generated_variable_specs and generated_module_dir is not None:
-            module_block["source"] = str(
-                _write_generated_module_package(
-                    resolve_module_dir(
-                        mapping_source,
-                        mapping_version,
-                        cache_dir=cache_dir,
-                        auth_config=auth_config,
-                        vendor_dir=vendor_dir if use_local_modules else None,
-                    ),
-                    generated_module_dir,
-                    component_name,
-                    generated_variable_specs,
-                )
+            module_block["source"] = _write_generated_module_package(
+                mapping_source,
+                resolve_module_dir(
+                    mapping_source,
+                    mapping_version,
+                    cache_dir=cache_dir,
+                    auth_config=auth_config,
+                    vendor_dir=vendor_dir if use_local_modules else None,
+                ),
+                generated_module_dir,
+                component_name,
+                generated_variable_specs,
             )
         elif isinstance(mapping.source, LocalModuleSourceReference):
             module_block.update(
