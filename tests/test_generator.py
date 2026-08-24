@@ -1421,6 +1421,81 @@ class TestAutoInjectVars:
             "description": "Deployment environment.",
         }
 
+    def test_required_module_input_sets_preserve_local_package_subdirs(
+        self, tmp_path: Path
+    ):
+        package_dir = tmp_path / "modules"
+        module_dir = package_dir / "app"
+        child_module_dir = package_dir / "shared" / "child"
+        module_dir.mkdir(parents=True)
+        child_module_dir.mkdir(parents=True)
+        (module_dir / "main.tf").write_text(
+            textwrap.dedent("""
+                module "child" {
+                  source = "../shared/child"
+                }
+
+                output "name" {
+                  value = var.environment
+                }
+                """).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        (child_module_dir / "main.tf").write_text(
+            'output "id" { value = "child" }\n',
+            encoding="utf-8",
+        )
+        stack_file = tmp_path / "stack.yaml"
+        stack_file.write_text(
+            "name: test-stack\ncomponents:\n  app:\n    type: app\n",
+            encoding="utf-8",
+        )
+        stack = load_stack(stack_file)
+        config = ToolConfig.model_validate(
+            {
+                "backend": {"data": {"type": "local", "path": ".state"}},
+                "module_input_sets": {
+                    "organization": {
+                        "inputs": {
+                            "environment": {
+                                "type": "string",
+                                "description": "Deployment environment.",
+                            }
+                        }
+                    }
+                },
+                "module_mappings": {
+                    "app": {
+                        "source": {
+                            "source": "local",
+                            "data": {"path": f"{package_dir}//app"},
+                        },
+                        "required_input_sets": ["organization"],
+                    }
+                },
+            }
+        )
+
+        output_path = write_tf_json(
+            stack,
+            config,
+            {"environment": "prod"},
+            tmp_path / "out",
+        )
+        generated = json.loads(output_path.read_text(encoding="utf-8"))
+        generated_package_path, separator, generated_module_path = generated["module"][
+            "app"
+        ]["source"].partition("//")
+        generated_package_dir = Path(generated_package_path)
+
+        assert separator == "//"
+        assert generated_module_path == "app"
+        assert (generated_package_dir / "shared" / "child" / "main.tf").is_file()
+        assert (
+            generated_package_dir / "app" / "stacksmith.generated_variables.tf.json"
+        ).is_file()
+
 
 class TestLocalModuleVendoring:
     def test_vendor_rewrite_uses_local_path(
