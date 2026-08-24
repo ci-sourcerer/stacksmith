@@ -419,6 +419,55 @@
         }
       }
     },
+    "moduleInputSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Terraform/OpenTofu type constraint used when Stacksmith generates the module variable declaration."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional generated module variable description."
+        },
+        "sensitive": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the generated module variable is marked sensitive."
+        },
+        "nullable": {
+          "type": "boolean",
+          "description": "Optional Terraform nullable setting for the generated module variable."
+        },
+        "default": {
+          "description": "Optional default value for the generated module variable."
+        }
+      }
+    },
+    "moduleInputSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional human-readable description of this reusable module input set."
+        },
+        "inputs": {
+          "type": "object",
+          "patternProperties": {
+            "^[A-Za-z_][A-Za-z0-9_]*$": {
+              "$ref": "#/$defs/moduleInputSpec"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Resolved input names and generated module variable specs passed into each selected module."
+        }
+      }
+    },
     "moduleOutputSpec": {
       "type": "object",
       "additionalProperties": false,
@@ -456,6 +505,14 @@
           "type": "boolean",
           "default": false,
           "description": "When true, resolved input values are auto-injected into modules using the default mapping."
+        },
+        "required_input_sets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Named module input sets that must be injected into modules using the default mapping."
         },
         "auto_expose_outputs": {
           "type": "boolean",
@@ -878,6 +935,21 @@
       },
       "description": "Provider families keyed by OpenTofu provider name."
     },
+    "module_input_sets": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/moduleInputSet"
+      },
+      "description": "Reusable sets of resolved input names that can be required by module mappings."
+    },
+    "required_module_input_sets": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Named module input sets that must be injected into every generated module."
+    },
     "module_mappings": {
       "type": "object",
       "additionalProperties": {
@@ -897,6 +969,14 @@
             "type": "boolean",
             "default": false,
             "description": "When true, resolved input values are auto-injected into this module mapping by exact input key match and declared mapping keys. Defaults to false."
+          },
+          "required_input_sets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Named module input sets that must be injected into modules using this mapping."
           },
           "auto_expose_outputs": {
             "type": "boolean",

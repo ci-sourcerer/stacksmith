@@ -1,5 +1,6 @@
 import json
 import re
+import shutil
 from collections.abc import Mapping, Sequence
 from importlib.resources import files
 from pathlib import Path
@@ -10,9 +11,15 @@ from loguru import logger as LOGGER
 from ..constants import GENERATED_TF_JSON
 from ..exceptions import StacksmithConfigError
 from ..formatters import render_module_source_for
-from ..introspection import discover_module_outputs, discover_module_variables
+from ..introspection import (
+    discover_module_outputs,
+    discover_module_variables,
+    resolve_module_dir,
+)
 from ..models import (
     LocalModuleSourceReference,
+    ModuleInputSpec,
+    ModuleMapping,
     RemoteAuthConfig,
     StackDefinition,
     ToolConfig,
@@ -38,6 +45,8 @@ from .providers import (
 )
 
 _OPERATION_RUNNER_ASSETS = ("main.tf", "local.py", "jenkins.py")
+_GENERATED_MODULES_DIR = ".stacksmith-generated-modules"
+_GENERATED_VARIABLES_FILENAME = "stacksmith.generated_variables.tf.json"
 _MODULE_REFERENCE_PATTERN = re.compile(
     r"\$\{module\.([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\}"
 )
@@ -291,6 +300,160 @@ def _generate_terraform_block(
     return block
 
 
+def _required_module_input_sources(
+    config: ToolConfig, mapping: ModuleMapping
+) -> dict[str, set[str]]:
+    input_sources: dict[str, set[str]] = {}
+    for input_set_name in [
+        *config.required_module_input_sets,
+        *mapping.required_input_sets,
+    ]:
+        for input_name in config.module_input_sets[input_set_name].inputs:
+            input_sources.setdefault(input_name, set()).add(input_set_name)
+    return input_sources
+
+
+def _required_module_input_specs(
+    config: ToolConfig, mapping: ModuleMapping
+) -> dict[str, ModuleInputSpec]:
+    input_specs: dict[str, ModuleInputSpec] = {}
+    for input_set_name in [
+        *config.required_module_input_sets,
+        *mapping.required_input_sets,
+    ]:
+        for input_name, input_spec in config.module_input_sets[
+            input_set_name
+        ].inputs.items():
+            if input_name in input_specs and input_specs[input_name] != input_spec:
+                raise StacksmithConfigError(
+                    "Required module input sets define conflicting specs for "
+                    f"input '{input_name}'"
+                )
+            input_specs[input_name] = input_spec
+    return input_specs
+
+
+def _generated_module_package_path(
+    generated_module_dir: Path, component_name: str
+) -> Path:
+    return generated_module_dir / re.sub(r"[^A-Za-z0-9_]", "_", component_name)
+
+
+def _terraform_variable_spec(input_spec: ModuleInputSpec) -> dict[str, Any]:
+    variable_spec: dict[str, Any] = {"type": input_spec.type}
+    if input_spec.description is not None:
+        variable_spec["description"] = input_spec.description
+    if input_spec.sensitive:
+        variable_spec["sensitive"] = True
+    if input_spec.nullable is not None:
+        variable_spec["nullable"] = input_spec.nullable
+    if input_spec.default is not None:
+        variable_spec["default"] = input_spec.default
+    return variable_spec
+
+
+def _write_generated_variable_declarations(
+    module_dir: Path, variable_specs: Mapping[str, ModuleInputSpec]
+) -> None:
+    (module_dir / _GENERATED_VARIABLES_FILENAME).write_text(
+        json.dumps(
+            {
+                "variable": {
+                    name: _terraform_variable_spec(spec)
+                    for name, spec in sorted(variable_specs.items())
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_generated_module_package(
+    source_dir: Path,
+    generated_module_dir: Path,
+    component_name: str,
+    variable_specs: Mapping[str, ModuleInputSpec],
+) -> Path:
+    module_dir = _generated_module_package_path(generated_module_dir, component_name)
+    if module_dir.exists():
+        shutil.rmtree(module_dir)
+    shutil.copytree(
+        source_dir,
+        module_dir,
+        ignore=shutil.ignore_patterns(
+            ".git",
+            ".terraform",
+            ".terragrunt-cache",
+            _GENERATED_VARIABLES_FILENAME,
+        ),
+    )
+    _write_generated_variable_declarations(module_dir, variable_specs)
+    return module_dir
+
+
+def _generated_variable_specs(
+    required_input_specs: Mapping[str, ModuleInputSpec],
+    mapping: ModuleMapping,
+    property_renderer: PropertyRenderer,
+) -> dict[str, ModuleInputSpec]:
+    variable_specs: dict[str, ModuleInputSpec] = {}
+    input_names_by_variable: dict[str, str] = {}
+    for input_name, input_spec in required_input_specs.items():
+        variable_name = property_renderer.output_name(
+            input_name,
+            mapping.properties.get(input_name),
+        )
+        if (
+            variable_name in variable_specs
+            and variable_specs[variable_name] != input_spec
+        ):
+            raise StacksmithConfigError(
+                "Required module input sets define conflicting specs for "
+                f"generated module variable '{variable_name}' from inputs "
+                f"'{input_names_by_variable[variable_name]}' and '{input_name}'"
+            )
+        variable_specs[variable_name] = input_spec
+        input_names_by_variable[variable_name] = input_name
+    return variable_specs
+
+
+def _module_declares_variable(
+    input_name: str,
+    output_name: str,
+    discovered_vars: set[str],
+) -> bool:
+    return output_name in discovered_vars or input_name in discovered_vars
+
+
+def _missing_required_module_input_error(
+    input_name: str,
+    input_set_names: set[str],
+    component_name: str,
+) -> StacksmithConfigError:
+    return StacksmithConfigError(
+        "Required module input set(s) "
+        f"{', '.join(sorted(input_set_names))} require input '{input_name}' "
+        f"for component '{component_name}', but no resolved input value was provided"
+    )
+
+
+def _undeclared_required_module_input_error(
+    input_name: str,
+    input_set_names: set[str],
+    output_name: str,
+    component_name: str,
+    component_type: str,
+) -> StacksmithConfigError:
+    return StacksmithConfigError(
+        "Required module input set(s) "
+        f"{', '.join(sorted(input_set_names))} require input '{input_name}' "
+        f"for component '{component_name}' of type '{component_type}', but the "
+        f"module does not declare variable '{output_name}' or '{input_name}'"
+    )
+
+
 def _generate_module_blocks(
     stack: StackDefinition,
     config: ToolConfig,
@@ -299,6 +462,7 @@ def _generate_module_blocks(
     auth_config: RemoteAuthConfig | None = None,
     use_local_modules: bool = False,
     vendor_dir: Path | None = None,
+    generated_module_dir: Path | None = None,
     module_source_formatter_options: Mapping[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
     modules = {}
@@ -346,12 +510,47 @@ def _generate_module_blocks(
                 "Module mapping for component '{component_name}' has auto_inject_inputs enabled",
             )
 
+        property_renderer = PropertyRenderer(
+            config=config,
+            stack_definition=stack,
+            resolved_inputs=resolved_inputs,
+            stack=_stack_context(stack),
+            component_name=component_name,
+            component_type=component.type,
+            base_paths=path_bases,
+            git_repository=git_repository,
+            cache_dir=cache_dir,
+            auth_config=auth_config,
+            vendor_dir=vendor_dir,
+        )
+
         module_block = {}
         source_options = dict(module_source_formatter_options or {})
         if config.source_path is not None:
             source_options.setdefault("base_path", config.source_path.parent)
 
-        if isinstance(mapping.source, LocalModuleSourceReference):
+        required_input_specs = _required_module_input_specs(config, mapping)
+        generated_variable_specs = _generated_variable_specs(
+            required_input_specs,
+            mapping,
+            property_renderer,
+        )
+        if generated_variable_specs and generated_module_dir is not None:
+            module_block["source"] = str(
+                _write_generated_module_package(
+                    resolve_module_dir(
+                        mapping_source,
+                        mapping_version,
+                        cache_dir=cache_dir,
+                        auth_config=auth_config,
+                        vendor_dir=vendor_dir if use_local_modules else None,
+                    ),
+                    generated_module_dir,
+                    component_name,
+                    generated_variable_specs,
+                )
+            )
+        elif isinstance(mapping.source, LocalModuleSourceReference):
             module_block.update(
                 render_module_source_for(
                     "terraform",
@@ -382,20 +581,6 @@ def _generate_module_blocks(
                 )
                 for module_provider_name, provider_reference in mapping.providers.items()
             }
-
-        property_renderer = PropertyRenderer(
-            config=config,
-            stack_definition=stack,
-            resolved_inputs=resolved_inputs,
-            stack=_stack_context(stack),
-            component_name=component_name,
-            component_type=component.type,
-            base_paths=path_bases,
-            git_repository=git_repository,
-            cache_dir=cache_dir,
-            auth_config=auth_config,
-            vendor_dir=vendor_dir,
-        )
         for prop_name, prop_value in component.properties.items():
             property_spec = mapping.properties.get(prop_name)
             output_name, module_block[output_name] = property_renderer.render(
@@ -404,14 +589,17 @@ def _generate_module_blocks(
                 property_spec,
             )
 
-        injected_keys = []
+        required_input_sources = _required_module_input_sources(config, mapping)
+        discovered_vars = set(generated_variable_specs)
         if mapping.auto_inject_inputs:
-            discovered_vars = discover_module_variables(
-                mapping_source,
-                mapping_version,
-                cache_dir=cache_dir,
-                auth_config=auth_config,
-                vendor_dir=vendor_dir if use_local_modules else None,
+            discovered_vars.update(
+                discover_module_variables(
+                    mapping_source,
+                    mapping_version,
+                    cache_dir=cache_dir,
+                    auth_config=auth_config,
+                    vendor_dir=vendor_dir if use_local_modules else None,
+                )
             )
             LOGGER.debug(
                 "Module '{component_type}' declares variables: {vars}",
@@ -419,7 +607,48 @@ def _generate_module_blocks(
                 vars=sorted(discovered_vars),
             )
 
-            reserved_output_names = set(module_block)
+        required_injected_keys = []
+        reserved_output_names = set(module_block)
+        for input_name, input_set_names in required_input_sources.items():
+            if input_name in component.properties:
+                continue
+            if input_name not in resolved_inputs:
+                raise _missing_required_module_input_error(
+                    input_name,
+                    input_set_names,
+                    component_name,
+                )
+
+            property_spec = mapping.properties.get(input_name)
+            output_name = property_renderer.output_name(input_name, property_spec)
+            if output_name in reserved_output_names:
+                continue
+            if not _module_declares_variable(input_name, output_name, discovered_vars):
+                raise _undeclared_required_module_input_error(
+                    input_name,
+                    input_set_names,
+                    output_name,
+                    component_name,
+                    component.type,
+                )
+
+            output_name, module_block[output_name] = property_renderer.render(
+                input_name,
+                resolved_inputs[input_name],
+                property_spec,
+            )
+            required_injected_keys.append(input_name)
+            reserved_output_names.add(output_name)
+
+        if required_injected_keys:
+            LOGGER.debug(
+                "Injected required input set values into component '{component_name}': {keys}",
+                component_name=component_name,
+                keys=sorted(required_injected_keys),
+            )
+
+        injected_keys = []
+        if mapping.auto_inject_inputs:
             for input_name, input_value in resolved_inputs.items():
                 if input_name in component.properties:
                     continue
@@ -433,9 +662,8 @@ def _generate_module_blocks(
 
                 output_name = property_renderer.output_name(input_name, property_spec)
 
-                if (
-                    output_name not in discovered_vars
-                    and input_name not in discovered_vars
+                if not _module_declares_variable(
+                    input_name, output_name, discovered_vars
                 ):
                     continue
 
@@ -482,6 +710,7 @@ def generate_tf_json(
     auth_config: RemoteAuthConfig | None = None,
     use_local_modules: bool = False,
     vendor_dir: Path | None = None,
+    generated_module_dir: Path | None = None,
     root: Path | None = None,
     formatter_options: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -495,6 +724,7 @@ def generate_tf_json(
         auth_config: Optional host-keyed auth configuration for remote fetching.
         use_local_modules: When `True`, rewrite module sources to local vendored paths.
         vendor_dir: Root directory containing vendored modules.
+        generated_module_dir: Directory where generated module packages can be written.
         formatter_options: Optional formatter option mappings keyed by
             `module_source` and `provider_source`.
 
@@ -515,6 +745,7 @@ def generate_tf_json(
         auth_config=auth_config,
         use_local_modules=use_local_modules,
         vendor_dir=vendor_dir,
+        generated_module_dir=generated_module_dir,
         module_source_formatter_options=module_source_options,
     )
     doc = {
@@ -638,6 +869,9 @@ def write_tf_json(
         Path to the written `stacksmith.tf.json` file.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
+    generated_module_dir = output_dir / _GENERATED_MODULES_DIR
+    if generated_module_dir.exists():
+        shutil.rmtree(generated_module_dir)
     tf_json = generate_tf_json(
         stack,
         config,
@@ -646,6 +880,7 @@ def write_tf_json(
         auth_config=auth_config,
         use_local_modules=use_local_modules,
         vendor_dir=vendor_dir,
+        generated_module_dir=generated_module_dir,
         root=root,
         formatter_options=formatter_options,
     )
