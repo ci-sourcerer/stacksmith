@@ -285,7 +285,7 @@ Each provider instance `config` must use exactly one top-level source key to def
 
 Stacksmith can also introspect remote module sources to discover which OpenTofu `variable` inputs the module actually exposes. When `auto_inject_inputs: true` is enabled for a module mapping, stacksmith uses that discovery data to inject same-name resolved inputs automatically, without requiring empty `{}` property declarations for every module input. This means that only module variables that actually exist are auto-injected, unmapped stack inputs that might be organizational like `environment` are not leaked into a module that does not declare them, and explicit `mapped_to` mappings and property overrides still work as before.
 
-Managed configs can define reusable `module_input_sets` for inputs that every selected module must receive. This is useful for organizational context such as `environment`, `business_unit`, or ownership tags that should be passed consistently across modules. Add set names to top-level `required_module_input_sets` to apply them to every generated module, or to a module mapping's `required_input_sets` to apply them only to components of that type. Required input sets are stricter than auto-injection: Stacksmith fails before planning if a required input value is missing. Stacksmith also generates matching Terraform variable declarations into generated module packages so the source module does not need to declare those repeated shared inputs itself.
+Managed configs can define reusable `module_input_sets` for inputs that every selected module must receive. This is useful for organizational context such as `environment`, `business_unit`, or ownership tags that should be passed consistently across modules. Add set names to top-level `required_module_input_sets` to apply them to every generated module, or to a module mapping's `required_input_sets` to apply them only to components of that type. Required input sets are stricter than auto-injection: Stacksmith fails before planning if a required input value is missing. Stacksmith passes those values to the module, but the module remains responsible for declaring and using its own Terraform variables.
 
 ```yaml
 module_input_sets:
@@ -764,6 +764,18 @@ Operations are config-owned imperative actions. Stacksmith compiles them into a 
 Every approved public component output is exposed from the infrastructure root through a stable sensitive output named `stacksmith_operation_bridge_<component>_<output>`, even before an operation references it. These names can therefore appear under `Changes to Outputs` in an infrastructure plan, but they are bridge values rather than operation resources and do not execute anything. They must live in the infrastructure state because that is where their component values are produced. When an operation references one of those outputs, Stacksmith declares a matching sensitive input in the operation root and Terragrunt supplies its value through a read-only dependency. Predeclaring the bridges means adding or changing an operation does not require an infrastructure apply merely to establish its dependency contract.
 
 The managed config fixes the runner details, including the local command argument vector or Jenkins job and credentials. A stack can only select an approved operation and supply declared inputs. Operation inputs support the same Jinja templates and deferred public component outputs as component properties, so an operation can consume an output such as `{{ components.app.release_name }}`. Operations use the `manual` trigger by default; set `trigger: after_apply` in managed config to run them after a successful apply.
+
+Local operation environments can automatically expose every declared operation input. Names are uppercased by default; overrides and exclusions are nested under `inputs` so they cannot collide with environment policy fields:
+
+```yaml
+environment:
+  mode: auto
+  inputs:
+    overrides:
+      KUBE_CONTEXT: kubeconfig_context
+    exclude:
+      - secret_value
+```
 
 OpenTofu suppresses all `local-exec` output when its command or environment contains a sensitive value. To support operation-level output control, Stacksmith declassifies the runner specification only at the local process boundary while keeping it sensitive in plans, then discards the child process's standard output and standard error by default. Set `stream_output: true` on a managed local operation to inherit those streams through OpenTofu.
 

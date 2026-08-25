@@ -217,10 +217,7 @@ def build_operation_module_spec(
         spec.update(
             {
                 "command": definition.command,
-                "environment": {
-                    name: str(values[input_name])
-                    for name, input_name in definition.environment.items()
-                },
+                "environment": _build_local_operation_environment(definition, values),
                 "mask_literals": list(
                     dict.fromkeys(
                         [
@@ -257,3 +254,28 @@ def build_operation_module_spec(
             }
         )
     return spec
+
+
+def _build_local_operation_environment(
+    definition: LocalOperationDefinition, values: dict[str, Any]
+) -> dict[str, str]:
+    if definition.environment is None:
+        return {}
+    excluded_inputs = set(definition.environment.inputs.exclude)
+    overrides = definition.environment.inputs.overrides
+    environment_inputs = {
+        input_name.upper(): input_name
+        for input_name in definition.inputs
+        if input_name not in excluded_inputs
+    }
+    for environment_name, input_name in overrides.items():
+        environment_inputs = {
+            name: value
+            for name, value in environment_inputs.items()
+            if value != input_name
+        }
+        environment_inputs[environment_name] = input_name
+    return {
+        environment_name: str(values[input_name])
+        for environment_name, input_name in environment_inputs.items()
+    }

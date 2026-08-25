@@ -520,7 +520,7 @@
         "type": {
           "type": "string",
           "minLength": 1,
-          "description": "Terraform/OpenTofu type constraint used when Stacksmith generates the module variable declaration."
+          "description": "Documented Terraform/OpenTofu type constraint for the shared input."
         },
         "description": {
           "type": "string",
@@ -750,10 +750,40 @@
             },
             "environment": {
               "type": "object",
-              "additionalProperties": {
-                "type": "string",
-                "minLength": 1
-              }
+              "additionalProperties": false,
+              "required": [
+                "mode"
+              ],
+              "properties": {
+                "mode": {
+                  "const": "auto",
+                  "description": "Expose all declared operation inputs as environment variables."
+                },
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "overrides": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "description": "Environment variable names mapped to input names, replacing the automatic name for that input."
+                    },
+                    "exclude": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "uniqueItems": true,
+                      "description": "Input names that should not be exposed as environment variables."
+                    }
+                  }
+                }
+              },
+              "description": "Automatic environment policy for a local operation."
             },
             "inputs": {
               "type": "object",

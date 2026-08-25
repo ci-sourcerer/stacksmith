@@ -1340,7 +1340,7 @@ class TestAutoInjectVars:
         ):
             generate_tf_json(stack, config, {"environment": "prod"})
 
-    def test_required_module_input_sets_generate_declared_module_variable(
+    def test_required_module_input_sets_inject_without_declared_module_variable(
         self, sample_config_yaml: Path, tmp_path: Path
     ):
         stack_file = tmp_path / "stack.yaml"
@@ -1359,9 +1359,7 @@ class TestAutoInjectVars:
 
         assert result["module"]["my-bucket"]["environment"] == "prod"
 
-    def test_required_module_input_sets_write_generated_module_variables(
-        self, tmp_path: Path
-    ):
+    def test_required_module_input_sets_use_source_module(self, tmp_path: Path):
         module_dir = tmp_path / "module"
         module_dir.mkdir()
         (module_dir / "main.tf").write_text(
@@ -1406,20 +1404,8 @@ class TestAutoInjectVars:
             tmp_path / "out",
         )
         generated = json.loads(output_path.read_text(encoding="utf-8"))
-        generated_module_dir = Path(generated["module"]["app"]["source"])
-        generated_variables = json.loads(
-            (generated_module_dir / "stacksmith.generated_variables.tf.json").read_text(
-                encoding="utf-8"
-            )
-        )
-
-        assert generated_module_dir != module_dir
-        assert (module_dir / "stacksmith.generated_variables.tf.json").exists() is False
+        assert generated["module"]["app"]["source"] == str(module_dir)
         assert generated["module"]["app"]["environment"] == "prod"
-        assert generated_variables["variable"]["environment"] == {
-            "type": "string",
-            "description": "Deployment environment.",
-        }
 
     def test_required_module_input_sets_preserve_local_package_subdirs(
         self, tmp_path: Path
@@ -1492,9 +1478,6 @@ class TestAutoInjectVars:
         assert separator == "//"
         assert generated_module_path == "app"
         assert (generated_package_dir / "shared" / "child" / "main.tf").is_file()
-        assert (
-            generated_package_dir / "app" / "stacksmith.generated_variables.tf.json"
-        ).is_file()
 
 
 class TestLocalModuleVendoring:

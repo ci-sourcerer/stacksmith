@@ -788,6 +788,45 @@ class OperationOutputMaskingSpec(BaseModel):
         return normalized_values
 
 
+class LocalOperationEnvironmentInputs(BaseModel):
+    """Input-name controls for automatic local operation environments."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    overrides: dict[str, str] = Field(default_factory=dict)
+    exclude: list[str] = Field(default_factory=list)
+
+    @field_validator("overrides")
+    @classmethod
+    def _validate_overrides(cls, overrides: dict[str, str]) -> dict[str, str]:
+        if any(
+            not name.strip() or not input_name.strip()
+            for name, input_name in overrides.items()
+        ):
+            raise ValueError("Operation environment overrides must be non-empty")
+        return overrides
+
+    @field_validator("exclude")
+    @classmethod
+    def _validate_exclude(cls, exclude: list[str]) -> list[str]:
+        if any(not input_name.strip() for input_name in exclude):
+            raise ValueError("Operation environment exclusions must be non-empty")
+        if len(set(exclude)) != len(exclude):
+            raise ValueError("Operation environment exclusions must be unique")
+        return exclude
+
+
+class LocalOperationEnvironment(BaseModel):
+    """Automatic environment policy for a local operation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["auto"]
+    inputs: LocalOperationEnvironmentInputs = Field(
+        default_factory=LocalOperationEnvironmentInputs
+    )
+
+
 class LocalOperationDefinition(BaseModel):
     """Config-owned local process operation."""
 
@@ -802,19 +841,54 @@ class LocalOperationDefinition(BaseModel):
     output_masking: OperationOutputMaskingSpec = Field(
         default_factory=OperationOutputMaskingSpec
     )
-    environment: dict[str, str] = Field(default_factory=dict)
+    environment: LocalOperationEnvironment | None = None
     inputs: dict[str, OperationInputSpec] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_command(self) -> "LocalOperationDefinition":
         if not self.command or any(not argument.strip() for argument in self.command):
             raise ValueError("Operation command must contain non-empty arguments")
-        unknown_inputs = sorted(set(self.environment.values()) - set(self.inputs))
+        environment_inputs = (
+            self.environment.inputs if self.environment is not None else None
+        )
+        unknown_inputs = sorted(
+            {
+                *(
+                    set(environment_inputs.overrides.values())
+                    if environment_inputs is not None
+                    else set()
+                ),
+                *(
+                    set(environment_inputs.exclude)
+                    if environment_inputs is not None
+                    else set()
+                ),
+            }
+            - set(self.inputs)
+        )
         if unknown_inputs:
             raise ValueError(
                 "Operation environment references undeclared inputs: "
                 f"{', '.join(unknown_inputs)}"
             )
+        if environment_inputs is not None:
+            environment_names = {
+                input_name.upper(): input_name
+                for input_name in self.inputs
+                if input_name not in environment_inputs.exclude
+            }
+            for environment_name, input_name in environment_inputs.overrides.items():
+                environment_names = {
+                    name: value
+                    for name, value in environment_names.items()
+                    if value != input_name
+                }
+                if environment_name in environment_names:
+                    raise ValueError(
+                        "Operation environment names must be unique: "
+                        f"{environment_name}"
+                    )
+                environment_names[environment_name] = input_name
         unknown_mask_inputs = sorted(set(self.output_masking.inputs) - set(self.inputs))
         if unknown_mask_inputs:
             raise ValueError(

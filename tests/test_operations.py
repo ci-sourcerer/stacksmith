@@ -10,6 +10,7 @@ import pytest
 from stacksmith import api
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.generation import (
+    build_operation_module_spec,
     generate_operations_tf_json,
     generate_tf_json,
     write_operations_tf_json,
@@ -48,12 +49,68 @@ def _config() -> ToolConfig:
                     "runner": "local",
                     "trigger": "after_apply",
                     "command": ["deploy"],
-                    "environment": {"RELEASE_TAG": "release_tag"},
+                    "environment": {
+                        "mode": "auto",
+                        "inputs": {"overrides": {"RELEASE_TAG": "release_tag"}},
+                    },
                     "inputs": {"release_tag": {"required": True}},
                 }
             },
         }
     )
+
+
+def test_local_operation_environment_auto_maps_inputs_with_overrides_and_exclusions():
+    config = ToolConfig.model_validate(
+        {
+            "backend": {"data": {"type": "local", "path": ".state"}},
+            "default_module_mapping": {
+                "source": {
+                    "source": "registry",
+                    "data": {"address": "example/module", "version": "1.0.0"},
+                }
+            },
+            "operations": {
+                "check": {
+                    "runner": "local",
+                    "command": ["check"],
+                    "environment": {
+                        "mode": "auto",
+                        "inputs": {
+                            "overrides": {"KUBE_CONTEXT": "kubeconfig_context"},
+                            "exclude": ["excluded"],
+                        },
+                    },
+                    "inputs": {
+                        "stack_name": {},
+                        "kubeconfig_context": {},
+                        "excluded": {},
+                    },
+                }
+            },
+        }
+    )
+
+    stack = StackDefinition.model_validate(
+        {
+            "name": "check",
+            "operations": {
+                "run": {
+                    "use": "check",
+                    "with": {
+                        "stack_name": "stack",
+                        "kubeconfig_context": "k3s",
+                        "excluded": "secret",
+                    },
+                }
+            },
+        }
+    )
+
+    assert build_operation_module_spec(stack, config, "run")["environment"] == {
+        "STACK_NAME": "stack",
+        "KUBE_CONTEXT": "k3s",
+    }
 
 
 def _write_safe_operation_plan(kwargs: dict[str, object]) -> None:
