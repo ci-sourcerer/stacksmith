@@ -1,9 +1,10 @@
 import json
 import re
+from collections.abc import Mapping
 from functools import cache
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import yaml
 from jinja2 import TemplateError, UndefinedError

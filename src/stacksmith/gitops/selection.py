@@ -80,8 +80,7 @@ def normalize_gitops_root(value: str) -> str:
     """
     LOGGER.debug("Normalizing GitOps root input: %r", value)
     value = value.strip() or "."
-    if value.startswith("./"):
-        value = value[2:]
+    value = value.removeprefix("./")
     if value in {"", "."}:
         return ""
     path = Path(value)
@@ -480,7 +479,7 @@ def select_changed_environments(
     unmapped_paths: list[str] = []
     for path in changed_paths:
         if environment := _changed_path_environment(
-            path[len(prefix) :] if path.startswith(prefix) else path,
+            path.removeprefix(prefix),
             mode,
             all_envs,
         ):

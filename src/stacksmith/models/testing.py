@@ -27,7 +27,7 @@ class FixtureSpec(BaseModel):
     script: FileReference | None = None
 
     @model_validator(mode="after")
-    def _exactly_one_source(self) -> "FixtureSpec":
+    def _exactly_one_source(self) -> FixtureSpec:
         if (self.inline is None) == (self.script is None):
             raise ValueError(
                 "Exactly one of 'inline' or 'script' must be set for a fixture"
@@ -43,7 +43,7 @@ class StacksmithTestFixtures(BaseModel):
     teardown: FixtureSpec | None = None
 
     @model_validator(mode="after")
-    def _at_least_one_fixture(self) -> "StacksmithTestFixtures":
+    def _at_least_one_fixture(self) -> StacksmithTestFixtures:
         if self.setup is None and self.teardown is None:
             raise ValueError(
                 "At least one of setup or teardown must be set when fixtures are configured"
@@ -116,7 +116,7 @@ class PlanPolicyTestCase(BaseModel):
         return _normalize_plan_validation_expectation(value)
 
     @model_validator(mode="after")
-    def _validate_payload(self) -> "PlanPolicyTestCase":
+    def _validate_payload(self) -> PlanPolicyTestCase:
         if (self.plan is None) == (self.resources is None):
             raise ValueError("Exactly one of 'plan' or 'resources' must be set")
         return self
@@ -153,7 +153,7 @@ class StacksmithTestManifest(BaseModel):
     source_path: Path | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
-    def _at_least_one_test_case(self) -> "StacksmithTestManifest":
+    def _at_least_one_test_case(self) -> StacksmithTestManifest:
         if (
             not self.var_validations
             and not self.plan_validations

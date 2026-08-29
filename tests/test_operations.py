@@ -570,10 +570,14 @@ def test_jenkins_operation_spec_configures_completion_polling():
     (
         (
             True,
-            "Stacksmith simple GitOps reconciliation completed: environment=dev "
-            "message=Hello from development project=stacksmith\n",
-            "Stacksmith simple GitOps reconciliation error stream: environment=dev "
-            "project=stacksmith\n",
+            (
+                "Stacksmith simple GitOps reconciliation completed: environment=dev "
+                "message=Hello from development project=stacksmith\n"
+            ),
+            (
+                "Stacksmith simple GitOps reconciliation error stream: environment=dev "
+                "project=stacksmith\n"
+            ),
         ),
         (False, "", ""),
     ),

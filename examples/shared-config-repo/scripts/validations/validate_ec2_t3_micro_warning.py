@@ -67,7 +67,7 @@ def validate(value: Any, **context: Any) -> str | dict[str, str]:
     return {
         "status": "warn",
         "message": (
-            f"Stack '{str(context.get('stack_name') or '<unknown>')}' plans "
+            f"Stack '{context.get('stack_name') or '<unknown>'!s}' plans "
             f"t3.micro instance(s): {', '.join(addresses)}. "
             "Consider rightsizing before production."
         ),

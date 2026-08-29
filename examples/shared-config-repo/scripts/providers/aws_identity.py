@@ -22,13 +22,9 @@ def is_root_aws_identity(profile_name: str | None = None) -> bool:
         LOGGER.warning(
             "boto3 unavailable; unable to deterministically resolve AWS identity"
         )
-        if profile_name == "root" or os.getenv("IS_ROOT_AWS_IDENTITY", "").lower() in (
-            "1",
-            "true",
-            "yes",
-        ):
-            return True
-        return False
+        return profile_name == "root" or os.getenv(
+            "IS_ROOT_AWS_IDENTITY", ""
+        ).lower() in ("1", "true", "yes")
 
     try:
         LOGGER.debug("Resolving AWS caller identity for profile=%r", profile_name)

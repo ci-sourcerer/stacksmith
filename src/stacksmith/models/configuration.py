@@ -1,6 +1,7 @@
 import re
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Any, Literal, Mapping, TypeAlias
+from typing import Annotated, Any, Literal
 
 import jmespath
 from jmespath import exceptions as jmespath_exceptions
@@ -18,7 +19,7 @@ class LocalReferenceData(BaseModel):
     path: str
 
     @model_validator(mode="after")
-    def _validate_path(self) -> "LocalReferenceData":
+    def _validate_path(self) -> LocalReferenceData:
         if not self.path.strip():
             raise ValueError("Local reference path must be a non-empty string")
         return self
@@ -32,7 +33,7 @@ class GitReferenceData(BaseModel):
     ref: str | None = None
 
     @model_validator(mode="after")
-    def _validate_git_fields(self) -> "GitReferenceData":
+    def _validate_git_fields(self) -> GitReferenceData:
         if not self.repo.strip():
             raise ValueError("Git reference repo must be a non-empty string")
         if not self.repo.startswith(_GIT_REPO_PREFIXES):
@@ -50,7 +51,7 @@ class HttpReferenceData(BaseModel):
     url: str
 
     @model_validator(mode="after")
-    def _validate_url(self) -> "HttpReferenceData":
+    def _validate_url(self) -> HttpReferenceData:
         if not self.url.startswith(("http://", "https://")):
             raise ValueError("HTTP reference url must start with http:// or https://")
         return self
@@ -88,12 +89,12 @@ class InlineReference(BaseModel):
     data: dict[str, Any]
 
 
-FileReference: TypeAlias = Annotated[
+type FileReference = Annotated[
     LocalReference | GitReference | HttpReference,
     Field(discriminator="source"),
 ]
 
-VariableReference: TypeAlias = Annotated[
+type VariableReference = Annotated[
     LocalReference | GitReference | HttpReference | InlineReference,
     Field(discriminator="source"),
 ]
@@ -125,7 +126,7 @@ class MergePolicy(BaseModel):
     rules: list[MergeRule] = Field(default_factory=list)
 
 
-MergeConfig: TypeAlias = str | MergeMode | MergePolicy
+type MergeConfig = str | MergeMode | MergePolicy
 
 
 def render_file_reference(reference: FileReference | str | Path) -> str:
@@ -181,7 +182,7 @@ class RegistrySourceData(BaseModel):
     version: str
 
     @model_validator(mode="after")
-    def _validate_registry_fields(self) -> "RegistrySourceData":
+    def _validate_registry_fields(self) -> RegistrySourceData:
         if not self.address.strip():
             raise ValueError("Registry source address must be a non-empty string")
         if any(char.isspace() for char in self.address):
@@ -203,7 +204,7 @@ class ModuleGitSourceData(BaseModel):
     path: str | None = None
 
     @model_validator(mode="after")
-    def _validate_module_git_fields(self) -> "ModuleGitSourceData":
+    def _validate_module_git_fields(self) -> ModuleGitSourceData:
         if not self.repo.strip():
             raise ValueError("Git module source repo must be a non-empty string")
         if not self.repo.startswith(_GIT_REPO_PREFIXES):
@@ -238,7 +239,7 @@ class LocalModuleSourceReference(BaseModel):
     data: LocalReferenceData
 
 
-ModuleSourceReference: TypeAlias = Annotated[
+type ModuleSourceReference = Annotated[
     RegistrySourceReference | ModuleGitSourceReference | LocalModuleSourceReference,
     Field(discriminator="source"),
 ]
@@ -268,7 +269,7 @@ class RegistrySourceTemplateData(BaseModel):
     version: str
 
     @model_validator(mode="after")
-    def _validate_registry_fields(self) -> "RegistrySourceTemplateData":
+    def _validate_registry_fields(self) -> RegistrySourceTemplateData:
         if not self.address.strip():
             raise ValueError("Registry source address must be a non-empty string")
         if not self.version.strip():
@@ -286,7 +287,7 @@ class ModuleGitSourceTemplateData(BaseModel):
     path: str | None = None
 
     @model_validator(mode="after")
-    def _validate_module_git_fields(self) -> "ModuleGitSourceTemplateData":
+    def _validate_module_git_fields(self) -> ModuleGitSourceTemplateData:
         if not self.repo.strip():
             raise ValueError("Git module source repo must be a non-empty string")
         if not contains_jinja_template(self.repo) and not self.repo.startswith(
@@ -323,7 +324,7 @@ class LocalModuleSourceTemplateReference(BaseModel):
     data: LocalReferenceData
 
 
-ModuleSourceTemplateReference: TypeAlias = Annotated[
+type ModuleSourceTemplateReference = Annotated[
     RegistrySourceTemplateReference
     | ModuleGitSourceTemplateReference
     | LocalModuleSourceTemplateReference,
@@ -428,7 +429,7 @@ class ValidationSpec(BaseModel):
     script: FileReference | None = None
 
     @model_validator(mode="after")
-    def _exactly_one_source(self) -> "ValidationSpec":
+    def _exactly_one_source(self) -> ValidationSpec:
         if (self.inline is None) == (self.script is None):
             raise ValueError(
                 "Exactly one of 'inline' or 'script' must be set for a validation"
@@ -445,7 +446,7 @@ class TransformSpec(BaseModel):
     jinja: str | None = None
 
     @model_validator(mode="after")
-    def _exactly_one_source(self) -> "TransformSpec":
+    def _exactly_one_source(self) -> TransformSpec:
         if (
             sum(source is not None for source in (self.inline, self.script, self.jinja))
             != 1
@@ -525,7 +526,7 @@ class ModuleOutputSpec(BaseModel):
     transform: TransformSpec | None = None
 
     @model_validator(mode="after")
-    def _validate_mapped_from(self) -> "ModuleOutputSpec":
+    def _validate_mapped_from(self) -> ModuleOutputSpec:
         if self.mapped_from is not None and not _COMPONENT_OUTPUT_NAME_RE.fullmatch(
             self.mapped_from
         ):
@@ -544,7 +545,7 @@ class BackendConfig(BaseModel):
     type: str
 
     @model_validator(mode="after")
-    def _type_is_set(self) -> "BackendConfig":
+    def _type_is_set(self) -> BackendConfig:
         if not self.type.strip():
             raise ValueError("Backend 'type' must be a non-empty string")
         return self
@@ -579,7 +580,7 @@ class BackendSpec(BaseModel):
     data: BackendConfig | None = None
 
     @model_validator(mode="after")
-    def _exactly_one_source(self) -> "BackendSpec":
+    def _exactly_one_source(self) -> BackendSpec:
         if (
             sum(source is not None for source in (self.inline, self.script, self.data))
             != 1
@@ -619,7 +620,7 @@ class ToolDownloadSpec(BaseModel):
     sha256_url_template: str | None = None
 
     @model_validator(mode="after")
-    def _validate_url_template(self) -> "ToolDownloadSpec":
+    def _validate_url_template(self) -> ToolDownloadSpec:
         if not self.url_template.strip():
             raise ValueError("Tool download url_template must be a non-empty string")
         return self
@@ -632,7 +633,7 @@ class ToolBinaryConfig(BaseModel):
     download: ToolDownloadSpec | None = None
 
     @model_validator(mode="after")
-    def _validate_version(self) -> "ToolBinaryConfig":
+    def _validate_version(self) -> ToolBinaryConfig:
         if not self.version.strip():
             raise ValueError("Tool version must be a non-empty string")
         return self
@@ -655,7 +656,7 @@ class ProviderConfigSpec(BaseModel):
     data: dict[str, Any] | None = None
 
     @model_validator(mode="after")
-    def _exactly_one_source(self) -> "ProviderConfigSpec":
+    def _exactly_one_source(self) -> ProviderConfigSpec:
         if (
             sum(source is not None for source in (self.inline, self.script, self.data))
             != 1
@@ -696,10 +697,9 @@ class ProviderFamily(BaseModel):
     instances: dict[str, ProviderInstance]
 
     @model_validator(mode="after")
-    def _validate_instances(self) -> "ProviderFamily":
-        if "default" in self.instances:
-            if self.instances["default"].alias is not None:
-                raise ValueError("Provider default instance must not define an alias")
+    def _validate_instances(self) -> ProviderFamily:
+        if "default" in self.instances and self.instances["default"].alias is not None:
+            raise ValueError("Provider default instance must not define an alias")
 
         aliases = set()
         for instance_name, instance in self.instances.items():
@@ -726,8 +726,8 @@ class _ModuleMappingBase(BaseModel):
     required_input_sets: list[str] = Field(default_factory=list)
     auto_expose_outputs: bool = False
     tags: set[str] = Field(default_factory=set)
-    properties: dict[str, "ModulePropertySpec"] = Field(default_factory=dict)
-    outputs: dict[str, "ModuleOutputSpec"] = Field(default_factory=dict)
+    properties: dict[str, ModulePropertySpec] = Field(default_factory=dict)
+    outputs: dict[str, ModuleOutputSpec] = Field(default_factory=dict)
     providers: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("required_input_sets")
@@ -741,7 +741,7 @@ class _ModuleMappingBase(BaseModel):
         return normalized_values
 
     @model_validator(mode="after")
-    def _validate_output_names(self) -> "_ModuleMappingBase":
+    def _validate_output_names(self) -> _ModuleMappingBase:
         invalid_names = sorted(
             name
             for name in self.outputs
@@ -849,7 +849,7 @@ class LocalOperationDefinition(BaseModel):
     inputs: dict[str, OperationInputSpec] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _validate_command(self) -> "LocalOperationDefinition":
+    def _validate_command(self) -> LocalOperationDefinition:
         if not self.command or any(not argument.strip() for argument in self.command):
             raise ValueError("Operation command must contain non-empty arguments")
         environment_inputs = (
@@ -932,7 +932,7 @@ class JenkinsOperationDefinition(BaseModel):
     inputs: dict[str, OperationInputSpec] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _validate_fields(self) -> "JenkinsOperationDefinition":
+    def _validate_fields(self) -> JenkinsOperationDefinition:
         if not self.url.startswith(("http://", "https://")):
             raise ValueError(
                 "Jenkins operation url must start with http:// or https://"
@@ -948,7 +948,7 @@ class JenkinsOperationDefinition(BaseModel):
         return self
 
 
-OperationDefinition: TypeAlias = Annotated[
+type OperationDefinition = Annotated[
     LocalOperationDefinition | JenkinsOperationDefinition,
     Field(discriminator="runner"),
 ]
@@ -1025,7 +1025,7 @@ class ToolConfig(BaseModel):
         return normalized_values
 
     @model_validator(mode="after")
-    def _validate_module_provider_references(self) -> "ToolConfig":
+    def _validate_module_provider_references(self) -> ToolConfig:
         if not self.module_mappings and self.default_module_mapping is None:
             raise ValueError(
                 "At least one module mapping or a default module mapping is required"

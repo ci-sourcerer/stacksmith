@@ -571,15 +571,17 @@ def test_inspect_component_type_uses_var_validation_script_location(tmp_path):
 
 
 def test_inspect_component_type_introspection_failure_raises(_simple_mapping):
-    with pytest.raises(
-        StacksmithConfigError,
-        match="Could not introspect module for aws_s3_bucket: clone failed",
-    ):
-        with patch(
+    with (
+        pytest.raises(
+            StacksmithConfigError,
+            match="Could not introspect module for aws_s3_bucket: clone failed",
+        ),
+        patch(
             "stacksmith.inspector.discover_module_variables",
             side_effect=RuntimeError("clone failed"),
-        ):
-            inspect_component_type("aws_s3_bucket", _simple_mapping)
+        ),
+    ):
+        inspect_component_type("aws_s3_bucket", _simple_mapping)
 
 
 def test_inspect_all_filters_by_component_type(sample_config_yaml):
@@ -597,11 +599,11 @@ def test_inspect_all_unknown_type_raises(sample_config_yaml):
     from stacksmith.loading import load_config
 
     config = load_config([sample_config_yaml])
-    with pytest.raises(StacksmithConfigError, match="not configured"):
-        with patch(
-            "stacksmith.inspector.discover_module_variables", return_value=set()
-        ):
-            inspect_all(config, component_types=["nonexistent_type"])
+    with (
+        pytest.raises(StacksmithConfigError, match="not configured"),
+        patch("stacksmith.inspector.discover_module_variables", return_value=set()),
+    ):
+        inspect_all(config, component_types=["nonexistent_type"])
 
 
 def test_inspect_all_resolves_requested_type_with_default_mapping(sample_config_yaml):

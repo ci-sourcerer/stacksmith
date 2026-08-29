@@ -215,9 +215,11 @@ def test_fetch_http_raises_on_failure(tmp_path, monkeypatch):
     mock_resp = MagicMock()
     mock_resp.raise_for_status.side_effect = Exception("404 Not Found")
 
-    with patch("stacksmith.remote.requests.get", return_value=mock_resp):
-        with pytest.raises(Exception, match="404 Not Found"):
-            resolve_remote("https://example.com/missing.yaml", tmp_path)
+    with (
+        patch("stacksmith.remote.requests.get", return_value=mock_resp),
+        pytest.raises(Exception, match="404 Not Found"),
+    ):
+        resolve_remote("https://example.com/missing.yaml", tmp_path)
 
 
 def test_resolve_remote_http(tmp_path, monkeypatch):

@@ -30,24 +30,25 @@ def validate(value: Any, **context: Any) -> str:
             change.get("address"),
         )
 
-        if change.get("type") == "aws_s3_bucket_public_access_block":
-            if (
-                after.get("block_public_acls") is not True
-                or after.get("block_public_policy") is not True
-                or after.get("ignore_public_acls") is not True
-                or after.get("restrict_public_buckets") is not True
-            ):
-                LOGGER.info(
-                    "Validation failed: bucket public access block is not fully restrictive"
-                )
-                return "fail"
+        if change.get("type") == "aws_s3_bucket_public_access_block" and (
+            after.get("block_public_acls") is not True
+            or after.get("block_public_policy") is not True
+            or after.get("ignore_public_acls") is not True
+            or after.get("restrict_public_buckets") is not True
+        ):
+            LOGGER.info(
+                "Validation failed: bucket public access block is not fully restrictive"
+            )
+            return "fail"
 
-        if change.get("type") == "aws_s3_bucket_acl":
-            if after.get("acl") in _PUBLIC_ACLS:
-                LOGGER.info(
-                    "Validation failed: detected public S3 ACL %r", after.get("acl")
-                )
-                return "fail"
+        if (
+            change.get("type") == "aws_s3_bucket_acl"
+            and after.get("acl") in _PUBLIC_ACLS
+        ):
+            LOGGER.info(
+                "Validation failed: detected public S3 ACL %r", after.get("acl")
+            )
+            return "fail"
 
     LOGGER.debug("Validation passed: no public S3 exposure detected")
     return "pass"

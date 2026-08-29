@@ -15,7 +15,7 @@ def _parse_cidrs(
     elif isinstance(raw, list):
         items = [item.strip() for item in raw if isinstance(item, str) and item.strip()]
     else:
-        raise ValueError("ssh_ingress_cidrs must be a comma-separated string or list")
+        raise TypeError("ssh_ingress_cidrs must be a comma-separated string or list")
 
     LOGGER.debug("Parsing %d CIDR item(s)", len(items))
     cidrs = []

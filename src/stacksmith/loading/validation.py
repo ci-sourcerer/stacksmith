@@ -2,7 +2,7 @@ import re
 from collections.abc import Mapping, Sequence
 from functools import cache
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
@@ -26,8 +26,6 @@ _FRAGMENT_OMITTED_KEYWORDS = {
     "required",
     "uniqueItems",
 }
-
-ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 def _relax_schema(schema: Any) -> Any:
@@ -96,8 +94,10 @@ def _format_schema_error(error: JsonSchemaValidationError) -> tuple[str, bool]:
         match := _MISSING_PROPERTY_PATTERN.match(error.message)
     ):
         return (
-            f"Missing required key `{match.group(1)}` at "
-            f"{_path_label(error.absolute_path)}.",
+            (
+                f"Missing required key `{match.group(1)}` at "
+                f"{_path_label(error.absolute_path)}."
+            ),
             True,
         )
     return (
@@ -109,14 +109,18 @@ def _format_schema_error(error: JsonSchemaValidationError) -> tuple[str, bool]:
 def _format_pydantic_error(error: Mapping[str, Any]) -> tuple[str, bool]:
     if error.get("type") == "missing":
         return (
-            f"Missing required key "
-            f"`{str(error.get('loc', ('value',))[-1])}` at "
-            f"{_path_label(error.get('loc', ())[:-1])}.",
+            (
+                "Missing required key "
+                f"`{error.get('loc', ('value',))[-1]!s}` at "
+                f"{_path_label(error.get('loc', ())[:-1])}."
+            ),
             True,
         )
     return (
-        f"Invalid value at {_path_label(error.get('loc', ()))}: "
-        f"{str(error.get('msg', 'validation failed')).removeprefix('Value error, ')}.",
+        (
+            f"Invalid value at {_path_label(error.get('loc', ()))}: "
+            f"{str(error.get('msg', 'validation failed')).removeprefix('Value error, ')}."
+        ),
         False,
     )
 
@@ -135,10 +139,12 @@ def _format_validation_failure(
         )
 
     lines = [
-        f"Effective {document_kind} is "
-        f"{'incomplete' if issues and all(missing for _, missing in issues) else 'invalid'} "
-        f"after merging {len(sources)} "
-        f"{'layer' if len(sources) == 1 else 'layers'}:",
+        (
+            f"Effective {document_kind} is "
+            f"{'incomplete' if issues and all(missing for _, missing in issues) else 'invalid'} "
+            f"after merging {len(sources)} "
+            f"{'layer' if len(sources) == 1 else 'layers'}:"
+        ),
         *(f"  - {issue}" for issue in unique_issues),
         "Sources, from lowest to highest precedence:",
         *(f"  {index}. {source}" for index, source in enumerate(sources, start=1)),
@@ -220,7 +226,7 @@ def validate_effective_document(
         )
 
 
-def build_validated_model(
+def build_validated_model[ModelT: BaseModel](
     model_type: type[ModelT],
     data: Mapping[str, Any],
     document_kind: str,

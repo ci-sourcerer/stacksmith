@@ -67,7 +67,7 @@ class StackDefinition(BaseModel):
     source_path: Path | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
-    def _validate_output_names(self) -> "StackDefinition":
+    def _validate_output_names(self) -> StackDefinition:
         invalid_names = sorted(
             name for name in self.outputs if not _STACK_OUTPUT_NAME_RE.fullmatch(name)
         )
