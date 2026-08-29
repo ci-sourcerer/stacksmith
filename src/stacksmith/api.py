@@ -810,6 +810,7 @@ def _filter_stacks_with_reasons(
                 ExcludedStackPreview(
                     name=name,
                     source_path=stack.source_path,
+                    description=stack.description,
                     reason=reason,
                 )
             )
@@ -1188,7 +1189,7 @@ def inspect_cache_diagnostics(
     Returns:
         Structured diagnostics payload.
     """
-    cache_dir, config_paths, _ = load_runtime_config(
+    cache_dir, config_paths, loaded_config = load_runtime_config(
         config,
         build_dir,
         no_cache=no_cache,
@@ -1212,7 +1213,7 @@ def inspect_cache_diagnostics(
 
     vendor_dir = get_vendor_dir()
     vendor_directory_exists = vendor_dir.exists()
-    vendored_modules: list[dict[str, str]] = []
+    vendored_modules: list[dict[str, Any]] = []
     vendor_manifest_path: str | None = None
     if vendor_directory_exists:
         manifest_path = vendor_dir / "vendor-manifest.json"
@@ -1220,9 +1221,17 @@ def inspect_cache_diagnostics(
             vendor_manifest_path = str(manifest_path)
             manifest = load_vendor_manifest(vendor_dir)
             for key, item in sorted(manifest.items()):
+                module_type = item.get("module_type", "")
+                mapping_description = None
+                if module_type:
+                    mapping = loaded_config.module_mappings.get(module_type)
+                    if mapping is not None:
+                        mapping_description = mapping.description
                 vendored_modules.append(
                     {
                         "key": key,
+                        "module_type": module_type,
+                        "description": mapping_description,
                         "source": item.get("source", ""),
                         "version": item.get("version", ""),
                     }
@@ -1236,7 +1245,10 @@ def inspect_cache_diagnostics(
 
     return {
         "stack_file": str(stack.source_path),
+        "stack_name": stack.name,
+        "stack_description": stack.description,
         "config_paths": [str(path) for path in config_paths],
+        "config_description": loaded_config.description,
         "build_directory": str(build_dir_resolved),
         "remote_cache_directory": str(cache_dir),
         "remote_cache_exists": remote_cache_exists,

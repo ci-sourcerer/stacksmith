@@ -109,6 +109,11 @@ def build_execution_preview(
             raise RuntimeError(f"Stack '{name}' is missing a source path")
         selected_components, targets = selections[name]
         selected = name in execution_positions
+        component_descriptions = {
+            component_name: component.description
+            for component_name, component in sorted(stack.components.items())
+            if component.description
+        }
         terragrunt_args = (
             build_terragrunt_args(
                 action_enum,
@@ -121,6 +126,7 @@ def build_execution_preview(
         stack_previews.append(
             StackExecutionPreview(
                 name=name,
+                description=stack.description,
                 source_path=stack.source_path,
                 dependencies=_dependency_previews(stack, stacks, action_enum),
                 state_key=derive_stack_state_key(
@@ -129,6 +135,7 @@ def build_execution_preview(
                     state_root,
                 ),
                 components=sorted(stack.components),
+                component_descriptions=component_descriptions,
                 selected_components=selected_components,
                 build_directory=stack_build_dirs[name],
                 terragrunt_args=terragrunt_args,

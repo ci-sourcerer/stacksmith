@@ -309,6 +309,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Preview a destroy plan when the selected action is plan.",
     )
+    graph_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Show additional description metadata in table output.",
+    )
     add_execution_preview_format_arg(
         graph_parser,
         include_graph_formats=True,

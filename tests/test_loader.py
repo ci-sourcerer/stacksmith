@@ -601,20 +601,25 @@ class TestLoadRunFile:
             "merge_mode: override\n"
             "stacks:\n"
             "  - source: http\n"
+            "    description: Shared base stack layer.\n"
             "    data:\n"
             "      url: https://example.com/base-stack.yaml\n"
             "  - source: local\n"
+            "    description: Service-specific stack layer.\n"
             "    data:\n"
             "      path: ./stack.yaml\n"
             "configs:\n"
             "  - source: local\n"
+            "    description: Managed module policy.\n"
             "    data:\n"
             "      path: ./stacksmith-config.yaml\n"
             "vars:\n"
             "  - source: local\n"
+            "    description: Development values.\n"
             "    data:\n"
             "      path: ./vars.dev.yaml\n"
             "  - source: inline\n"
+            "    description: Local defaults.\n"
             "    data:\n"
             "      replicas: 2\n"
             "      features:\n"
@@ -627,16 +632,21 @@ class TestLoadRunFile:
         assert loaded.description == "Production invocation."
         assert loaded.merge_mode == "override"
         assert loaded.stacks[0].source == "http"
+        assert loaded.stacks[0].description == "Shared base stack layer."
         assert loaded.stacks[0].data.url == "https://example.com/base-stack.yaml"
         assert loaded.stacks[1].source == "local"
+        assert loaded.stacks[1].description == "Service-specific stack layer."
         assert loaded.stacks[1].data.path == str((tmp_path / "stack.yaml").resolve())
         assert loaded.configs[0].source == "local"
+        assert loaded.configs[0].description == "Managed module policy."
         assert loaded.configs[0].data.path == str(
             (tmp_path / "stacksmith-config.yaml").resolve()
         )
         assert loaded.vars[0].source == "local"
+        assert loaded.vars[0].description == "Development values."
         assert loaded.vars[0].data.path == str((tmp_path / "vars.dev.yaml").resolve())
         assert loaded.vars[1].source == "inline"
+        assert loaded.vars[1].description == "Local defaults."
         assert loaded.vars[1].data == {"replicas": 2, "features": {"enabled": True}}
 
     def test_load_runfile_rejects_top_level_var(self, tmp_path: Path):

@@ -10,6 +10,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable description of this reference."
+        },
         "source": {
           "const": "local"
         },
@@ -29,6 +34,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable description of this reference."
+        },
         "source": {
           "const": "git"
         },
@@ -57,6 +67,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable description of this reference."
+        },
         "source": {
           "const": "http"
         },

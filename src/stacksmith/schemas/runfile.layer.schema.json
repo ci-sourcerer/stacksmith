@@ -10,6 +10,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable description of this reference."
+        },
         "source": {
           "const": "local",
           "description": "Reference source type for local files."
@@ -31,6 +36,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable description of this reference."
+        },
         "source": {
           "const": "git",
           "description": "Reference source type for Git-hosted files."
@@ -63,6 +73,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable description of this reference."
+        },
         "source": {
           "const": "http",
           "description": "Reference source type for HTTP(S) URLs."
@@ -85,6 +100,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable description of this reference."
+        },
         "source": {
           "const": "inline",
           "description": "Reference source type for inline variable values."

@@ -1,12 +1,15 @@
 from io import StringIO
 
+import pytest
 from loguru import logger as LOGGER
 
-from stacksmith.models import PlanValidation, ValidationSpec
+from stacksmith.exceptions import StacksmithTransformError
+from stacksmith.models import PlanValidation, TransformSpec, ValidationSpec
 from stacksmith.validations import (
     InputValidationOutcome,
     PlanValidationOutcome,
     PlanValidationResult,
+    apply_transform,
     evaluate_plan_validations,
     evaluate_plan_validations_with_results,
     process_plan_validation_results,
@@ -383,6 +386,32 @@ else:
         assert "component_name=web" in msg
         assert "component_type=aws_s3_bucket" in msg
         assert "output_name=bucket" in msg
+
+    def test_validation_error_includes_rule_description(self):
+        outcome, msg = validate_value(
+            ValidationSpec(
+                description="Require production-prefixed names.",
+                inline="def validate(value, **context): return 'fail'",
+            ),
+            "ignored",
+            context={"kind": "stack_variable", "name": "bucket_name"},
+        )
+
+        assert outcome == InputValidationOutcome.FAIL
+        assert "description: Require production-prefixed names." in msg
+
+    def test_transform_error_includes_transform_description(self):
+        with pytest.raises(
+            StacksmithTransformError,
+            match="description: Uppercase ACL values",
+        ):
+            apply_transform(
+                TransformSpec(
+                    description="Uppercase ACL values",
+                    inline="def transform(value, **context): raise ValueError('boom')",
+                ),
+                "private",
+            )
 
 
 class TestEvaluatePlanValidations:

@@ -335,24 +335,29 @@ description: Payments deployment assembled from shared and service-owned layers.
 
 stacks:
   - source: git
+    description: Shared payments platform layer.
     data:
       repo: https://github.com/org/platform-stacks.git
       path: base/payments/stack.yaml
       ref: v1.4.0
   - source: local
+    description: Service-owned payments layer.
     data:
       path: ./stack.yaml
 
 vars:
   - source: git
+    description: Shared platform defaults.
     data:
       repo: https://github.com/org/platform-config.git
       path: vars/common.yaml
       ref: v3.2.1
   - source: local
+    description: Development environment values.
     data:
       path: ./vars.dev.yaml
   - source: inline
+    description: Deployment-specific defaults.
     data:
       replicas: 2
       feature_flags:
@@ -745,7 +750,7 @@ Stacksmith supports Python validation hooks and Python or Jinja transform hooks.
 - Relative script paths resolve from the declaring file.
 - Validation and transform specifications accept an optional `description`, including entries in `var_validations`, managed module properties and outputs, and stack output transforms.
 
-Machine-facing mapping keys remain stable identifiers, while `description` carries prose for people and inspection output. Optional descriptions are also supported on managed configurations, provider families and instances, module mappings and properties, operation definitions and inputs, merge rules, runfiles, stacks and their components, outputs, or operation invocations, and test manifests.
+Machine-facing mapping keys remain stable identifiers, while `description` carries prose for people and inspection output. Optional descriptions are also supported on managed configurations, provider families and instances, module mappings and properties, operation definitions and inputs, merge rules, runfiles and their stack/config/variable references, stacks and their components, outputs, operation invocations, and test manifests.
 
 ### Plan validations
 
@@ -1880,8 +1885,8 @@ stacksmith info modules-and-policies [-h] [--format {table,json}] [--basic] [--r
 ### `stacksmith info diagnose`
 
 ```text
-stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}] [--runfile RUNFILE] [-c CONFIG]
-                                [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}] [--verbose] [--runfile RUNFILE]
+                                [-c CONFIG] [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
                                 [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
                                 [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
                                 --no-local-modules] [--debug | -q]
@@ -1893,6 +1898,7 @@ stacksmith info diagnose [-h] [--stack STACK] [--format {table,json}] [--runfile
 | `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
 | `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
 | `--format` | Output format for diagnostics. Choices: `table`, `json`. |
+| `--verbose` | Show additional description metadata in table output. |
 | `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
 | `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
 | `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
@@ -1916,7 +1922,7 @@ stacksmith info graph [-h] [--action {plan,apply,destroy}] [--root ROOT] [--stac
                              [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE] [--vars VARS_FILE]
                              [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
                              [--no-cache] [--no-cas] [--debug | -q] [--tag TAG] [--tag-expr TAG_EXPR]
-                             [--include-tag INCLUDE_TAG] [--exclude-tag EXCLUDE_TAG] [--destroy]
+                             [--include-tag INCLUDE_TAG] [--exclude-tag EXCLUDE_TAG] [--destroy] [--verbose]
                              [--format {table,json,dot,mermaid}]
 ```
 
@@ -1942,6 +1948,7 @@ stacksmith info graph [-h] [--action {plan,apply,destroy}] [--root ROOT] [--stac
 | `--include-tag` | Include stacks that have this tag. Repeatable. |
 | `--exclude-tag` | Exclude stacks that have this tag. Repeatable. |
 | `--destroy` | Preview a destroy plan when the selected action is plan. |
+| `--verbose` | Show additional description metadata in table output. |
 | `--format` | Output format for dependency and execution preview data. Choices: `table`, `json`, `dot`, `mermaid`. |
 
 ### `stacksmith ci environments`

@@ -26,6 +26,7 @@ def _stacks(root: Path) -> dict[str, StackDefinition]:
     return {
         "vpc": StackDefinition(
             name="vpc",
+            description="Net",
             outputs={
                 "subnet_ids": {
                     "value": [],
@@ -39,16 +40,19 @@ def _stacks(root: Path) -> dict[str, StackDefinition]:
             components={
                 "network": ComponentDefinition(
                     type="aws_s3_bucket",
+                    description="Core",
                 )
             },
             source_path=root / "networking" / "vpc" / "stack.yaml",
         ),
         "web": StackDefinition(
             name="web",
+            description="Web",
             depends_on=["vpc"],
             components={
                 "server": ComponentDefinition(
                     type="aws_ec2_instance",
+                    description="Runtime",
                     tags={"prod"},
                 )
             },
@@ -171,6 +175,8 @@ def test_execution_preview_serializes_paths_and_action(
     assert payload["schema_version"] == 1
     assert payload["action"] == "apply"
     assert payload["root"] == str(tmp_path)
+    assert payload["stacks"][0]["description"] == "Net"
+    assert payload["stacks"][1]["component_descriptions"]["server"] == "Runtime"
     assert payload["excluded_stacks"][0]["name"] == "dev"
 
 
@@ -423,3 +429,45 @@ def test_cmd_info_graph_emits_dot(
     assert exit_code == 0
     assert calls["args"][1]["action"] == "plan"
     assert capsys.readouterr().out.startswith("digraph stacksmith {")
+
+
+def test_cmd_info_graph_verbose_table_includes_descriptions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    preview = build_execution_preview(
+        "plan",
+        tmp_path,
+        _stacks(tmp_path),
+        _build_dirs(tmp_path),
+        load_config(sample_config_yaml),
+        state_root=tmp_path,
+    )
+
+    monkeypatch.setattr(
+        cli_main,
+        "inspect_dependency_graph",
+        lambda root, **kwargs: preview,
+    )
+    args = build_parser().parse_args(
+        [
+            "info",
+            "graph",
+            "--root",
+            str(tmp_path),
+            "--format",
+            "table",
+            "--verbose",
+        ]
+    )
+
+    exit_code = cli_main._cmd_info_graph(args)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert "Net" in captured.err
+    assert "Runti" in captured.err
+    assert "vpc" in captured.err

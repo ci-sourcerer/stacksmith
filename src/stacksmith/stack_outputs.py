@@ -71,8 +71,14 @@ def apply_stack_output_transform(
             "output",
         )
     except TemplateError as exc:
+        description_suffix = (
+            f" ({specification.transform.description})"
+            if specification.transform.description
+            else ""
+        )
         raise StacksmithTransformError(
-            f"Stack '{stack.name}' output '{output_name}' transform {exc}"
+            f"Stack '{stack.name}' output '{output_name}' transform"
+            f"{description_suffix} {exc}"
         ) from exc
 
 

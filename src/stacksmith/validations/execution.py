@@ -60,6 +60,7 @@ def _format_validation_error(
     origin: str,
     context: dict[str, Any] | None = None,
     value_summary: str | None = None,
+    rule_description: str | None = None,
 ) -> str:
     if context:
         prop = context.get("property") or {}
@@ -92,9 +93,17 @@ def _format_validation_error(
             message = f"{message} [{' '.join(details)}]"
     if value_summary:
         message = f"{message} — {value_summary}"
+    if rule_description:
+        message = f"{message} (description: {rule_description})"
     if origin:
         message = f"{message} (origin: {origin})"
     return message
+
+
+def _with_description(message: str, description: str | None) -> str:
+    if not description:
+        return message
+    return f"{message} (description: {description})"
 
 
 def _resolve_script_path(
@@ -421,6 +430,7 @@ def validate_value_with_outcome(
             str(exc) if str(exc) else f"{type(exc).__name__} raised during validation",
             origin="<validation-spec>",
             context=context,
+            rule_description=spec.description,
         )
 
     value_summary = None
@@ -440,6 +450,7 @@ def validate_value_with_outcome(
             origin,
             context,
             value_summary=value_summary,
+            rule_description=spec.description,
         )
 
     validate_fn = ns.get("validate")
@@ -457,6 +468,7 @@ def validate_value_with_outcome(
                 origin,
                 context,
                 value_summary=value_summary,
+                rule_description=spec.description,
             )
     elif spec.inline is not None:
         try:
@@ -471,12 +483,14 @@ def validate_value_with_outcome(
                 origin,
                 context,
                 value_summary=value_summary,
+                rule_description=spec.description,
             )
     else:
         return PlanValidationOutcome.FAIL, _format_validation_error(
             "Validation code must define a callable 'validate(value, **context)'",
             origin,
             context,
+            rule_description=spec.description,
         )
 
     outcome, outcome_message = _coerce_validation_outcome(
@@ -496,6 +510,7 @@ def validate_value_with_outcome(
         origin,
         context,
         value_summary=value_summary,
+        rule_description=spec.description,
     )
 
 
@@ -715,7 +730,9 @@ def apply_transform(
         )
         code = textwrap.dedent(code)
     except (StacksmithError, OSError) as exc:
-        raise StacksmithTransformError(f"Failed to load transform code: {exc}") from exc
+        raise StacksmithTransformError(
+            _with_description(f"Failed to load transform code: {exc}", spec.description)
+        ) from exc
 
     ns = {}
     try:
@@ -723,17 +740,25 @@ def apply_transform(
     except Exception as exc:
         message = str(exc) if str(exc) else type(exc).__name__
         raise StacksmithTransformError(
-            f"Transform code execution failed: {message}"
+            _with_description(
+                f"Transform code execution failed: {message}",
+                spec.description,
+            )
         ) from exc
 
     transform_fn = ns.get("transform")
     if not callable(transform_fn):
         raise StacksmithTransformError(
-            "Transform code must define a callable 'transform(value, **context)'"
+            _with_description(
+                "Transform code must define a callable 'transform(value, **context)'",
+                spec.description,
+            )
         )
 
     try:
         return transform_fn(value, **(context or {}))
     except Exception as exc:
         message = str(exc) if str(exc) else type(exc).__name__
-        raise StacksmithTransformError(f"Transform function failed: {message}") from exc
+        raise StacksmithTransformError(
+            _with_description(f"Transform function failed: {message}", spec.description)
+        ) from exc

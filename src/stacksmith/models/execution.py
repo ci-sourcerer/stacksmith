@@ -25,11 +25,13 @@ class ExcludedStackPreview(BaseModel):
     Attributes:
         name: Name of the excluded stack.
         source_path: Resolved source definition path.
+        description: Optional stack description.
         reason: Human-readable exclusion reason.
     """
 
     name: str
     source_path: Path
+    description: str | None = None
     reason: str
 
 
@@ -38,10 +40,12 @@ class StackExecutionPreview(BaseModel):
 
     Attributes:
         name: Stack name.
+        description: Optional stack description.
         source_path: Resolved stack definition path.
         dependencies: Dependency edges declared by the stack.
         state_key: Backend state key derived for the stack.
         components: All component names declared by the stack.
+        component_descriptions: Optional component descriptions keyed by component name.
         selected_components: Components selected for the requested execution.
         build_directory: Directory that generated files would use.
         terragrunt_args: Terragrunt action arguments that would execute.
@@ -52,10 +56,12 @@ class StackExecutionPreview(BaseModel):
     """
 
     name: str
+    description: str | None = None
     source_path: Path
     dependencies: list[DependencyPreview] = Field(default_factory=list)
     state_key: str
     components: list[str] = Field(default_factory=list)
+    component_descriptions: dict[str, str] = Field(default_factory=dict)
     selected_components: list[str] = Field(default_factory=list)
     build_directory: Path
     terragrunt_args: list[str] = Field(default_factory=list)

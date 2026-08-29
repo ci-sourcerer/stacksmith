@@ -59,6 +59,7 @@ class HttpReferenceData(BaseModel):
 class LocalReference(BaseModel):
     """Structured local file reference."""
 
+    description: str | None = None
     source: Literal["local"]
     data: LocalReferenceData
 
@@ -66,6 +67,7 @@ class LocalReference(BaseModel):
 class GitReference(BaseModel):
     """Structured git file reference."""
 
+    description: str | None = None
     source: Literal["git"]
     data: GitReferenceData
 
@@ -73,6 +75,7 @@ class GitReference(BaseModel):
 class HttpReference(BaseModel):
     """Structured HTTP file reference."""
 
+    description: str | None = None
     source: Literal["http"]
     data: HttpReferenceData
 
@@ -80,6 +83,7 @@ class HttpReference(BaseModel):
 class InlineReference(BaseModel):
     """Structured inline variable values."""
 
+    description: str | None = None
     source: Literal["inline"]
     data: dict[str, Any]
 

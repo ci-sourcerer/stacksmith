@@ -108,7 +108,10 @@ def _diagnostics_payload(
 ) -> dict[str, object]:
     return {
         "stack_file": "stack.yaml",
+        "stack_name": "example-stack",
+        "stack_description": "Service stack diagnostics.",
         "config_paths": ["stacksmith-config.yaml"],
+        "config_description": "Managed platform configuration.",
         "build_directory": ".stacksmith",
         "remote_cache_directory": ".stacksmith/.cache",
         "remote_cache_exists": True,
@@ -382,6 +385,23 @@ def test_info_diagnose_has_stack_file(parser):
     assert args.info_command == "diagnose"
     assert args.stack_file == Path("stack.yaml")
     assert args.format == "table"
+    assert args.verbose is False
+
+
+def test_info_diagnose_accepts_verbose_flag(parser):
+    args = parser.parse_args(["info", "diagnose", "stack.yaml", "--verbose"])
+
+    assert args.command == "info"
+    assert args.info_command == "diagnose"
+    assert args.verbose is True
+
+
+def test_info_graph_accepts_verbose_flag(parser):
+    args = parser.parse_args(["info", "graph", "--verbose"])
+
+    assert args.command == "info"
+    assert args.info_command == "graph"
+    assert args.verbose is True
 
 
 def test_ci_environments_has_gitops_flags(parser):
@@ -1844,6 +1864,38 @@ def test_cmd_diagnose_table_emits_stderr(monkeypatch, parser, capsys):
     assert exit_code == 0
     assert captured.out == ""
     assert "Stacksmith Diagnostics" in captured.err
+
+
+def test_cmd_diagnose_verbose_table_includes_descriptions(monkeypatch, parser, capsys):
+    monkeypatch.setattr(
+        cli_main,
+        "inspect_cache_diagnostics",
+        lambda *args, **kwargs: {
+            **_diagnostics_payload(),
+            "vendored_modules": [
+                {
+                    "key": "abc123",
+                    "module_type": "aws_s3_bucket",
+                    "description": "Managed S3 bucket module.",
+                    "source": "https://github.com/org/s3.git",
+                    "version": "1.2.3",
+                }
+            ],
+        },
+    )
+    args = parser.parse_args(
+        ["info", "diagnose", "stack.yaml", "--format", "table", "--verbose"]
+    )
+
+    exit_code = cli_main._cmd_diagnose(args)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert "Stack description" in captured.err
+    assert "Config description" in captured.err
+    assert "Module Type" in captured.err
+    assert "Description" in captured.err
 
 
 def test_cmd_ci_environments_emits_json(monkeypatch, parser, capsys):

@@ -718,7 +718,10 @@ def _render_environment_preview_table(payload: dict[str, object]) -> None:
     console.print(matrix_table)
 
 
-def _render_execution_preview_table(preview: ExecutionPreview) -> None:
+def _render_execution_preview_table(
+    preview: ExecutionPreview,
+    verbose: bool = False,
+) -> None:
     console = Console(stderr=True)
     console.print()
     console.print("[bold]Dependency and Execution Preview[/bold]")
@@ -739,6 +742,8 @@ def _render_execution_preview_table(preview: ExecutionPreview) -> None:
     stacks = Table(show_header=True, header_style="bold cyan")
     stacks.add_column("Order")
     stacks.add_column("Stack")
+    if verbose:
+        stacks.add_column("Description", overflow="fold")
     stacks.add_column("Path")
     stacks.add_column("Dependencies")
     stacks.add_column("State key")
@@ -754,41 +759,70 @@ def _render_execution_preview_table(preview: ExecutionPreview) -> None:
                 else ""
             )
             dependencies.append(f"{dependency.name}{suffix}")
-        stacks.add_row(
+        selected_components = ", ".join(stack.selected_components) or "-"
+        if verbose and stack.selected_components:
+            selected_component_descriptions = [
+                f"{name}: {stack.component_descriptions[name]}"
+                for name in stack.selected_components
+                if name in stack.component_descriptions
+            ]
+            if selected_component_descriptions:
+                selected_components = (
+                    f"{selected_components}\n"
+                    f"[dim]{'; '.join(selected_component_descriptions)}[/dim]"
+                )
+        row = [
             (
                 str(stack.execution_position)
                 if stack.execution_position is not None
                 else "-"
             ),
             stack.name,
-            str(stack.source_path),
-            ", ".join(dependencies) or "-",
-            stack.state_key,
-            ", ".join(stack.selected_components) or "-",
-            str(stack.build_directory),
-            (
-                shlex.join(stack.command)
-                if stack.command
-                else stack.skip_reason or "skipped"
-            ),
+        ]
+        if verbose:
+            row.append(stack.description or "")
+        row.extend(
+            [
+                str(stack.source_path),
+                ", ".join(dependencies) or "-",
+                stack.state_key,
+                selected_components,
+                str(stack.build_directory),
+                (
+                    shlex.join(stack.command)
+                    if stack.command
+                    else stack.skip_reason or "skipped"
+                ),
+            ]
+        )
+        stacks.add_row(
+            *row,
         )
     console.print(stacks)
 
     if preview.excluded_stacks:
         excluded = Table(show_header=True, header_style="bold yellow")
         excluded.add_column("Excluded stack")
+        if verbose:
+            excluded.add_column("Description", overflow="fold")
         excluded.add_column("Path")
         excluded.add_column("Reason")
         for stack in preview.excluded_stacks:
-            excluded.add_row(stack.name, str(stack.source_path), stack.reason)
+            row = [stack.name]
+            if verbose:
+                row.append(stack.description or "")
+            row.extend([str(stack.source_path), stack.reason])
+            excluded.add_row(*row)
         console.print(excluded)
 
 
 def _emit_execution_preview(
-    preview: ExecutionPreview, output_format: ExecutionPreviewFormat
+    preview: ExecutionPreview,
+    output_format: ExecutionPreviewFormat,
+    verbose: bool = False,
 ) -> None:
     if output_format == ExecutionPreviewFormat.TABLE:
-        _render_execution_preview_table(preview)
+        _render_execution_preview_table(preview, verbose=verbose)
         return
     if output_format == ExecutionPreviewFormat.JSON:
         print(
@@ -848,7 +882,10 @@ def _render_ci_validation_table(payload: dict[str, object]) -> None:
     console.print(results_table)
 
 
-def _render_cache_diagnostics_table(payload: dict[str, object]) -> None:
+def _render_cache_diagnostics_table(
+    payload: dict[str, object],
+    verbose: bool = False,
+) -> None:
     console = Console(stderr=True)
     console.print()
     console.print("[bold]Stacksmith Diagnostics[/bold]")
@@ -856,7 +893,14 @@ def _render_cache_diagnostics_table(payload: dict[str, object]) -> None:
     summary = Table(show_header=True, header_style="bold cyan")
     summary.add_column("Field")
     summary.add_column("Value")
+    summary.add_row("Stack name", str(payload.get("stack_name", "")))
+    if verbose:
+        summary.add_row("Stack description", str(payload.get("stack_description", "")))
     summary.add_row("Stack file", str(payload.get("stack_file", "")))
+    if verbose:
+        summary.add_row(
+            "Config description", str(payload.get("config_description", ""))
+        )
     summary.add_row(
         "Config paths",
         ", ".join(str(path) for path in payload.get("config_paths", [])),
@@ -873,8 +917,13 @@ def _render_cache_diagnostics_table(payload: dict[str, object]) -> None:
         cache_table = Table(show_header=True, header_style="bold cyan")
         cache_table.add_column("Remote Cache Entry")
         cache_table.add_column("Type")
+        if verbose:
+            cache_table.add_column("Description", overflow="fold")
         for row in cache_rows:
-            cache_table.add_row(str(row.get("name", "")), str(row.get("type", "")))
+            cache_row = [str(row.get("name", "")), str(row.get("type", ""))]
+            if verbose:
+                cache_row.append(str(row.get("description", "")))
+            cache_table.add_row(*cache_row)
         console.print(cache_table)
     else:
         console.print("[yellow]Remote cache not found.[/yellow]")
@@ -886,14 +935,27 @@ def _render_cache_diagnostics_table(payload: dict[str, object]) -> None:
 
         vendored_modules_table = Table(show_header=True, header_style="bold cyan")
         vendored_modules_table.add_column("Module Key")
+        if verbose:
+            vendored_modules_table.add_column("Module Type")
+            vendored_modules_table.add_column("Description", overflow="fold")
         vendored_modules_table.add_column("Source")
         vendored_modules_table.add_column("Version")
         for row in payload.get("vendored_modules", []):
-            vendored_modules_table.add_row(
-                str(row.get("key", "")),
-                str(row.get("source", "")),
-                str(row.get("version", "")),
+            module_row = [str(row.get("key", ""))]
+            if verbose:
+                module_row.extend(
+                    [
+                        str(row.get("module_type", "")),
+                        str(row.get("description", "")),
+                    ]
+                )
+            module_row.extend(
+                [
+                    str(row.get("source", "")),
+                    str(row.get("version", "")),
+                ]
             )
+            vendored_modules_table.add_row(*module_row)
         console.print(vendored_modules_table)
 
         vendor_dirs = payload.get("vendor_directories", [])
@@ -961,6 +1023,7 @@ def _cmd_info_graph(args: argparse.Namespace) -> int:
             merge_mode=_merge_mode_arg(args),
         ),
         ExecutionPreviewFormat(args.format),
+        verbose=args.verbose,
     )
     return 0
 
@@ -1183,7 +1246,10 @@ def _cmd_diagnose(args: argparse.Namespace) -> int:
     _emit_info_ci_output(
         InspectOutputFormat(args.format),
         json_text_factory=lambda: _format_info_ci_json(payload),
-        table_renderer=lambda: _render_cache_diagnostics_table(payload),
+        table_renderer=lambda: _render_cache_diagnostics_table(
+            payload,
+            verbose=args.verbose,
+        ),
     )
     return 0
 
@@ -1259,6 +1325,7 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
             ExecutionPreviewFormat(
                 getattr(args, "format", ExecutionPreviewFormat.TABLE.value)
             ),
+            verbose=False,
         )
         return 0
     return result

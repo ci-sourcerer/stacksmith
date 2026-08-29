@@ -586,6 +586,12 @@ def configure_diagnose_parser(parser: argparse.ArgumentParser) -> None:
         default=InspectOutputFormat.TABLE.value,
         help="Output format for diagnostics.",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Show additional description metadata in table output.",
+    )
     add_common_args(parser)
 
 

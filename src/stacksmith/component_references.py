@@ -575,8 +575,14 @@ def _apply_output_transform(
             auth_config=auth_config,
         )
     except (StacksmithTransformError, TemplateError) as exc:
+        description_suffix = (
+            f" ({output.transform.description})"
+            if output.transform is not None and output.transform.description
+            else ""
+        )
         raise StacksmithTransformError(
-            f"Component '{component_name}' output '{output_name}' transform {exc}"
+            f"Component '{component_name}' output '{output_name}' transform"
+            f"{description_suffix} {exc}"
         ) from exc
 
 
