@@ -149,16 +149,30 @@ class _GitRepository:
             "-z",
             strip_output=False,
         )
+        entries = status.split("\0")
+        changed_paths = []
+        i = 0
+        while i < len(entries):
+            entry = entries[i]
+            if not entry:
+                i += 1
+                continue
+            if len(entry) < 3:
+                i += 1
+                continue
+            xy = entry[:2]
+            path = entry[3:]
+            changed_paths.append(Path(path))
+            if "R" in xy or "C" in xy:
+                i += 1  # Skip ORIGINAL_PATH
+            i += 1
+
         return RepositoryStatus(
             root=self.root,
             branch=self.current_branch(),
             head=self.head(),
             remote=self.origin_url(),
-            changed_paths=tuple(
-                Path(entry[3:])
-                for entry in status.split("\0")
-                if entry and len(entry) > 3
-            ),
+            changed_paths=tuple(changed_paths),
         )
 
     def commit_selected(
