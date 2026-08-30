@@ -470,6 +470,11 @@ def test_ci_config_split_with_complex_urls():
         "config.yaml"
     ]
 
+    # Test single-letter parameter (should NOT be treated as Windows drive letter unless it looks like a path)
+    assert _ci_config_split("a:config.yaml") == ["a", "config.yaml"]
+    assert _ci_config_split("C:\\path\\config.yaml:other.yaml") == ["C:\\path\\config.yaml", "other.yaml"]
+    assert _ci_config_split("C:/path/config.yaml:other.yaml") == ["C:/path/config.yaml", "other.yaml"]
+
 
 
 @pytest.mark.parametrize(
