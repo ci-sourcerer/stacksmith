@@ -68,24 +68,30 @@ def _ci_config_ref_key(config_ref: str | Path) -> str:
 
 
 def _ci_config_split(config_ref: str) -> list[str]:
-    refs: list[str] = []
-    buffer = []
-    index = 0
-    while index < len(config_ref):
-        if config_ref.startswith("://", index):
-            buffer.append(config_ref[index : index + 3])
-            index += 3
+    raw_segments = config_ref.split(":")
+    merged_segments = []
+    for segment in raw_segments:
+        if not segment:
             continue
-        if config_ref[index] == ":":
-            refs.append("".join(buffer))
-            buffer = []
-            index += 1
+        if not merged_segments:
+            merged_segments.append(segment)
             continue
-        buffer.append(config_ref[index])
-        index += 1
-    if buffer:
-        refs.append("".join(buffer))
-    return [ref.strip() for ref in refs if ref.strip()]
+        last = merged_segments[-1]
+        
+        is_scheme_match = last.lower() in ("http", "https", "git+https", "git+ssh") and segment.startswith("//")
+        is_ssh_user_host = "@" in last and "/" not in last.partition("@")[2]
+        is_windows_drive = len(last) == 1 and last.isalpha() and segment.startswith(("/", "\\"))
+        is_port_number = (
+            any(prefix in last for prefix in ("http://", "https://", "git+https://", "git+ssh://"))
+            and "/" not in last.split("://", 1)[1]
+            and segment.split("/", 1)[0].isdigit()
+        )
+        
+        if is_scheme_match or is_ssh_user_host or is_windows_drive or is_port_number:
+            merged_segments[-1] = f"{last}:{segment}"
+        else:
+            merged_segments.append(segment)
+    return [ref.strip() for ref in merged_segments if ref.strip()]
 
 
 def _ci_config_references(config_ref: str, workdir: str) -> list[str | Path]:
