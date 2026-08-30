@@ -448,6 +448,30 @@ def test_prepare_ci_execution_rejects_managed_runfile_override(
         )
 
 
+def test_ci_config_split_with_complex_urls():
+    from stacksmith.ci.service import _ci_config_split
+    
+    # Test typical colon-separated paths
+    assert _ci_config_split("config.yaml:config_overlay.yaml") == ["config.yaml", "config_overlay.yaml"]
+    
+    # Test HTTP/HTTPS URLs with and without ports
+    assert _ci_config_split("https://github.com/org/repo//path.yaml") == ["https://github.com/org/repo//path.yaml"]
+    assert _ci_config_split("http://localhost:8080/path:config.yaml") == ["http://localhost:8080/path", "config.yaml"]
+    
+    # Test Git SSH URLs (with port/host-path colon)
+    assert _ci_config_split("git+ssh://git@github.com:org/repo.git//path.yaml") == ["git+ssh://git@github.com:org/repo.git//path.yaml"]
+    assert _ci_config_split("git@github.com:org/repo.git//path.yaml") == ["git@github.com:org/repo.git//path.yaml"]
+    
+    # Test complex mixed references
+    combined = "https://github.com/org/repo//path.yaml:git@github.com:org/repo.git//path.yaml:config.yaml"
+    assert _ci_config_split(combined) == [
+        "https://github.com/org/repo//path.yaml",
+        "git@github.com:org/repo.git//path.yaml",
+        "config.yaml"
+    ]
+
+
+
 @pytest.mark.parametrize(
     "stacksmith_args_json",
     [
