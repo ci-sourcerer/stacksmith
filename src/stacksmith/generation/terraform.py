@@ -625,10 +625,6 @@ def generate_tf_json(
 
 
 def _has_bridge_output_reference(value: Any) -> bool:
-    """Walk *value* to check for operation bridge output references.
-
-    This avoids serialising the entire structure to JSON just to run a regex.
-    """
     if isinstance(value, str):
         return _OPERATION_BRIDGE_OUTPUT_PATTERN.search(value) is not None
     if isinstance(value, dict):
