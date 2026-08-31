@@ -624,6 +624,18 @@ def generate_tf_json(
     return doc
 
 
+def _has_bridge_output_reference(value: Any) -> bool:
+    if isinstance(value, str):
+        return _OPERATION_BRIDGE_OUTPUT_PATTERN.search(value) is not None
+    if isinstance(value, dict):
+        return any(
+            _has_bridge_output_reference(v) for v in value.values()
+        )
+    if isinstance(value, list):
+        return any(_has_bridge_output_reference(item) for item in value)
+    return False
+
+
 def generate_operations_tf_json(
     stack: StackDefinition,
     config: ToolConfig,
@@ -660,7 +672,7 @@ def generate_operations_tf_json(
         "terraform": _generate_operations_terraform_block(config, stack, root),
         "module": modules,
     }
-    if _OPERATION_BRIDGE_OUTPUT_PATTERN.search(json.dumps(modules)):
+    if _has_bridge_output_reference(modules):
         doc["data"] = _generate_operations_infrastructure_state_data(
             config,
             stack,

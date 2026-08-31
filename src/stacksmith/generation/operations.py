@@ -268,13 +268,14 @@ def _build_local_operation_environment(
         for input_name in definition.inputs
         if input_name not in excluded_inputs
     }
+    # Build reverse lookup once instead of rebuilding the entire dict per override
+    value_to_key = {v: k for k, v in environment_inputs.items()}
     for environment_name, input_name in overrides.items():
-        environment_inputs = {
-            name: value
-            for name, value in environment_inputs.items()
-            if value != input_name
-        }
+        old_key = value_to_key.pop(input_name, None)
+        if old_key is not None:
+            del environment_inputs[old_key]
         environment_inputs[environment_name] = input_name
+        value_to_key[input_name] = environment_name
     return {
         environment_name: str(values[input_name])
         for environment_name, input_name in environment_inputs.items()
