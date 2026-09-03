@@ -56,7 +56,7 @@ void withStacksmithDockerAgent(Closure body) {
 
 void withStacksmithKubernetesAgent(Closure body) {
     def stacksmithContainerName = 'stacksmith'
-    def podAnnotations = (readJSON(text: env.STACKSMITH_K8S_POD_ANNOTATIONS ?: '{}', returnPojo: true).collect { k, v -> ['key': k, 'value': v] })
+    def podAnnotations = (readJSON(text: env.STACKSMITH_K8S_POD_ANNOTATIONS ?: '{}', returnPojo: true)).collect { k, v -> ['key': k, 'value': v] }
     podTemplate(
         containers: [
             containerTemplate(
