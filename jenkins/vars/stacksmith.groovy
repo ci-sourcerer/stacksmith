@@ -130,18 +130,40 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
             case 'secret_text':
             case 'git_token':
             case 'http_token':
-                def binding = string(
-                    credentialsId: id,
-                    variable: credentialVariable(entry, type)
-                )
+                def binding
+                try {
+                    binding = string(
+                        credentialsId: id,
+                        variable: credentialVariable(entry, type)
+                    )
+
+                    bindings << binding
+                } catch (Exception e) {
+                    binding = usernamePassword(
+                        credentialsId: id,
+                        usernameVariable: '_UNUSED',
+                        passwordVariable: credentialVariable(entry, type)
+                    )
+                }
 
                 bindings << binding
                 break
             default:
-                def binding = string(
-                    credentialsId: id,
-                    variable: credentialVariable(entry, type)
-                )
+                def binding
+                try {
+                    binding = string(
+                        credentialsId: id,
+                        variable: credentialVariable(entry, type)
+                    )
+
+                    bindings << binding
+                } catch (Exception e) {
+                    binding = usernamePassword(
+                        credentialsId: id,
+                        usernameVariable: '_UNUSED',
+                        passwordVariable: credentialVariable(entry, type)
+                    )
+                }
 
                 bindings << binding
                 break
