@@ -1,3 +1,0 @@
-@Library('stacksmith') _
-
-stacksmith()
