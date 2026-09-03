@@ -140,12 +140,13 @@ def test_repository_status_handles_renamed_files(tmp_path: Path):
     # Rename stack.yaml to stack_renamed.yaml
     _run_git(repo_path, "mv", "stack.yaml", "stack_renamed.yaml")
 
-    
     status = repository_status(repo_path)
     assert status.is_dirty
     assert Path("stack_renamed.yaml") in status.changed_paths
     # Ensure no corrupted path ending in "e.yaml" / ".yaml" is present
-    assert not any(p.name == "e.yaml" or p.name == ".yaml" for p in status.changed_paths)
+    assert not any(
+        p.name == "e.yaml" or p.name == ".yaml" for p in status.changed_paths
+    )
 
 
 def _git_output(repo_path: Path, *args: str) -> str:

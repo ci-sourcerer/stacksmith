@@ -714,6 +714,7 @@ remote_auth:
   github.com:
     type: token
     token_env: GITHUB_TOKEN
+    username_env: GITHUB_USERNAME
   gitlab.internal.com:
     type: basic
     username_env: GITLAB_USER
@@ -725,7 +726,7 @@ remote_auth:
 
 Supported auth types are `token` (HTTP Bearer or git token), `basic` (HTTP Basic), and `ssh` (Git SSH key).
 
-When Stacksmith executes Terragrunt runtime commands, Stacksmith also forwards Git auth into the Terragrunt subprocess environment so CAS-backed Git fetches can reuse your configured credentials.
+When Stacksmith executes Terragrunt runtime commands, Stacksmith forwards HTTPS token auth through a temporary Git credential helper so CAS-backed and OpenTofu-initiated Git fetches can reuse your configured credentials. The helper reads tokens from the subprocess environment, contains no credential values itself, and is deleted when the subprocess exits. Token auth preserves a username supplied by Git configuration or the source URL, uses `username_env` when configured, and otherwise defaults the username to `git`.
 
 ##### Environment variable fallbacks
 

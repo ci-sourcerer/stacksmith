@@ -92,6 +92,34 @@ def test_run_terragrunt_streaming_routes_stdout_to_stderr(monkeypatch, tmp_path)
     assert calls["kwargs"]["stderr"] is runner.sys.stderr
 
 
+def test_run_terragrunt_keeps_credential_helper_for_subprocess(monkeypatch, tmp_path):
+    helper_path = None
+
+    class FakeResult:
+        returncode = 0
+
+    def _fake_subprocess_run(*args, **kwargs):
+        nonlocal helper_path
+        env = kwargs["env"]
+        helper_path = next(
+            Path(env[f"GIT_CONFIG_VALUE_{index}"])
+            for index in range(int(env["GIT_CONFIG_COUNT"]))
+            if env[f"GIT_CONFIG_KEY_{index}"] == "credential.helper"
+            and env[f"GIT_CONFIG_VALUE_{index}"]
+        )
+        assert helper_path.exists()
+        return FakeResult()
+
+    monkeypatch.setenv("STACKSMITH_GIT_TOKEN", "fallback-tok")
+    monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
+
+    exit_code = runner._run_terragrunt_streaming(["terragrunt", "plan"], tmp_path)
+
+    assert exit_code == 0
+    assert helper_path is not None
+    assert not helper_path.exists()
+
+
 def test_run_terragrunt_all_ordered_dependency_first(monkeypatch, tmp_path):
     calls: list[tuple[list[str], Path, bool]] = []
 

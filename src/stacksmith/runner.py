@@ -4,6 +4,8 @@ import shlex
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +14,7 @@ from loguru import logger as LOGGER
 from .enums import TerragruntAction
 from .models import RemoteAuthConfig, ToolConfig
 from .plan_redaction import write_redacted_plan
-from .remote import apply_terragrunt_auth_env
+from .remote import terragrunt_auth_env
 from .tooling import ResolvedToolchain, resolve_toolchain
 from .utils import env_truthy
 from .validations import (
@@ -63,14 +65,18 @@ def _should_run_plan_validation_flow(
     )
 
 
-def _build_env(auth_config: RemoteAuthConfig | None = None) -> dict[str, str]:
+@contextmanager
+def _build_env(
+    auth_config: RemoteAuthConfig | None = None,
+) -> Iterator[dict[str, str]]:
     env = os.environ.copy()
     env["TG_TF_PATH"] = _RESOLVED_TOOLCHAIN.tofu
-    apply_terragrunt_auth_env(env, auth_config)
-    LOGGER.debug(
-        "Terragrunt environment TG_TF_PATH={tg_tf_path}", tg_tf_path=env["TG_TF_PATH"]
-    )
-    return env
+    with terragrunt_auth_env(env, auth_config):
+        LOGGER.debug(
+            "Terragrunt environment TG_TF_PATH={tg_tf_path}",
+            tg_tf_path=env["TG_TF_PATH"],
+        )
+        yield env
 
 
 _TOOL_VERSION_CHECKED = False
@@ -169,39 +175,41 @@ def _run_terragrunt(
     capture_output: bool = False,
     auth_config: RemoteAuthConfig | None = None,
 ) -> subprocess.CompletedProcess[str] | int:
-    kwargs = {
-        "cwd": working_dir,
-        "env": _build_env(auth_config),
-    }
+    with _build_env(auth_config) as env:
+        kwargs = {
+            "cwd": working_dir,
+            "env": env,
+        }
 
-    if capture_output:
-        kwargs.update({"capture_output": True, "text": True})
-        result = subprocess.run(cmd, **kwargs)  # noqa: PLW1510
-        LOGGER.debug(
-            "Terragrunt command exited with code {return_code}: {command}",
-            return_code=result.returncode,
-            command=_format_command(cmd),
+        if capture_output:
+            kwargs.update({"capture_output": True, "text": True})
+            result = subprocess.run(cmd, **kwargs)  # noqa: PLW1510
+            LOGGER.debug(
+                "Terragrunt command exited with code {return_code}: {command}",
+                return_code=result.returncode,
+                command=_format_command(cmd),
+            )
+            return result
+
+        return subprocess.run(  # noqa: PLW1510
+            cmd,
+            stdout=sys.stderr,
+            stderr=sys.stderr,
+            **kwargs,
         )
-        return result
-
-    return subprocess.run(  # noqa: PLW1510
-        cmd,
-        stdout=sys.stderr,
-        stderr=sys.stderr,
-        **kwargs,
-    )
 
 
 def _run_terragrunt_streaming(
     cmd: list[str], working_dir: Path, auth_config: RemoteAuthConfig | None = None
 ) -> int:
-    result = subprocess.run(  # noqa: PLW1510
-        cmd,
-        cwd=working_dir,
-        env=_build_env(auth_config),
-        stdout=sys.stderr,
-        stderr=sys.stderr,
-    )
+    with _build_env(auth_config) as env:
+        result = subprocess.run(  # noqa: PLW1510
+            cmd,
+            cwd=working_dir,
+            env=env,
+            stdout=sys.stderr,
+            stderr=sys.stderr,
+        )
     LOGGER.debug(
         "Terragrunt command exited with code {return_code}: {command}",
         return_code=result.returncode,

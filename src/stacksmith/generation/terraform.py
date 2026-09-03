@@ -628,9 +628,7 @@ def _has_bridge_output_reference(value: Any) -> bool:
     if isinstance(value, str):
         return _OPERATION_BRIDGE_OUTPUT_PATTERN.search(value) is not None
     if isinstance(value, dict):
-        return any(
-            _has_bridge_output_reference(v) for v in value.values()
-        )
+        return any(_has_bridge_output_reference(v) for v in value.values())
     if isinstance(value, list):
         return any(_has_bridge_output_reference(item) for item in value)
     return False

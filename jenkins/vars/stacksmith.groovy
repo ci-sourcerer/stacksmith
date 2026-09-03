@@ -55,18 +55,24 @@ void withStacksmithDockerAgent(Closure body) {
 }
 
 void withStacksmithKubernetesAgent(Closure body) {
+    def stacksmithContainerName = 'stacksmith'
+    def podAnnotations = (readJSON(text: env.STACKSMITH_K8S_POD_ANNOTATIONS ?: '{}', returnPojo: true).collect { k, v -> ['key': k, 'value': v] })
     podTemplate(
         containers: [
             containerTemplate(
-                name: 'stacksmith',
+                name: stacksmithContainerName,
                 image: getStacksmithImage(),
                 command: 'sleep',
-                args: '99d'
+                args: '99d',
+                alwaysPullImage: parseBooleanWithDefault(env.STACKSMITH_ALWAYS_PULL_IMAGE, true)
             )
-        ]
+        ],
+        serviceAccount: env.STACKSMITH_K8S_SERVICE_ACCOUNT ?: null,
+        annotations: podAnnotations,
+        cloud: env.STACKSMITH_K8S_CLOUD ?: null
     ) {
         node(POD_LABEL) {
-            container('stacksmith') {
+            container(stacksmithContainerName) {
                 body()
             }
         }

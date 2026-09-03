@@ -2,7 +2,9 @@ import os
 import re
 import shutil
 import sys
-from collections.abc import Callable, Sequence
+import tempfile
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from shlex import quote
@@ -30,6 +32,25 @@ from .utils import (
 )
 
 _REMOTE_PREFIXES = ("http://", "https://", "git+https://", "git+ssh://")
+_GIT_CREDENTIAL_HELPER = """#!/bin/sh
+if [ "$1" != "get" ]; then
+    exit 0
+fi
+
+_username=""
+while IFS= read -r _credential; do
+    case "$_credential" in
+        username=*) _username=${_credential#username=} ;;
+    esac
+done
+
+if [ -z "$_username" ]; then
+    _username="git"
+fi
+
+printf 'username=%s\n' "$_username"
+printf 'password=%s\n' "$STACKSMITH_GIT_CREDENTIAL_TOKEN"
+"""
 
 
 @dataclass(frozen=True)
@@ -39,6 +60,14 @@ class GitRef:
     repo_url: str
     path: str
     ref: str | None
+
+
+@dataclass(frozen=True)
+class _GitCredential:
+    """Resolved username and token for Git HTTPS authentication."""
+
+    token: str
+    username: str | None = None
 
 
 def is_remote_url(reference: str | Path | FileReference) -> bool:
@@ -176,52 +205,65 @@ def _resolve_auth_headers(
     return {}
 
 
-def _set_git_insteadof_rules(
-    env: dict[str, str], token_by_host: dict[str, str]
-) -> None:
-    if not token_by_host:
-        return
-
-    count = 0
+def _git_config_count(env: dict[str, str]) -> int:
     try:
-        count = int(env.get("GIT_CONFIG_COUNT", "0"))
+        return int(env.get("GIT_CONFIG_COUNT", "0"))
     except ValueError:
-        count = 0
-
-    for host, token in sorted(token_by_host.items()):
-        env[f"GIT_CONFIG_KEY_{count}"] = (
-            f"url.https://x-access-token:{token}@{host}/.insteadOf"
-        )
-        env[f"GIT_CONFIG_VALUE_{count}"] = f"https://{host}/"
-        count += 1
-
-    env["GIT_CONFIG_COUNT"] = str(count)
-    env["GIT_ASKPASS"] = "echo"
-    env["GIT_TERMINAL_PROMPT"] = "0"
+        return 0
 
 
-def _resolve_terragrunt_git_tokens(
+def _append_git_config(env: dict[str, str], key: str, value: str) -> None:
+    count = _git_config_count(env)
+    env[f"GIT_CONFIG_KEY_{count}"] = key
+    env[f"GIT_CONFIG_VALUE_{count}"] = value
+    env["GIT_CONFIG_COUNT"] = str(count + 1)
+
+
+def _write_git_credential_helper(
+    directory: Path, token_env: str = "STACKSMITH_GIT_CREDENTIAL_TOKEN"
+) -> Path:
+    helper = directory / f"git-credential-stacksmith-{token_env.rsplit('_', 1)[-1]}"
+    helper.write_text(
+        _GIT_CREDENTIAL_HELPER.replace("STACKSMITH_GIT_CREDENTIAL_TOKEN", token_env),
+        encoding="utf-8",
+    )
+    helper.chmod(0o700)
+    return helper
+
+
+def _configure_git_credential_helper(
+    env: dict[str, str], helper: Path, host: str | None = None
+) -> None:
+    key = f"credential.https://{host}.helper" if host else "credential.helper"
+    _append_git_config(env, key, "")
+    _append_git_config(env, key, str(helper))
+
+
+def _resolve_terragrunt_git_credentials(
     auth_config: RemoteAuthConfig | None,
-) -> dict[str, str]:
-    token_by_host: dict[str, str] = {}
+) -> tuple[_GitCredential | None, dict[str, _GitCredential]]:
+    credentials_by_host: dict[str, _GitCredential] = {}
+    if auth_config:
+        for host, entry in auth_config.items():
+            if entry.type != "token":
+                continue
+
+            token = os.getenv(entry.token_env, "") if entry.token_env else ""
+            if token:
+                credentials_by_host[host] = _GitCredential(
+                    token=token,
+                    username=(
+                        os.getenv(entry.username_env, "")
+                        if entry.username_env
+                        else None
+                    ),
+                )
+
     fallback_token = stacksmith_env("GIT_TOKEN")
-
-    if auth_config is None:
-        return token_by_host
-
-    for host, entry in auth_config.items():
-        if entry.type != "token":
-            continue
-
-        token = os.getenv(entry.token_env, "") if entry.token_env else ""
-        if token:
-            token_by_host[host] = token
-            continue
-
-        if fallback_token:
-            token_by_host[host] = fallback_token
-
-    return token_by_host
+    return (
+        _GitCredential(token=fallback_token) if fallback_token else None,
+        credentials_by_host,
+    )
 
 
 def _resolve_terragrunt_ssh_command(
@@ -252,28 +294,57 @@ def _resolve_terragrunt_ssh_command(
     return f"ssh -i {quote(ssh_key)} -o StrictHostKeyChecking=accept-new"
 
 
-def apply_terragrunt_auth_env(
+@contextmanager
+def terragrunt_auth_env(
     env: dict[str, str], auth_config: RemoteAuthConfig | None
-) -> dict[str, str]:
-    """Apply Stacksmith remote auth settings to a Terragrunt subprocess env.
+) -> Iterator[dict[str, str]]:
+    """Temporarily apply Git auth to a Terragrunt subprocess environment.
 
     This preserves Stacksmith-managed Git auth when Terragrunt performs source
-    fetching (including CAS-backed fetches).
+    fetching, including CAS-backed fetches. HTTPS tokens are exposed through an
+    ephemeral Git credential helper and are never written to the helper itself.
 
     Args:
         env: Base environment to mutate.
         auth_config: Optional host-keyed remote auth config.
 
-    Returns:
-        The mutated environment mapping.
+    Yields:
+        The mutated environment mapping while its credential helper exists.
     """
     if "GIT_SSH_COMMAND" not in env and (
         ssh_command := _resolve_terragrunt_ssh_command(auth_config)
     ):
         env["GIT_SSH_COMMAND"] = ssh_command
 
-    _set_git_insteadof_rules(env, _resolve_terragrunt_git_tokens(auth_config))
-    return env
+    fallback_credential, credentials_by_host = _resolve_terragrunt_git_credentials(
+        auth_config
+    )
+    if not credentials_by_host and fallback_credential is None:
+        yield env
+        return
+
+    with tempfile.TemporaryDirectory(prefix="stacksmith-git-auth-") as directory:
+        if fallback_credential:
+            env["STACKSMITH_GIT_CREDENTIAL_TOKEN"] = fallback_credential.token
+            _configure_git_credential_helper(
+                env, _write_git_credential_helper(Path(directory))
+            )
+
+        for index, (host, credential) in enumerate(sorted(credentials_by_host.items())):
+            token_env = f"STACKSMITH_GIT_CREDENTIAL_TOKEN_{index}"
+            env[token_env] = credential.token
+            _configure_git_credential_helper(
+                env, _write_git_credential_helper(Path(directory), token_env), host
+            )
+            if credential.username:
+                _append_git_config(
+                    env,
+                    f"credential.https://{host}.username",
+                    credential.username,
+                )
+
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        yield env
 
 
 def _has_http_credentials(host: str, auth_config: RemoteAuthConfig | None) -> bool:

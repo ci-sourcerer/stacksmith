@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -6,12 +7,12 @@ import pytest
 
 from stacksmith.models import GitReference, RemoteAuthEntry
 from stacksmith.remote import (
-    apply_terragrunt_auth_env,
     is_remote_url,
     read_reference_content,
     resolve_if_remote,
     resolve_references,
     resolve_remote,
+    terragrunt_auth_env,
 )
 from stacksmith.utils import cache_key, resolve_git_env
 
@@ -154,38 +155,131 @@ def test_resolve_git_env_fallback_env_token(monkeypatch):
     assert "fallback-tok" in env.get("GIT_CONFIG_KEY_0", "")
 
 
-def test_apply_terragrunt_auth_env_sets_git_token_rules(monkeypatch):
+def test_terragrunt_auth_env_sets_host_git_credential_helper(monkeypatch):
     monkeypatch.setenv("DEPLOY_TOKEN", "tok-xyz")
+    monkeypatch.setenv("DEPLOY_USERNAME", "ci-user")
     monkeypatch.delenv("STACKSMITH_GIT_TOKEN", raising=False)
 
-    env = apply_terragrunt_auth_env(
+    with terragrunt_auth_env(
+        {},
+        {
+            "github.com": RemoteAuthEntry(
+                type="token",
+                token_env="DEPLOY_TOKEN",
+                username_env="DEPLOY_USERNAME",
+            ),
+        },
+    ) as env:
+        result = subprocess.run(
+            ["git", "credential", "fill"],
+            input="protocol=https\nhost=github.com\n\n",
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+            shell=False,
+        )
+        helper_paths = [
+            Path(env[f"GIT_CONFIG_VALUE_{index}"])
+            for index in range(int(env["GIT_CONFIG_COUNT"]))
+            if env[f"GIT_CONFIG_KEY_{index}"].endswith(".helper")
+            and env[f"GIT_CONFIG_VALUE_{index}"]
+        ]
+
+        assert "username=ci-user" in result.stdout
+        assert "password=tok-xyz" in result.stdout
+        assert helper_paths
+        assert all(path.exists() for path in helper_paths)
+        assert all("tok-xyz" not in path.read_text() for path in helper_paths)
+        assert all(
+            "tok-xyz" not in value for key, value in env.items() if "GIT_CONFIG" in key
+        )
+
+    assert all(not path.exists() for path in helper_paths)
+
+
+def test_terragrunt_auth_env_uses_fallback_token_and_git_username(monkeypatch):
+    monkeypatch.setenv("STACKSMITH_GIT_TOKEN", "fallback-tok")
+
+    with terragrunt_auth_env({}, None) as env:
+        result = subprocess.run(
+            ["git", "credential", "fill"],
+            input="protocol=https\nhost=example.com\n\n",
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+            shell=False,
+        )
+
+    assert "username=git" in result.stdout
+    assert "password=fallback-tok" in result.stdout
+
+
+def test_terragrunt_auth_env_preserves_url_username(monkeypatch):
+    monkeypatch.setenv("STACKSMITH_GIT_TOKEN", "fallback-tok")
+
+    with terragrunt_auth_env({}, None) as env:
+        result = subprocess.run(
+            ["git", "credential", "fill"],
+            input="protocol=https\nhost=example.com\nusername=url-user\n\n",
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+            shell=False,
+        )
+
+    assert "username=url-user" in result.stdout
+    assert "password=fallback-tok" in result.stdout
+
+
+def test_terragrunt_auth_env_prefers_host_token_over_fallback(monkeypatch):
+    monkeypatch.setenv("STACKSMITH_GIT_TOKEN", "fallback-tok")
+    monkeypatch.setenv("DEPLOY_TOKEN", "host-tok")
+
+    with terragrunt_auth_env(
         {},
         {
             "github.com": RemoteAuthEntry(type="token", token_env="DEPLOY_TOKEN"),
         },
-    )
+    ) as env:
+        github_result = subprocess.run(
+            ["git", "credential", "fill"],
+            input="protocol=https\nhost=github.com\n\n",
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+            shell=False,
+        )
+        other_result = subprocess.run(
+            ["git", "credential", "fill"],
+            input="protocol=https\nhost=example.com\n\n",
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+            shell=False,
+        )
 
-    assert env["GIT_CONFIG_COUNT"] == "1"
-    assert env["GIT_CONFIG_KEY_0"].startswith(
-        "url.https://x-access-token:tok-xyz@github.com/.insteadOf"
-    )
-    assert env["GIT_CONFIG_VALUE_0"] == "https://github.com/"
+    assert "password=host-tok" in github_result.stdout
+    assert "password=fallback-tok" in other_result.stdout
 
 
-def test_apply_terragrunt_auth_env_sets_ssh_command(monkeypatch):
+def test_terragrunt_auth_env_sets_ssh_command(monkeypatch):
     monkeypatch.delenv("STACKSMITH_GIT_SSH_KEY", raising=False)
 
-    env = apply_terragrunt_auth_env(
+    with terragrunt_auth_env(
         {},
         {
             "github.com": RemoteAuthEntry(
                 type="ssh", ssh_key_path="/home/user/.ssh/deploy_key"
             ),
         },
-    )
-
-    assert env["GIT_SSH_COMMAND"].startswith("ssh -i")
-    assert "/home/user/.ssh/deploy_key" in env["GIT_SSH_COMMAND"]
+    ) as env:
+        assert env["GIT_SSH_COMMAND"].startswith("ssh -i")
+        assert "/home/user/.ssh/deploy_key" in env["GIT_SSH_COMMAND"]
 
 
 def test_fetch_http_downloads_and_caches(tmp_path, monkeypatch):

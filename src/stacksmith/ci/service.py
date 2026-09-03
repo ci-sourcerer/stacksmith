@@ -78,11 +78,21 @@ def _ci_config_split(config_ref: str) -> list[str]:
             continue
         last = merged_segments[-1]
 
-        is_scheme_match = last.lower() in ("http", "https", "git+https", "git+ssh") and segment.startswith("//")
+        is_scheme_match = last.lower() in (
+            "http",
+            "https",
+            "git+https",
+            "git+ssh",
+        ) and segment.startswith("//")
         is_ssh_user_host = "@" in last and "/" not in last.partition("@")[2]
-        is_windows_drive = len(last) == 1 and last.isalpha() and segment.startswith(("/", "\\"))
+        is_windows_drive = (
+            len(last) == 1 and last.isalpha() and segment.startswith(("/", "\\"))
+        )
         is_port_number = (
-            any(prefix in last for prefix in ("http://", "https://", "git+https://", "git+ssh://"))
+            any(
+                prefix in last
+                for prefix in ("http://", "https://", "git+https://", "git+ssh://")
+            )
             and "/" not in last.split("://", 1)[1]
             and segment.split("/", 1)[0].isdigit()
         )
