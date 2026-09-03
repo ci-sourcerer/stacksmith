@@ -139,6 +139,7 @@ def test_repository_status_handles_renamed_files(tmp_path: Path):
     _initialize_repository(repo_path)
     # Rename stack.yaml to stack_renamed.yaml
     _run_git(repo_path, "mv", "stack.yaml", "stack_renamed.yaml")
+
     
     status = repository_status(repo_path)
     assert status.is_dirty
