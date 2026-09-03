@@ -106,7 +106,7 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
         String type = entry.type?.toString()?.trim() ?: 'string'
 
         switch (type) {
-            case 'usernamePassword':
+            case 'username_and_password':
             case 'http_basic':
                 def binding = usernamePassword(
                     credentialsId: id,
@@ -116,7 +116,7 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
 
                 bindings << binding
                 break
-            case 'sshUserPrivateKey':
+            case 'ssh_user_private_key':
             case 'git_ssh_key':
                 def binding = sshUserPrivateKey(
                     credentialsId: id,
