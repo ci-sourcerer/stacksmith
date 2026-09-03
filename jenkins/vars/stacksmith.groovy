@@ -151,6 +151,32 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
     return bindings
 }
 
+Object withStacksmithCredentials(String credentialsJson, String context, Closure body) {
+    List<Map<String, Object>> credentials = []
+    String parsedCredentialsJson = credentialsJson.toString().trim()
+    if (parsedCredentialsJson) {
+        try {
+            def parsed = readJSON(text: parsedCredentialsJson, returnPojo: true)
+            if (parsed instanceof List) {
+                credentials = parsed
+                echo("Loaded ${credentials.size()} credential(s) for ${context}")
+            } else if (parsed instanceof Map) {
+                error('STACKSMITH_CREDENTIALS_JSON must be an array of credential objects, not a map')
+            }
+        } catch (Exception e) {
+            error("Invalid STACKSMITH_CREDENTIALS_JSON: ${e.message}")
+        }
+    }
+
+    List<Map<String, Object>> credentialBindings = buildCredentialBindings(credentials)
+    if (credentialBindings) {
+        return withCredentials(credentialBindings) {
+            body()
+        }
+    }
+    return body()
+}
+
 int executeStacksmith() {
     return sh(
         script: '''#!/usr/bin/env bash
@@ -197,36 +223,16 @@ void executeStacksmithMatrix(
         def archiveArtifactDir = artifactDir.replaceFirst('^\\./', '')
 
         branches[environment] = {
-            List<Map<String, Object>> credentialsList = []
-            def parsedCredentialsJson = (credentialsJson ?: env.STACKSMITH_CREDENTIALS_JSON ?: '').toString().trim()
-            if (parsedCredentialsJson) {
-                try {
-                    def parsed = readJSON(text: parsedCredentialsJson, returnPojo: true)
-                    if (parsed instanceof List) {
-                        credentialsList = parsed
-                        echo("Loaded ${credentialsList.size()} credential(s) for environment ${environment}")
-                    } else if (parsed instanceof Map) {
-                        error("STACKSMITH_CREDENTIALS_JSON must be an array of credential objects, not a map")
-                    }
-                } catch (Exception e) {
-                    error("Invalid STACKSMITH_CREDENTIALS_JSON: ${e.message}")
-                }
-            }
-
-            List<Map<String, Object>> credentialBindings = buildCredentialBindings(credentialsList)
-
             withEnv([
                 "ENVIRONMENT=${environment}",
                 "STACKSMITH_CI_PHASE=${command}",
                 "VALIDATION_REPORT_PATH=${artifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
             ]) {
-                int status
-                if (credentialBindings) {
-                    status = withCredentials(credentialBindings) {
-                        executeStacksmith()
-                    }
-                } else {
-                    status = executeStacksmith()
+                int status = withStacksmithCredentials(
+                    credentialsJson ?: env.STACKSMITH_CREDENTIALS_JSON ?: '',
+                    "environment ${environment}"
+                ) {
+                    executeStacksmith()
                 }
 
                 if (command == 'plan' && parseBoolean(env.STACKSMITH_UPLOAD_ARTIFACTS ?: 'true')) {
@@ -305,16 +311,21 @@ def call() {
                     "SKIP_BRANCH_VALIDATION=${env.NO_VALIDATE_BRANCH_AND_OPERATION ?: 'false'}",
                     "CI_MANIFEST_FILE=${manifestFile}",
                 ]) {
-                    sh(
-                        script: '''#!/usr/bin/env bash
-                            set -euo pipefail
-                            mkdir -p "$(dirname \"$CI_MANIFEST_FILE\")"
-                            stacksmith ci prepare-from-env \
-                                --provider jenkins \
-                                --manifest-file "$CI_MANIFEST_FILE"
-                        ''',
-                        returnStdout: true
-                    )
+                    withStacksmithCredentials(
+                        env.STACKSMITH_CREDENTIALS_JSON ?: '',
+                        'manifest preparation'
+                    ) {
+                        sh(
+                            script: '''#!/usr/bin/env bash
+                                set -euo pipefail
+                                mkdir -p "$(dirname \"$CI_MANIFEST_FILE\")"
+                                stacksmith ci prepare-from-env \
+                                    --provider jenkins \
+                                    --manifest-file "$CI_MANIFEST_FILE"
+                            ''',
+                            returnStdout: true
+                        )
+                    }
                 }
 
                 def manifest = readJSON(text: manifestOutput, returnPojo: true)

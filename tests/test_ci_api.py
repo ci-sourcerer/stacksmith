@@ -720,6 +720,24 @@ def test_jenkins_pipeline_uses_environment_controlled_test_mode():
     assert "poe test" not in jenkins_pipeline
 
 
+def test_jenkins_pipeline_provides_configured_credentials_during_preparation():
+    jenkins_pipeline = (
+        Path(__file__).parents[1] / "jenkins/vars/stacksmith.groovy"
+    ).read_text()
+
+    credential_scope = jenkins_pipeline.index(
+        "withStacksmithCredentials(\n"
+        "                        env.STACKSMITH_CREDENTIALS_JSON ?: '',\n"
+        "                        'manifest preparation'"
+    )
+    prepare_command = jenkins_pipeline.index(
+        "stacksmith ci prepare-from-env", credential_scope
+    )
+
+    assert credential_scope < prepare_command
+    assert jenkins_pipeline.count("withStacksmithCredentials(") == 3
+
+
 def test_ci_plan_execution_only_writes_redacted_plan_json():
     argv = build_ci_execution_argv(
         CiExecutionManifest(
