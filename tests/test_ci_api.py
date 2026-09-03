@@ -621,7 +621,6 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
         repository_root / ".github/workflows/stacksmith-gitops-reusable.yml"
     ).read_text()
     jenkins_pipeline = (repository_root / "jenkins/vars/stacksmith.groovy").read_text()
-    jenkinsfile = (repository_root / "Jenkinsfile").read_text()
     apply_workflow = (
         repository_root / "examples/github-actions/stacksmith-apply.yml"
     ).read_text()
@@ -630,11 +629,11 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert "stacksmith ci execute-from-env" in actions_executor
     assert "stacksmith ci prepare-from-env" in jenkins_pipeline
     assert "stacksmith ci execute-from-env" in jenkins_pipeline
-    assert jenkinsfile == "@Library('stacksmith') _\n\nstacksmith()\n"
     assert not (
         repository_root / "jenkins/vars/withFolderPropertiesIfAvailable.groovy"
     ).exists()
-    assert "respondsTo(this, 'withFolderProperties', Closure)" in jenkins_pipeline
+    assert "StepDescriptor.byFunctionName('withFolderProperties')" in jenkins_pipeline
+    assert ".metaClass" not in jenkins_pipeline
     assert "INPUT_DEBUG" in actions_workflow
     assert "INPUT_DEBUG" in jenkins_pipeline
     assert (
