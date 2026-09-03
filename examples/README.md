@@ -57,13 +57,13 @@ When adapting the plan template, update its defaults and choose path filters tha
 - For shared changes that should fan out to all environments, include `**/common/**` and `**/manifests/common/**`.
 - Include stack file edits when your env/runfiles reference stack manifests directly, for example `**/*.stack.yaml` and `**/*.stack.yml`.
 
-## Jenkins pipeline submodule
+## Jenkins shared library
 
-A reusable Jenkins pipeline is available in `Jenkinsfile`. It is designed to be consumed by vendoring this repository as a git submodule and exposes the same GitOps selection behavior as the GitHub Actions wrappers.
+A reusable Jenkins pipeline is available as the `stacksmith()` entrypoint in `jenkins/vars/stacksmith.groovy`. Configure this repository as the trusted global Jenkins library `stacksmith`, using `jenkins` as its library path. It exposes the same GitOps selection behavior as the GitHub Actions wrappers.
 
 For consuming repositories, use the Jenkins folder properties or job environment described in the main README to select an agent and pass Stacksmith settings.
 
-Use `Jenkinsfile` as the Jenkins GitOps entrypoint. It mirrors the GitHub Actions workflow's discovery, execution flags, approval, and artifact behavior using Jenkins-native features. Set `STACKSMITH_TEST_PIPELINE` to a truthy value on a job or folder to make it a test-only pipeline that runs managed-configuration tests through `stacksmith test`. Without that setting, plan requests run a `Plan` stage and apply requests run `Plan`, `Approve`, and `Apply` in order.
+Each consumer's protected `Jenkinsfile` imports `stacksmith` and calls `stacksmith()`. The function mirrors the GitHub Actions workflow's discovery, execution flags, approval, and artifact behavior using Jenkins-native features. Set `STACKSMITH_TEST_PIPELINE` to a truthy value on a job or folder to make it a test-only pipeline that runs managed-configuration tests through `stacksmith test`. Without that setting, plan requests run a `Plan` stage and apply requests run `Plan`, `Approve`, and `Apply` in order.
 
 ## Example stack
 

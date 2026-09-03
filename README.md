@@ -1011,13 +1011,13 @@ Stacksmith provides equivalent opinionated GitOps entrypoints for GitHub Actions
 - [`.github/workflows/stacksmith-gitops-reusable.yml`](./.github/workflows/stacksmith-gitops-reusable.yml) executes one lifecycle phase for one environment from a versioned CI manifest.
 - [`.github/workflows/stacksmith-gitops-opinionated-reusable.yml`](./.github/workflows/stacksmith-gitops-opinionated-reusable.yml) discovers environments and fans out to the single-environment reusable workflow.
 - [`examples/github-actions/stacksmith-plan.yml`](./examples/github-actions/stacksmith-plan.yml), [`examples/github-actions/stacksmith-apply.yml`](./examples/github-actions/stacksmith-apply.yml), [`examples/github-actions/stacksmith-plan-operation.yml`](./examples/github-actions/stacksmith-plan-operation.yml), and [`examples/github-actions/stacksmith-operation.yml`](./examples/github-actions/stacksmith-operation.yml) are trigger wrappers that call the opinionated reusable workflow using `uses`.
-- [`Jenkinsfile`](./Jenkinsfile) is the opinionated Jenkins GitOps wrapper and is best used as a Multibranch Pipeline.
+- [`jenkins/vars/stacksmith.groovy`](./jenkins/vars/stacksmith.groovy) provides the opinionated Jenkins GitOps pipeline as the `stacksmith()` entrypoint of a trusted shared library.
 
 The GitHub templates under `examples/` do not execute in this repository because they are outside `.github/workflows`.
 
 #### Shared behavior
 
-The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins wrapper uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. A CI manifest prepared with command `test` supports only the `test` phase, which invokes `stacksmith test` with the manifest's managed config, selected environment, runfiles, variables, env file, working directory, and additional arguments. Plan and apply requests execute both the infrastructure `plan` phase and a `plan-operation` phase for operations selected by `after_apply`; manual operations are excluded. Apply waits for both previews before provider approval, applies infrastructure, then replans and reconciles the isolated operation state. A `plan-operation` request previews an explicitly selected batch, or all operations when names are omitted, without approval or execution. An `operation` request performs the same preview, waits for provider approval, and then executes the batch. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
+The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins shared-library entrypoint uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. A CI manifest prepared with command `test` supports only the `test` phase, which invokes `stacksmith test` with the manifest's managed config, selected environment, runfiles, variables, env file, working directory, and additional arguments. Plan and apply requests execute both the infrastructure `plan` phase and a `plan-operation` phase for operations selected by `after_apply`; manual operations are excluded. Apply waits for both previews before provider approval, applies infrastructure, then replans and reconciles the isolated operation state. A `plan-operation` request previews an explicitly selected batch, or all operations when names are omitted, without approval or execution. An `operation` request performs the same preview, waits for provider approval, and then executes the batch. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
 
 For deployment commands, `stacksmith ci prepare` resolves the effective layered configuration for every selected environment and rejects `backend.type: local`. These CI runs must use a remote backend so state is durable and shared between plan and apply jobs. A standalone `test` command skips backend validation because `stacksmith test` does not read or write infrastructure state.
 
@@ -1048,7 +1048,7 @@ Plan artifacts produced by the managed GitHub Actions and Jenkins entrypoints ar
 
 Use `stacksmith ci redact-plan <plan.json> --output <redacted-plan.json>` to sanitize an existing raw plan, or pass `--in-place` to atomically replace it. Keep the input file protected until redaction finishes.
 
-If you vendor either entrypoint into a consumer repository, put it under a platform-owned path or submodule and protect it with a CODEOWNERS file so ordinary contributors cannot change the enforcement entrypoint. For example:
+Protect each consumer repository's CI entrypoint with a CODEOWNERS file so ordinary contributors cannot replace or bypass it. GitHub Actions callers can pin the reusable workflow to a release tag. Jenkins consumers keep only a protected call to the centrally managed trusted library in their repository.
 
 #### GitHub Actions
 
@@ -1165,9 +1165,25 @@ The reusable workflow also supports the `folders` and `flat-files` discovery mod
 
 #### Jenkins
 
-Configure a Jenkins Multibranch Pipeline with [`Jenkinsfile`](./Jenkinsfile) as its pipeline script path. The same file supports two distinct pipeline modes. Set the job or folder environment variable `STACKSMITH_TEST_PIPELINE` to a truthy value for a test-only pipeline. That mode always prepares a test manifest and runs only `stacksmith test` in the `Test` stage; it tests the managed Stacksmith configuration rather than Stacksmith's own Python unit-test suite. When the variable is unset or false, the job is a stack-running pipeline with no test command. Plan jobs run in the `Plan` stage. Apply jobs run `Plan`, `Approve`, and `Apply` in order, and a failed plan prevents approval. Operations run through `Plan operation(s)`, `Approve`, and `Run operation(s)`, so an invalid operation plan cannot reach approval or execution. Both modes check out the branch, prepare their CI manifest once, run each selected environment in parallel, and map Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically. Redacted infrastructure plan JSON and validation reports are archived when artifact uploads are enabled.
+Configure this repository as a trusted global Pipeline library named `stacksmith`, with `jenkins` as its library path and a release tag as its default version. The trusted [`stacksmith.groovy`](./jenkins/vars/stacksmith.groovy) global variable owns the complete pipeline implementation.
 
-The pipeline imports the trusted global Groovy library named `stacksmith-functions`. Configure the library in Jenkins as a global trusted library named `stacksmith-functions` so the needed steps are available without sandbox restrictions.
+Each consuming repository needs only this `Jenkinsfile`.
+
+```groovy
+@Library('stacksmith') _
+
+stacksmith()
+```
+
+Configure a Jenkins Multibranch Pipeline with that file as its pipeline script path. Protect it from unapproved changes with the repository's CODEOWNERS file, replacing the example team with the platform team that owns the pipeline.
+
+```text
+/Jenkinsfile @my-org/platform
+```
+
+The entrypoint supports two distinct pipeline modes. Set the job or folder environment variable `STACKSMITH_TEST_PIPELINE` to a truthy value for a test-only pipeline. That mode always prepares a test manifest and runs only `stacksmith test` in the `Test` stage; it tests the managed Stacksmith configuration rather than Stacksmith's own Python unit-test suite. When the variable is unset or false, the job is a stack-running pipeline with no test command. Plan jobs run in the `Plan` stage. Apply jobs run `Plan`, `Approve`, and `Apply` in order, and a failed plan prevents approval. Operations run through `Plan operation(s)`, `Approve`, and `Run operation(s)`, so an invalid operation plan cannot reach approval or execution. Both modes check out the branch, prepare their CI manifest once, run each selected environment in parallel, and map Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically. Redacted infrastructure plan JSON and validation reports are archived when artifact uploads are enabled.
+
+When the Folder Properties plugin provides `withFolderProperties`, `stacksmith()` loads those properties around the complete pipeline. Otherwise, it uses the job environment directly.
 
 Choose one execution mode through Jenkins folder properties or the job environment.
 

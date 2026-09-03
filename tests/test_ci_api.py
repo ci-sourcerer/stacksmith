@@ -450,31 +450,48 @@ def test_prepare_ci_execution_rejects_managed_runfile_override(
 
 def test_ci_config_split_with_complex_urls():
     from stacksmith.ci.service import _ci_config_split
-    
+
     # Test typical colon-separated paths
-    assert _ci_config_split("config.yaml:config_overlay.yaml") == ["config.yaml", "config_overlay.yaml"]
-    
+    assert _ci_config_split("config.yaml:config_overlay.yaml") == [
+        "config.yaml",
+        "config_overlay.yaml",
+    ]
+
     # Test HTTP/HTTPS URLs with and without ports
-    assert _ci_config_split("https://github.com/org/repo//path.yaml") == ["https://github.com/org/repo//path.yaml"]
-    assert _ci_config_split("http://localhost:8080/path:config.yaml") == ["http://localhost:8080/path", "config.yaml"]
-    
+    assert _ci_config_split("https://github.com/org/repo//path.yaml") == [
+        "https://github.com/org/repo//path.yaml"
+    ]
+    assert _ci_config_split("http://localhost:8080/path:config.yaml") == [
+        "http://localhost:8080/path",
+        "config.yaml",
+    ]
+
     # Test Git SSH URLs (with port/host-path colon)
-    assert _ci_config_split("git+ssh://git@github.com:org/repo.git//path.yaml") == ["git+ssh://git@github.com:org/repo.git//path.yaml"]
-    assert _ci_config_split("git@github.com:org/repo.git//path.yaml") == ["git@github.com:org/repo.git//path.yaml"]
-    
+    assert _ci_config_split("git+ssh://git@github.com:org/repo.git//path.yaml") == [
+        "git+ssh://git@github.com:org/repo.git//path.yaml"
+    ]
+    assert _ci_config_split("git@github.com:org/repo.git//path.yaml") == [
+        "git@github.com:org/repo.git//path.yaml"
+    ]
+
     # Test complex mixed references
     combined = "https://github.com/org/repo//path.yaml:git@github.com:org/repo.git//path.yaml:config.yaml"
     assert _ci_config_split(combined) == [
         "https://github.com/org/repo//path.yaml",
         "git@github.com:org/repo.git//path.yaml",
-        "config.yaml"
+        "config.yaml",
     ]
 
     # Test single-letter parameter (should NOT be treated as Windows drive letter unless it looks like a path)
     assert _ci_config_split("a:config.yaml") == ["a", "config.yaml"]
-    assert _ci_config_split("C:\\path\\config.yaml:other.yaml") == ["C:\\path\\config.yaml", "other.yaml"]
-    assert _ci_config_split("C:/path/config.yaml:other.yaml") == ["C:/path/config.yaml", "other.yaml"]
-
+    assert _ci_config_split("C:\\path\\config.yaml:other.yaml") == [
+        "C:\\path\\config.yaml",
+        "other.yaml",
+    ]
+    assert _ci_config_split("C:/path/config.yaml:other.yaml") == [
+        "C:/path/config.yaml",
+        "other.yaml",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -603,7 +620,8 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     actions_executor = (
         repository_root / ".github/workflows/stacksmith-gitops-reusable.yml"
     ).read_text()
-    jenkins_pipeline = (repository_root / "Jenkinsfile").read_text()
+    jenkins_pipeline = (repository_root / "jenkins/vars/stacksmith.groovy").read_text()
+    jenkinsfile = (repository_root / "Jenkinsfile").read_text()
     apply_workflow = (
         repository_root / "examples/github-actions/stacksmith-apply.yml"
     ).read_text()
@@ -612,6 +630,11 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert "stacksmith ci execute-from-env" in actions_executor
     assert "stacksmith ci prepare-from-env" in jenkins_pipeline
     assert "stacksmith ci execute-from-env" in jenkins_pipeline
+    assert jenkinsfile == "@Library('stacksmith') _\n\nstacksmith()\n"
+    assert not (
+        repository_root / "jenkins/vars/withFolderPropertiesIfAvailable.groovy"
+    ).exists()
+    assert "respondsTo(this, 'withFolderProperties', Closure)" in jenkins_pipeline
     assert "INPUT_DEBUG" in actions_workflow
     assert "INPUT_DEBUG" in jenkins_pipeline
     assert (
@@ -682,7 +705,9 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
 
 
 def test_jenkins_pipeline_uses_environment_controlled_test_mode():
-    jenkins_pipeline = (Path(__file__).parents[1] / "Jenkinsfile").read_text()
+    jenkins_pipeline = (
+        Path(__file__).parents[1] / "jenkins/vars/stacksmith.groovy"
+    ).read_text()
 
     assert "'apply-operation', 'test']" not in jenkins_pipeline
     assert "parseBoolean(env.STACKSMITH_TEST_PIPELINE)" in jenkins_pipeline
