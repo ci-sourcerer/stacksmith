@@ -1,3 +1,5 @@
+@Library('stacksmith-functions') _
+
 import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
 
 boolean parseBoolean(value) {
@@ -258,7 +260,7 @@ void executeStacksmithMatrix(
 }
 
 withStacksmithAgent {
-    withFolderProperties {
+    withFolderPropertiesIfAvailable {
         try {
             ansiColor('xterm') {
                 boolean testPipeline = parseBoolean(env.STACKSMITH_TEST_PIPELINE)

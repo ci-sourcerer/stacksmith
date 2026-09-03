@@ -1167,6 +1167,8 @@ The reusable workflow also supports the `folders` and `flat-files` discovery mod
 
 Configure a Jenkins Multibranch Pipeline with [`Jenkinsfile`](./Jenkinsfile) as its pipeline script path. The same file supports two distinct pipeline modes. Set the job or folder environment variable `STACKSMITH_TEST_PIPELINE` to a truthy value for a test-only pipeline. That mode always prepares a test manifest and runs only `stacksmith test` in the `Test` stage; it tests the managed Stacksmith configuration rather than Stacksmith's own Python unit-test suite. When the variable is unset or false, the job is a stack-running pipeline with no test command. Plan jobs run in the `Plan` stage. Apply jobs run `Plan`, `Approve`, and `Apply` in order, and a failed plan prevents approval. Operations run through `Plan operation(s)`, `Approve`, and `Run operation(s)`, so an invalid operation plan cannot reach approval or execution. Both modes check out the branch, prepare their CI manifest once, run each selected environment in parallel, and map Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically. Redacted infrastructure plan JSON and validation reports are archived when artifact uploads are enabled.
 
+The pipeline imports the trusted global Groovy library named `stacksmith-functions`. Configure the library in Jenkins as a global trusted library named `stacksmith-functions` so the needed steps are available without sandbox restrictions.
+
 Choose one execution mode through Jenkins folder properties or the job environment.
 
 - Set `STACKSMITH_USE_K8S` to a truthy value to run in a Kubernetes-plugin pod.
