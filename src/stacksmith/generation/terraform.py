@@ -372,7 +372,9 @@ def _generate_module_blocks(
         )
         if mapping.auto_inject_inputs:
             LOGGER.debug(
-                "Module mapping for component '{component_name}' has auto_inject_inputs enabled",
+                "Module mapping for component '{component_name}' of type '{component_type}' has auto_inject_inputs enabled",
+                component_name=component_name,
+                component_type=component.type,
             )
 
         property_renderer = PropertyRenderer(
