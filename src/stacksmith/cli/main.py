@@ -34,6 +34,7 @@ from stacksmith.testing import StacksmithTestGenerator
 from stacksmith.utils import parse_bool
 
 from ..api import (
+    destroy_stack_operations,
     generate_stack,
     inspect_cache_diagnostics,
     inspect_dependency_graph,
@@ -668,7 +669,7 @@ def _cmd_operation_run(args: argparse.Namespace) -> int:
         merge_mode=_merge_mode_arg(args),
     )
     print(compact_json(result, sort_keys=True))
-    return 0
+    return int(result["exit_code"])
 
 
 def _cmd_operation_plan(args: argparse.Namespace) -> int:
@@ -685,10 +686,29 @@ def _cmd_operation_plan(args: argparse.Namespace) -> int:
         no_cache=args.no_cache,
         no_cas=args.no_cas,
         force_rerun=args.force_rerun,
+        destroy=args.destroy,
         merge_mode=_merge_mode_arg(args),
     )
     print(compact_json(result, sort_keys=True))
-    return 0
+    return int(result["exit_code"])
+
+
+def _cmd_operation_destroy(args: argparse.Namespace) -> int:
+    """Destroy the complete isolated operation state for the selected stack."""
+    _apply_runfile(args)
+    result = destroy_stack_operations(
+        _stack_arg(args),
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        no_cas=args.no_cas,
+        auto_approve=args.auto_approve,
+        merge_mode=_merge_mode_arg(args),
+    )
+    print(compact_json(result, sort_keys=True))
+    return int(result["exit_code"])
 
 
 def _render_environment_preview_table(payload: dict[str, object]) -> None:
@@ -1161,6 +1181,8 @@ def _execute_ci_manifest(
         if execution_phase == "plan-operation":
             return _cmd_operation_plan(execution_args)
         if execution_phase == "operation":
+            if execution_args.operation_command == "destroy":
+                return _cmd_operation_destroy(execution_args)
             return _cmd_operation_run(execution_args)
         if execution_phase == "test":
             return _cmd_test(execution_args)
@@ -1403,6 +1425,8 @@ def main() -> None:
                         exit_code = _cmd_operation_plan(args)
                     case "run":
                         exit_code = _cmd_operation_run(args)
+                    case "destroy":
+                        exit_code = _cmd_operation_destroy(args)
                     case _:
                         parser.print_help(sys.stderr)
                         exit_code = 1

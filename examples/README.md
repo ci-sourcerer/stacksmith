@@ -43,6 +43,7 @@ This example includes GitHub Actions wrapper workflow templates under `examples/
 
 - [`github-actions/stacksmith-plan.yml`](github-actions/stacksmith-plan.yml) triggers on pull requests to `main` and manual dispatch.
 - [`github-actions/stacksmith-apply.yml`](github-actions/stacksmith-apply.yml) observes every push, reconciles pushes to the repository's default branch, and supports manual dispatch.
+- [`github-actions/stacksmith-destroy.yml`](github-actions/stacksmith-destroy.yml) is manual-only, requires explicit environment names, destroys isolated operation state, and then destroys infrastructure.
 - [`github-actions/stacksmith-operation.yml`](github-actions/stacksmith-operation.yml) manually runs a stack-local native operation in the selected environments.
 
 All templates call `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main`. You can call that workflow directly and keep the trigger policy in your repository. These example files do not run here because they are intentionally stored outside `.github/workflows`.
@@ -63,7 +64,7 @@ A reusable Jenkins pipeline is available as the `stacksmith()` entrypoint in `je
 
 For consuming repositories, use the Jenkins folder properties or job environment described in the main README to select an agent and pass Stacksmith settings.
 
-Each consumer's protected `Jenkinsfile` imports `stacksmith` and calls `stacksmith()`. The function mirrors the GitHub Actions workflow's discovery, execution flags, approval, and artifact behavior using Jenkins-native features. Set `STACKSMITH_TEST_PIPELINE` to a truthy value on a job or folder to make it a test-only pipeline that runs managed-configuration tests through `stacksmith test`. Without that setting, plan requests run a `Plan` stage and apply requests run `Plan`, `Approve`, and `Apply` in order.
+Each consumer's protected `Jenkinsfile` imports `stacksmith` and calls `stacksmith()`. The function mirrors the GitHub Actions workflow's discovery, execution flags, approval, and artifact behavior using Jenkins-native features. Set `STACKSMITH_TEST_PIPELINE` to a truthy value on a job or folder to make it a test-only pipeline that runs managed-configuration tests through `stacksmith test`. Without that setting, plan requests run a `Plan` stage, apply requests apply infrastructure before reconciling operations, and destroy requests remove operation state before infrastructure after approval.
 
 ## Example stack
 

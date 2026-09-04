@@ -742,7 +742,14 @@ def configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
         "--command",
         dest="ci_execution_command",
         required=True,
-        choices=["test", "plan", "apply", "plan-operation", "apply-operation"],
+        choices=[
+            "test",
+            "plan",
+            "apply",
+            "destroy",
+            "plan-operation",
+            "apply-operation",
+        ],
         help="Stacksmith command to execute for each selected environment.",
     )
     parser.add_argument(
@@ -881,12 +888,19 @@ def configure_ci_execute_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--phase",
-        choices=["test", "plan", "apply", "plan-operation", "operation"],
+        choices=[
+            "test",
+            "plan",
+            "apply",
+            "destroy",
+            "plan-operation",
+            "operation",
+        ],
         default="",
         help=(
-            "Lifecycle phase to execute. CI manifests prepared with command test "
-            "only support test; apply and operation manifests also support their "
-            "corresponding dry-run and execution phases."
+            "Lifecycle phase to execute. The phase must belong to the manifest "
+            "command; destroy manifests support infrastructure and operation-state "
+            "previews, operation-state cleanup, and infrastructure destruction."
         ),
     )
     parser.add_argument(
@@ -966,12 +980,20 @@ def configure_ci_execute_from_env_parser(parser: argparse.ArgumentParser) -> Non
     )
     parser.add_argument(
         "--phase",
-        choices=["test", "plan", "apply", "plan-operation", "operation"],
+        choices=[
+            "test",
+            "plan",
+            "apply",
+            "destroy",
+            "plan-operation",
+            "operation",
+        ],
         default="",
         help=(
             "Optional lifecycle phase override. When omitted, "
-            "STACKSMITH_CI_PHASE or the manifest command is used. CI manifests "
-            "prepared with command test only support the test phase."
+            "STACKSMITH_CI_PHASE or the manifest command is used. The phase must "
+            "belong to the manifest command; destroy manifests support previews, "
+            "operation-state cleanup, and infrastructure destruction."
         ),
     )
     parser.add_argument(

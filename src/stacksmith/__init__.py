@@ -1,4 +1,5 @@
 from .api import (
+    destroy_stack_operations,
     generate_stack,
     inspect_dependency_graph,
     lock_stack,
@@ -52,6 +53,7 @@ __all__ = [
     "StacksmithTransformError",
     "StacksmithValidationError",
     "commit_and_push",
+    "destroy_stack_operations",
     "generate_stack",
     "inspect_dependency_graph",
     "lock_stack",

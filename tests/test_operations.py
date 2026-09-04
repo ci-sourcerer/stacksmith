@@ -185,6 +185,30 @@ def test_generates_after_apply_operation_module():
     assert module["spec"]["stream_output"] is False
 
 
+def test_empty_operation_selection_generates_state_only_root(tmp_path: Path):
+    stack = StackDefinition.model_validate(
+        {
+            "name": "application",
+            "operations": {
+                "deploy_app": {
+                    "use": "deploy",
+                    "with": {"release_tag": "1.2.3"},
+                }
+            },
+        }
+    )
+
+    output_path = write_operations_tf_json(
+        stack,
+        _config(),
+        tmp_path,
+        operation_names=[],
+    )
+
+    assert json.loads(output_path.read_text(encoding="utf-8"))["module"] == {}
+    assert not (tmp_path / ".stacksmith-operation-runner").exists()
+
+
 def test_streams_output_for_an_operation_without_secret_inputs():
     stack = StackDefinition.model_validate(
         {
@@ -950,6 +974,181 @@ def test_plan_stack_operations_is_no_op_without_after_apply_operations(
     result = api.plan_stack_operations(stack.source_path, after_apply_only=True)
 
     assert result == {"operations": [], "execution_order": [], "exit_code": 0}
+
+
+@pytest.mark.parametrize(
+    ("operation_names", "after_apply_only", "force_rerun", "error"),
+    [
+        (
+            ["deploy_app"],
+            False,
+            False,
+            "Operation names cannot be combined",
+        ),
+        (
+            None,
+            True,
+            False,
+            "After-apply selection cannot be combined",
+        ),
+        (
+            None,
+            False,
+            True,
+            "Force rerun cannot be combined",
+        ),
+    ],
+)
+def test_plan_operation_state_destroy_rejects_operation_selection_options(
+    operation_names,
+    after_apply_only,
+    force_rerun,
+    error,
+):
+    with pytest.raises(StacksmithConfigError, match=error):
+        api.plan_stack_operations(
+            "stack.yaml",
+            operation_names,
+            after_apply_only=after_apply_only,
+            force_rerun=force_rerun,
+            destroy=True,
+        )
+
+
+def test_plan_operation_state_destroy_uses_empty_destroy_plan(
+    monkeypatch,
+    tmp_path: Path,
+):
+    calls: dict[str, object] = {}
+    stack = StackDefinition.model_validate(
+        {
+            "name": "application",
+            "operations": {
+                "deploy_app": {
+                    "use": "deploy",
+                    "with": {"release_tag": "1.2.3"},
+                }
+            },
+        }
+    )
+    stack.source_path = tmp_path / "stack.yaml"
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path, [], _config()),
+    )
+    monkeypatch.setattr(
+        api,
+        "_prepare_stack_definition",
+        lambda *args, **kwargs: (stack, {}),
+    )
+
+    def _fake_generate(stack, config, output_dir, operation_names, **kwargs):
+        calls["generated_operations"] = operation_names
+        return tmp_path / "build" / "operations"
+
+    def _fake_run(args, working_dir, **kwargs):
+        calls["run"] = (args, working_dir, kwargs)
+        _write_safe_operation_plan(kwargs)
+        return 0
+
+    monkeypatch.setattr(api, "_generate_operation_stack", _fake_generate)
+    monkeypatch.setattr(api, "run_terragrunt", _fake_run)
+
+    result = api.plan_stack_operations(stack.source_path, destroy=True)
+
+    assert result == {
+        "action": "plan",
+        "scope": "operation-state",
+        "exit_code": 0,
+    }
+    assert calls["generated_operations"] == []
+    assert calls["run"][0] == ["plan", "-destroy", "-parallelism=10"]
+
+
+def test_destroy_operation_state_applies_exact_destroy_plan(
+    monkeypatch,
+    tmp_path: Path,
+):
+    calls: list[tuple[list[str], Path, dict[str, object]]] = []
+    stack = StackDefinition.model_validate({"name": "application"})
+    stack.source_path = tmp_path / "stack.yaml"
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path, [], _config()),
+    )
+    monkeypatch.setattr(
+        api,
+        "_prepare_stack_definition",
+        lambda *args, **kwargs: (stack, {}),
+    )
+    monkeypatch.setattr(
+        api,
+        "_generate_operation_stack",
+        lambda *args, **kwargs: tmp_path / "build" / "operations",
+    )
+
+    def _fake_run(args, working_dir, **kwargs):
+        calls.append((args, working_dir, kwargs))
+        _write_safe_operation_plan(kwargs)
+        return 0
+
+    monkeypatch.setattr(api, "run_terragrunt", _fake_run)
+
+    result = api.destroy_stack_operations(
+        stack.source_path,
+        no_cas=True,
+        auto_approve=True,
+    )
+
+    assert result == {
+        "action": "destroy",
+        "scope": "operation-state",
+        "exit_code": 0,
+    }
+    assert calls[0][0] == ["plan", "-destroy", "-parallelism=10"]
+    assert calls[0][2]["save_plan_binary"].name == "stacksmith-operation.tfplan"
+    assert calls[0][2]["no_cas"] is True
+    assert calls[1][0][0:2] == ["apply", "-parallelism=10"]
+    assert calls[1][0][2].endswith("stacksmith-operation.tfplan")
+    assert calls[1][2]["auto_approve"] is True
+    assert calls[1][2]["no_cas"] is True
+
+
+def test_destroy_operation_state_does_not_apply_failed_plan(
+    monkeypatch,
+    tmp_path: Path,
+):
+    calls = []
+    stack = StackDefinition.model_validate({"name": "application"})
+    stack.source_path = tmp_path / "stack.yaml"
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path, [], _config()),
+    )
+    monkeypatch.setattr(
+        api,
+        "_prepare_stack_definition",
+        lambda *args, **kwargs: (stack, {}),
+    )
+    monkeypatch.setattr(
+        api,
+        "_generate_operation_stack",
+        lambda *args, **kwargs: tmp_path / "build" / "operations",
+    )
+
+    def _fake_run(args, working_dir, **kwargs):
+        calls.append((args, working_dir, kwargs))
+        return 1
+
+    monkeypatch.setattr(api, "run_terragrunt", _fake_run)
+
+    result = api.destroy_stack_operations(stack.source_path, auto_approve=True)
+
+    assert result["exit_code"] == 1
+    assert len(calls) == 1
 
 
 def test_infrastructure_apply_reconciles_after_apply_operations(

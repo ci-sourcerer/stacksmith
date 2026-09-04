@@ -390,6 +390,60 @@ def test_run_terragrunt_plan_destroy_skips_plan_validations(monkeypatch, tmp_pat
     assert exit_code == 0
 
 
+def test_run_terragrunt_plan_destroy_writes_requested_plan_artifacts(
+    monkeypatch,
+    tmp_path,
+):
+    def _fail_plan_validation(*args, **kwargs):
+        raise AssertionError("Configured validations should not run for destroy plans")
+
+    def _fake_subprocess_run(cmd, **kwargs):
+        if result := _supported_tool_version_result(cmd):
+            return result
+        if _matches_command(cmd, "terragrunt", "plan"):
+            return FakeVersionResult(returncode=0)
+        if _matches_command(cmd, "terragrunt", "show", "-json"):
+            return FakeVersionResult(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "resource_changes": [
+                            {
+                                "address": (
+                                    "module.stacksmith_operation_deploy."
+                                    "terraform_data.operation"
+                                ),
+                                "mode": "managed",
+                            }
+                        ]
+                    }
+                ),
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(runner, "check_plan_validations", _fail_plan_validation)
+    monkeypatch.setattr(runner, "subprocess", SimpleNamespace(run=_fake_subprocess_run))
+    runner._TOOL_VERSION_CHECKED = False
+    monkeypatch.setattr(runner, "_RESOLVED_TOOLCHAIN", None)
+    plan_json = tmp_path / "operation-plan.json"
+    plan_binary = tmp_path / "operation.tfplan"
+    config = SimpleNamespace(
+        plan_validations={"check": PlanValidation(rule=ValidationSpec(inline="'pass'"))}
+    )
+
+    exit_code = runner.run_terragrunt(
+        ["plan", "-destroy"],
+        tmp_path,
+        config=config,
+        stack_name="web",
+        save_plan_json=plan_json,
+        save_plan_binary=plan_binary,
+    )
+
+    assert exit_code == 0
+    assert json.loads(plan_json.read_text(encoding="utf-8"))["resource_changes"]
+
+
 def test_run_terragrunt_strict_warning_mode_fails_on_warning(monkeypatch, tmp_path):
     class FakeResult:
         def __init__(self, returncode=0, stdout="", stderr=""):
@@ -542,7 +596,10 @@ def test_run_terragrunt_saves_plan_json(monkeypatch, tmp_path):
     assert '"ok": true' in output_path.read_text(encoding="utf-8")
 
 
-def test_run_terragrunt_saves_redacted_plan_json(monkeypatch, tmp_path):
+def test_run_terragrunt_saves_redacted_regular_and_destroy_plan_json(
+    monkeypatch,
+    tmp_path,
+):
     class FakeResult:
         def __init__(self, returncode=0, stdout="", stderr=""):
             self.returncode = returncode
@@ -583,20 +640,24 @@ def test_run_terragrunt_saves_redacted_plan_json(monkeypatch, tmp_path):
     runner._TOOL_VERSION_CHECKED = False
     monkeypatch.setattr(runner, "_RESOLVED_TOOLCHAIN", None)
 
-    output_path = tmp_path / "redacted-plan.json"
+    for plan_args, output_name in (
+        (["plan"], "redacted-plan.json"),
+        (["plan", "-destroy"], "redacted-destroy-plan.json"),
+    ):
+        output_path = tmp_path / output_name
 
-    assert (
-        runner.run_terragrunt(
-            ["plan"],
-            tmp_path,
-            config=None,
-            stack_name="web",
-            save_redacted_plan_json=output_path,
+        assert (
+            runner.run_terragrunt(
+                plan_args,
+                tmp_path,
+                config=None,
+                stack_name="web",
+                save_redacted_plan_json=output_path,
+            )
+            == 0
         )
-        == 0
-    )
-    assert "canary-credential" not in output_path.read_text(encoding="utf-8")
-    assert "<sensitive>" in output_path.read_text(encoding="utf-8")
+        assert "canary-credential" not in output_path.read_text(encoding="utf-8")
+        assert "<sensitive>" in output_path.read_text(encoding="utf-8")
 
 
 def test_run_terragrunt_fail_on_changes(monkeypatch, tmp_path):

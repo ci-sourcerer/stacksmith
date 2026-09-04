@@ -206,12 +206,26 @@ List<Object> buildPipelineParameters(boolean testPipeline) {
     return [
         string(name: 'ENVIRONMENTS', description: 'comma-separated environments to target manually'),
         string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
-        choice(name: 'COMMAND', choices: ['plan', 'apply', 'plan-operation', 'apply-operation'], description: 'Stacksmith command'),
+        choice(name: 'COMMAND', choices: ['plan', 'apply', 'destroy', 'plan-operation', 'apply-operation'], description: 'Stacksmith command'),
         string(name: 'OPERATION_NAMES', description: 'comma-delimited stack-local operation names; empty selects all'),
     ] + sharedParameters + [
         booleanParam(name: 'FAIL_ON_CHANGES', defaultValue: false, description: 'fail if plan contains changes'),
         booleanParam(name: 'STRICT_VALIDATION_WARNINGS', defaultValue: false, description: 'treat validation warnings as failures'),
     ]
+}
+
+String buildApprovalMessage(
+    String command,
+    String selectedOperations,
+    String selectedEnvironments
+) {
+    if (command == 'apply-operation') {
+        return "Run Stacksmith ${selectedOperations ?: 'all operations'} in ${selectedEnvironments}?"
+    }
+    if (command == 'destroy') {
+        return "Destroy Stacksmith operation state and infrastructure in ${selectedEnvironments}?"
+    }
+    return "Apply Stacksmith changes to ${selectedEnvironments}?"
 }
 
 void executeStacksmithMatrix(
@@ -243,9 +257,10 @@ void executeStacksmithMatrix(
 
                 if (command == 'plan' && parseBoolean(env.STACKSMITH_UPLOAD_ARTIFACTS ?: 'true')) {
                     List<String> artifacts = []
+                    String planArtifactFile = env.COMMAND == 'destroy' ? 'destroy-plan.json' : 'plan.json'
 
-                    if (fileExists("${artifactDir}/plan.json")) {
-                        artifacts << "${archiveArtifactDir}/plan.json"
+                    if (fileExists("${artifactDir}/${planArtifactFile}")) {
+                        artifacts << "${archiveArtifactDir}/${planArtifactFile}"
                     }
 
                     if (fileExists("${artifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}")) {
@@ -362,7 +377,7 @@ def call() {
                 }
 
                 stage('Plan') {
-                    if (!(env.SELECTED_ENVIRONMENTS && env.COMMAND in ['plan', 'apply'])) {
+                    if (!(env.SELECTED_ENVIRONMENTS && env.COMMAND in ['plan', 'apply', 'destroy'])) {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
                         return
                     }
@@ -378,7 +393,7 @@ def call() {
                 stage('Plan operation(s)') {
                     if (!(
                         env.SELECTED_ENVIRONMENTS
-                        && env.COMMAND in ['plan', 'apply', 'plan-operation', 'apply-operation']
+                        && env.COMMAND in ['plan', 'apply', 'destroy', 'plan-operation', 'apply-operation']
                     )) {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
                         return
@@ -393,16 +408,21 @@ def call() {
                 }
 
                 stage('Approve') {
-                    if (!(env.SELECTED_ENVIRONMENTS && env.COMMAND in ['apply', 'apply-operation'])) {
+                    if (!(
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND in ['apply', 'destroy', 'apply-operation']
+                    )) {
                         Utils.markStageSkippedForConditional(env.STAGE_NAME)
                         return
                     }
 
                     try {
                         input(
-                            message: env.COMMAND == 'apply-operation'
-                                ? "Run Stacksmith ${env.SELECTED_OPERATIONS ?: 'all operations'} in ${env.SELECTED_ENVIRONMENTS}?"
-                                : "Apply Stacksmith changes to ${env.SELECTED_ENVIRONMENTS}?"
+                            message: buildApprovalMessage(
+                                env.COMMAND,
+                                env.SELECTED_OPERATIONS,
+                                env.SELECTED_ENVIRONMENTS
+                            )
                         )
                     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
                         currentBuild.result = 'ABORTED'
@@ -446,6 +466,42 @@ def call() {
                         env.SELECTION_MATRIX,
                         workdir,
                         'operation',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
+                    )
+                }
+
+                stage('Destroy operation state') {
+                    if (!(
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND == 'destroy'
+                        && !env.DO_NOT_EXECUTE_STACKSMITH
+                    )) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        workdir,
+                        'operation',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
+                    )
+                }
+
+                stage('Destroy') {
+                    if (!(
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND == 'destroy'
+                        && !env.DO_NOT_EXECUTE_STACKSMITH
+                    )) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        workdir,
+                        'destroy',
                         env.STACKSMITH_CREDENTIALS_JSON ?: ''
                     )
                 }

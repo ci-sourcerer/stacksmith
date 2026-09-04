@@ -880,6 +880,15 @@ stacksmith operation run deploy_app --force-rerun --stack stack.yaml --config st
 
 Alternatively, change `rerun_token` in the stack definition when the rerun request should remain declarative and reviewable. `operation plan` creates a saved operation-only OpenTofu plan without invoking provisioners. `operation run` validates that the plan contains no managed changes outside `module.stacksmith_operation_*` and applies that exact saved plan. Operations with the `after_apply` trigger run in stack dependency order during `stacksmith apply` and `stacksmith run-all apply`; Stacksmith replans them after infrastructure succeeds so component outputs are current. Stack-local `depends_on` can order multiple operations within a stack. Jenkins runners poll the queued build through completion, so a dependent operation starts only after its Jenkins prerequisite succeeds. Managed Jenkins definitions can set `poll_interval_seconds` and `timeout_seconds`, which default to 5 and 3600.
 
+Preview removal of the complete isolated operation state without running operation provisioners, then destroy it after review.
+
+```shell
+stacksmith operation plan --destroy --stack stack.yaml --config stacksmith-config.yaml
+stacksmith operation destroy --stack stack.yaml --config stacksmith-config.yaml
+```
+
+`operation destroy` generates and validates a fresh destroy plan, prompts for confirmation, and applies that exact saved plan. Add `--auto-approve` only in an already approved automation context. Operation names, `--after-apply`, and `--force-rerun` are rejected in destroy mode because cleanup removes the complete isolated state rather than dispatching selected operations.
+
 #### Declarative application deployments through Jenkins
 
 An approved Jenkins operation can deploy application code while the GitOps repository records exactly what should be deployed. Keep the Jenkins URL, job, credential variable names, and allowed parameter mapping in managed configuration. Set `trigger: after_apply` explicitly because operations remain manual by default.
@@ -1012,21 +1021,23 @@ Stacksmith provides equivalent opinionated GitOps entrypoints for GitHub Actions
 
 - [`.github/workflows/stacksmith-gitops-reusable.yml`](./.github/workflows/stacksmith-gitops-reusable.yml) executes one lifecycle phase for one environment from a versioned CI manifest.
 - [`.github/workflows/stacksmith-gitops-opinionated-reusable.yml`](./.github/workflows/stacksmith-gitops-opinionated-reusable.yml) discovers environments and fans out to the single-environment reusable workflow.
-- [`examples/github-actions/stacksmith-plan.yml`](./examples/github-actions/stacksmith-plan.yml), [`examples/github-actions/stacksmith-apply.yml`](./examples/github-actions/stacksmith-apply.yml), [`examples/github-actions/stacksmith-plan-operation.yml`](./examples/github-actions/stacksmith-plan-operation.yml), and [`examples/github-actions/stacksmith-operation.yml`](./examples/github-actions/stacksmith-operation.yml) are trigger wrappers that call the opinionated reusable workflow using `uses`.
+- [`examples/github-actions/stacksmith-plan.yml`](./examples/github-actions/stacksmith-plan.yml), [`examples/github-actions/stacksmith-apply.yml`](./examples/github-actions/stacksmith-apply.yml), [`examples/github-actions/stacksmith-destroy.yml`](./examples/github-actions/stacksmith-destroy.yml), [`examples/github-actions/stacksmith-plan-operation.yml`](./examples/github-actions/stacksmith-plan-operation.yml), and [`examples/github-actions/stacksmith-operation.yml`](./examples/github-actions/stacksmith-operation.yml) are trigger wrappers that call the opinionated reusable workflow using `uses`.
 - [`jenkins/vars/stacksmith.groovy`](./jenkins/vars/stacksmith.groovy) provides the opinionated Jenkins GitOps pipeline as the `stacksmith()` entrypoint of a trusted shared library.
 
 The GitHub templates under `examples/` do not execute in this repository because they are outside `.github/workflows`.
 
 #### Shared behavior
 
-The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins shared-library entrypoint uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. A CI manifest prepared with command `test` supports only the `test` phase, which invokes `stacksmith test` with the manifest's managed config, selected environment, runfiles, variables, env file, working directory, and additional arguments. Plan and apply requests execute both the infrastructure `plan` phase and a `plan-operation` phase for operations selected by `after_apply`; manual operations are excluded. Apply waits for both previews before provider approval, applies infrastructure, then replans and reconciles the isolated operation state. A `plan-operation` request previews an explicitly selected batch, or all operations when names are omitted, without approval or execution. An `operation` request performs the same preview, waits for provider approval, and then executes the batch. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
+The opinionated reusable workflow prepares one provider-neutral manifest, discovers target environments, and then calls `ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-reusable.yml@<version>` for each selected environment. The GitHub wrappers do this through `stacksmith ci prepare-from-env` and `stacksmith ci execute-from-env`. The Jenkins shared-library entrypoint uses the same adapter commands, so both providers converge on the same manifest and execution contract implemented by `stacksmith ci prepare` and `stacksmith ci execute`. A CI manifest prepared with command `test` supports only the `test` phase, which invokes `stacksmith test` with the manifest's managed config, selected environment, runfiles, variables, env file, working directory, and additional arguments. Plan and apply requests execute both the infrastructure `plan` phase and a `plan-operation` phase for operations selected by `after_apply`; manual operations are excluded. Apply waits for both previews, applies infrastructure after provider approval, then replans and reconciles the isolated operation state so operation inputs see current outputs. A `plan-operation` request previews an explicitly selected batch, or all operations when names are omitted, without approval or execution. An `apply-operation` request performs the same preview, waits for provider approval, and then executes the batch.
 
-For deployment commands, `stacksmith ci prepare` resolves the effective layered configuration for every selected environment and rejects `backend.type: local`. These CI runs must use a remote backend so state is durable and shared between plan and apply jobs. A standalone `test` command skips backend validation because `stacksmith test` does not read or write infrastructure state.
+A destroy request first previews infrastructure with `plan --destroy` and previews removal of the complete isolated operation state. After approval, Stacksmith destroys the operation state before infrastructure, preventing stale operation resources from surviving their stack. A failed preview or operation-state cleanup prevents infrastructure destruction. Destroy manifests reject operation-name selection and forced reruns, and the shared policy rejects destructive execution on pull requests or non-default branches. GitHub runs the destructive phases through the selected protected environment; Jenkins uses its explicit `Approve` input. The single-environment workflow is therefore an internal execution primitive; call the opinionated workflow unless you intentionally generate and supply a manifest yourself.
+
+For deployment commands, `stacksmith ci prepare` resolves the effective layered configuration for every selected environment and rejects `backend.type: local`. These CI runs must use a remote backend so state is durable and shared across lifecycle jobs. A standalone `test` command skips backend validation because `stacksmith test` does not read or write infrastructure state.
 
 The deployment CI selector is named `command` in GitHub Actions and `COMMAND` in stack-running Jenkins jobs. Callers using the former `operation` or `OPERATION` selector must update to the new name.
 
 - GitHub Actions `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.
-- `plan-operation` previews native operations without approval or execution; `operation` previews, requests approval, and executes them. Supply a comma-delimited `operation_names` input such as `publish_image,deploy_app,smoke_test`, or leave it empty to select all operations in each stack. Set the repository, organization, job, or folder variable `STACKSMITH_MAX_PARALLEL_OPERATIONS` to cap concurrency and `STACKSMITH_FORCE_RERUN=1` to force replacement of selected operation runner resources when their execution identities have not changed.
+- `plan-operation` previews native operations without approval or execution; `apply-operation` previews, requests approval, and executes them. Supply a comma-delimited `operation_names` input such as `publish_image,deploy_app,smoke_test`, or leave it empty to select all operations in each stack. Set the repository, organization, job, or folder variable `STACKSMITH_MAX_PARALLEL_OPERATIONS` to cap concurrency and `STACKSMITH_FORCE_RERUN=1` to force replacement of selected operation runner resources when their execution identities have not changed.
 - `discovery_mode` selects how environments are discovered. Use `folders` for `environments/<env>/` directories, `flat-files` for root-level `stacksmith.<env>.yaml|yml|json` files, or `env-files` for the hybrid `environments/<env>.yaml` layout. The aliases `env` and `env-files` both map to the hybrid env-file discovery path.
 - In GitHub Actions, `STACKSMITH_GITOPS_ROOT` defaults to `.` and can be overridden per run with `gitops_root`.
 - Changes under `<gitops_root>/common` and `<gitops_root>/manifests/common` fan out to all environments.
@@ -1044,9 +1055,9 @@ Set the reusable workflow's `debug` input, the Jenkins `DEBUG` parameter, or `ST
 
 The `--log` category filter matches logger names exactly; parent names do not automatically include submodules. For example, use `--log stacksmith.ci.service=DEBUG` for logs emitted by `stacksmith.ci.service`, rather than `--log stacksmith.ci=DEBUG`.
 
-Plan and apply executions read Stacksmith's source-locking controls exclusively from repository-, organization-, job-, or folder-managed environment settings. Set `STACKSMITH_REQUIRE_LOCKFILE` to require resolved inputs to match a lockfile, optionally set `STACKSMITH_LOCKFILE` to choose a non-default path, and combine `STACKSMITH_OFFLINE` with locked mode to prohibit network resolution. Native operations do not currently accept Stacksmith lock-policy flags.
+Plan, apply, and destroy executions read Stacksmith's source-locking controls exclusively from repository-, organization-, job-, or folder-managed environment settings. Set `STACKSMITH_REQUIRE_LOCKFILE` to require resolved inputs to match a lockfile, optionally set `STACKSMITH_LOCKFILE` to choose a non-default path, and combine `STACKSMITH_OFFLINE` with locked mode to prohibit network resolution. Native operations do not currently accept Stacksmith lock-policy flags.
 
-Plan artifacts produced by the managed GitHub Actions and Jenkins entrypoints are redacted in memory before Stacksmith writes them. The archive profile replaces schema-marked sensitive values with `<sensitive>` and omits input variables, configuration expressions, check problem messages, import details, generated configuration, replacement paths, and unrecognized fields because those locations do not consistently carry sensitivity metadata. The resulting JSON is intended for review and diagnostics, not as a complete substitute for raw `tofu show -json` output.
+Plan artifacts produced by the managed GitHub Actions and Jenkins entrypoints are redacted in memory before Stacksmith writes them. Ordinary previews use `plan.json`; destroy previews use the distinct `destroy-plan.json` filename and `stacksmith-destroy-plan-<environment>-<sha>` GitHub artifact name. Both providers attempt to retain the redacted preview and validation report even when the plan phase fails. The archive profile replaces schema-marked sensitive values with `<sensitive>` and omits input variables, configuration expressions, check problem messages, import details, generated configuration, replacement paths, and unrecognized fields because those locations do not consistently carry sensitivity metadata. The resulting JSON is intended for review and diagnostics, not as a complete substitute for raw `tofu show -json` output.
 
 Use `stacksmith ci redact-plan <plan.json> --output <redacted-plan.json>` to sanitize an existing raw plan, or pass `--in-place` to atomically replace it. Keep the input file protected until redaction finishes.
 
@@ -1072,8 +1083,8 @@ The wrappers pass reusable workflow inputs from repository variables when availa
 - `STACKSMITH_STRICT_VALIDATION_WARNINGS` (default `false`, plan template)
 - `STACKSMITH_DEBUG` (default `false`; enables debug logging and the modules-and-policies diagnostic)
 - `STACKSMITH_NO_CAS` (default `false`)
-- `STACKSMITH_REQUIRE_LOCKFILE` (default `false`; passes `--locked` to plan and apply)
-- `STACKSMITH_OFFLINE` (default `false`; passes `--offline` to plan and apply and requires locked mode)
+- `STACKSMITH_REQUIRE_LOCKFILE` (default `false`; passes `--locked` to plan, apply, and destroy)
+- `STACKSMITH_OFFLINE` (default `false`; passes `--offline` to plan, apply, and destroy and requires locked mode)
 - `STACKSMITH_LOCKFILE` (default empty; optional explicit lockfile path)
 - `STACKSMITH_ARGS_JSON` (default `[]`; ordered JSON array of additional CLI arguments; the workflow rejects managed config and lock-policy overrides)
 - `STACKSMITH_CONFIG_REF` (required for the workflow entrypoints; points to the platform-managed Stacksmith config)
@@ -1137,6 +1148,32 @@ jobs:
 
 The apply wrapper observes every push so repository-specific path conventions cannot prevent reconciliation from starting. The job gate runs automatic applies only for the repository's current default branch. Once started, Stacksmith's changed-path discovery narrows execution to affected environments; if any push path is unrecognized, it conservatively reconciles every environment.
 
+Keep destruction manual and require the operator to name the target environments. The complete template is [`examples/github-actions/stacksmith-destroy.yml`](./examples/github-actions/stacksmith-destroy.yml).
+
+```yaml
+name: stacksmith-destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environments:
+        description: Comma-separated environment names to destroy.
+        required: true
+        type: string
+
+jobs:
+  destroy:
+    uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@<version>
+    with:
+      command: destroy
+      environments: ${{ inputs.environments }}
+      gitops_root: ${{ vars.STACKSMITH_GITOPS_ROOT || '.' }}
+      workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
+    secrets: inherit
+```
+
+Dispatch the workflow from the repository's default branch. Configure GitHub environment protection for every destroyable environment so operation-state cleanup and infrastructure destruction receive the required reviewers.
+
 Run a native operation manually with this minimal example.
 
 ```yaml
@@ -1154,7 +1191,7 @@ jobs:
   run-operation:
     uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@<version>
     with:
-      command: operation
+      command: apply-operation
       operation_names: ${{ inputs.operation_names || '' }}
       gitops_root: ${{ vars.STACKSMITH_GITOPS_ROOT || '.' }}
       workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
@@ -1183,7 +1220,7 @@ Configure a Jenkins Multibranch Pipeline with that file as its pipeline script p
 /Jenkinsfile @my-org/platform
 ```
 
-The entrypoint supports two distinct pipeline modes. Set the job or folder environment variable `STACKSMITH_TEST_PIPELINE` to a truthy value for a test-only pipeline. That mode always prepares a test manifest and runs only `stacksmith test` in the `Test` stage; it tests the managed Stacksmith configuration rather than Stacksmith's own Python unit-test suite. When the variable is unset or false, the job is a stack-running pipeline with no test command. Plan jobs run in the `Plan` stage. Apply jobs run `Plan`, `Approve`, and `Apply` in order, and a failed plan prevents approval. Operations run through `Plan operation(s)`, `Approve`, and `Run operation(s)`, so an invalid operation plan cannot reach approval or execution. Both modes check out the branch, prepare their CI manifest once, run each selected environment in parallel, and map Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically. Redacted infrastructure plan JSON and validation reports are archived when artifact uploads are enabled.
+The entrypoint supports two distinct pipeline modes. Set the job or folder environment variable `STACKSMITH_TEST_PIPELINE` to a truthy value for a test-only pipeline. That mode always prepares a test manifest and runs only `stacksmith test` in the `Test` stage; it tests the managed Stacksmith configuration rather than Stacksmith's own Python unit-test suite. When the variable is unset or false, the job is a stack-running pipeline with no test command. Plan jobs run in the `Plan` stage. Apply jobs preview infrastructure and `after_apply` operations, request approval, apply infrastructure, and then reconcile operations. Explicit operation batches run through `Plan operation(s)`, `Approve`, and `Run operation(s)`, so an invalid operation plan cannot reach approval or execution. Destroy jobs preview infrastructure and operation-state removal, request approval, run `Destroy operation state`, and reach `Destroy` only when cleanup succeeds. Both modes check out the branch, prepare their CI manifest once, run each selected environment in parallel, and map Jenkins-native context including `CHANGE_ID`, `CHANGE_TARGET`, `GIT_PREVIOUS_COMMIT`, `GIT_COMMIT`, and `BRANCH_NAME` to the shared adapter inputs automatically. Redacted infrastructure plan JSON and validation reports are archived when artifact uploads are enabled.
 
 When the Folder Properties plugin provides `withFolderProperties`, `stacksmith()` loads those properties around the complete pipeline. Otherwise, it uses the job environment directly.
 
@@ -1201,7 +1238,7 @@ Both Jenkins pipeline modes expose these parameters.
 
 Stack-running pipelines additionally expose these parameters.
 
-- `COMMAND`: `plan`, `apply`, `plan-operation`, or `apply-operation`. Defaults to `plan`.
+- `COMMAND`: `plan`, `apply`, `destroy`, `plan-operation`, or `apply-operation`. Defaults to `plan`.
 - `OPERATION_NAMES`: Comma-delimited operation names for a dependency-aware batch. Leave empty to select all operations for `plan-operation` or `apply-operation`.
 - `FAIL_ON_CHANGES`: Fail a plan containing resource changes. Defaults to `false`.
 - `STRICT_VALIDATION_WARNINGS`: Treat plan validation warnings as failures. Defaults to `false`.
@@ -1461,7 +1498,7 @@ YAML/JSON-driven Terragrunt wrapper
 | `plan` | Generate + terragrunt plan |
 | `apply` | Generate + terragrunt apply |
 | `destroy` | Generate + terragrunt destroy |
-| `operation` | Plan or run native operations approved by managed configuration |
+| `operation` | Plan, run, or destroy native operations approved by managed configuration |
 | `info` | Show stacksmith inspection and diagnostics commands |
 | `ci` | Prepare, inspect, and execute CI workflows |
 
@@ -1806,11 +1843,11 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-f
 ### `stacksmith operation plan`
 
 ```text
-stacksmith operation plan [-h] [--after-apply] [--force-rerun] [--stack STACK] [--runfile RUNFILE]
-                                 [-c CONFIG] [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
-                                 [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
-                                 [--no-cache] [--no-cas] [--strict-validation-warnings] [--use-local-modules |
-                                 --no-local-modules] [--debug | -q]
+stacksmith operation plan [-h] [--after-apply] [--destroy] [--force-rerun] [--stack STACK]
+                                 [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE] [--vars VARS_FILE]
+                                 [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
+                                 [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
+                                 [--use-local-modules | --no-local-modules] [--debug | -q]
                                  [operation_names] [stack_file]
 ```
 
@@ -1818,6 +1855,7 @@ stacksmith operation plan [-h] [--after-apply] [--force-rerun] [--stack STACK] [
 | - | - |
 | `operation_names` | Comma-delimited stack-local operation names. Omit to select all operations declared by the stack. |
 | `--after-apply` | Select only operations configured with the after_apply trigger. |
+| `--destroy` | Plan destruction of the complete isolated operation state. |
 | `--force-rerun` | Force the operation runner resource to be replaced even when its execution identity has not changed. Can also be enabled with STACKSMITH_FORCE_RERUN=1. |
 | `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
 | `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
@@ -1852,6 +1890,38 @@ stacksmith operation run [-h] [--force-rerun] [--stack STACK] [--runfile RUNFILE
 | - | - |
 | `operation_names` | Comma-delimited stack-local operation names. Omit to select all operations declared by the stack. |
 | `--force-rerun` | Force the operation runner resource to be replaced even when its execution identity has not changed. Can also be enabled with STACKSMITH_FORCE_RERUN=1. |
+| `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
+| `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
+| `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
+| `-c, --config` | Path or URL to stacksmith-config.yaml. Repeat to layer multiple configs; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. If omitted, STACKSMITH_CONFIG can provide one or more paths separated by ':'. |
+| `--env-file` | Load environment variables from a .env file before resolving config and variables. Repeat to layer multiple env files; later files override earlier env-file values, while pre-existing environment variables are preserved. |
+| `--vars` | Path or URL to vars YAML/JSON file. Repeat to layer multiple vars files; later files override earlier scalar values, dicts merge recursively, and lists append. Supports http(s):// and git+ URLs. |
+| `--var` | Variable override in key=value format (repeatable) |
+| `--merge-mode` | Merge strategy for layered stacks, configs, and vars. Use 'deep' (default) for recursive merging or 'override' so later layers replace earlier ones. Choices: `deep`, `override`. |
+| `--build-dir` | Build output directory (default: .stacksmith/ alongside stack file) |
+| `--log` | Set per-category logging levels in the form 'category=LEVEL'. Repeatable. LEVEL is one of DEBUG, INFO, WARNING, ERROR, CRITICAL. CATEGORY is typically one of stacksmith.api, stacksmith.ci, stacksmith.cli.args, stacksmith.cli.main, stacksmith.generation, stacksmith.gitops, stacksmith.inspector, stacksmith.introspection, stacksmith.loading, stacksmith.remote, stacksmith.runner, stacksmith.testing, stacksmith.utils, stacksmith.validations, stacksmith.vendor, or any Python logger name (for example, urllib3). |
+| `--no-cache` | Force re-fetch of remote Stacksmith resources, ignoring local cache. For runtime commands (plan/apply/destroy/init/run-all), this also disables Terragrunt CAS. |
+| `--no-cas` | Disable Terragrunt CAS for this run. By default, CAS is enabled in Terragrunt >= 1.1.0. |
+| `--strict-validation-warnings` | Treat warning outcomes from plan validations as failures. This only affects plan and run-all plan commands. |
+| `--use-local-modules` | Rewrite module sources to local vendored paths instead of remote URLs. Can also be enabled via STACKSMITH_ONLY_USE_LOCAL_MODULES=1. |
+| `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
+| `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
+| `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+
+### `stacksmith operation destroy`
+
+```text
+stacksmith operation destroy [-h] [--auto-approve] [--stack STACK] [--runfile RUNFILE] [-c CONFIG]
+                                    [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS]
+                                    [--merge-mode {deep,override}] [--build-dir BUILD_DIR] [--log LOG]
+                                    [--no-cache] [--no-cas] [--strict-validation-warnings]
+                                    [--use-local-modules | --no-local-modules] [--debug | -q]
+                                    [stack_file]
+```
+
+| Argument | Description |
+| - | - |
+| `--auto-approve` | Apply the generated operation-state destruction plan without prompting. |
 | `--stack` | Path or URL to a stack definition file. Repeat to deep-merge multiple stack layers for single-stack commands, or to target explicit stacks for run-all. |
 | `stack_file` | Optional path to stack.yaml, stack.yml, or stack.json. When omitted, stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml. |
 | `--runfile` | Path or URL to stacksmith.yaml. Repeat to layer multiple runfiles; later files override earlier scalar values, dicts merge recursively, and lists append. When omitted, STACKSMITH_RUN_FILE is used if set, otherwise ./stacksmith.yaml is auto-detected when present. |
@@ -2021,7 +2091,8 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
                              [--discovery-mode {folders,flat-files,env-files,env,auto}]
                              [--environments ENVIRONMENTS] [--event-name EVENT_NAME]
                              [--changed-path CHANGED_PATH] [--base-ref BASE_REF] [--before BEFORE]
-                             [--after AFTER] --command {test,plan,apply,plan-operation,apply-operation}
+                             [--after AFTER]
+                             --command {test,plan,apply,destroy,plan-operation,apply-operation}
                              [--operation-names OPERATION_NAMES] --config-ref CONFIG_REF [--workdir WORKDIR]
                              [--env-file ENV_FILE] [--stacksmith-args-json STACKSMITH_ARGS_JSON] [--debug]
                              [--no-cas] [--locked] [--offline] [--lockfile LOCKFILE] [--force-rerun]
@@ -2041,7 +2112,7 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
 | `--base-ref` | Base branch name used for pull-request diff selection. |
 | `--before` | Previous commit SHA used for push diff selection. |
 | `--after` | Current commit SHA used for push diff selection. |
-| `--command` | Stacksmith command to execute for each selected environment. Choices: `test`, `plan`, `apply`, `plan-operation`, `apply-operation`. |
+| `--command` | Stacksmith command to execute for each selected environment. Choices: `test`, `plan`, `apply`, `destroy`, `plan-operation`, `apply-operation`. |
 | `--operation-names` | Comma-delimited stack-local operation names. Empty selects all for plan-operation and apply-operation commands. |
 | `--config-ref` | Platform-managed Stacksmith config reference. |
 | `--workdir` | Working directory relative to the checked-out repository. |
@@ -2066,7 +2137,7 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
 
 ```text
 stacksmith ci execute [-h] --manifest MANIFEST --environment ENVIRONMENT
-                             [--phase {test,plan,apply,plan-operation,operation}]
+                             [--phase {test,plan,apply,destroy,plan-operation,operation}]
                              [--validation-report-output VALIDATION_REPORT_OUTPUT]
 ```
 
@@ -2074,7 +2145,7 @@ stacksmith ci execute [-h] --manifest MANIFEST --environment ENVIRONMENT
 | - | - |
 | `--manifest` | Path to a JSON manifest emitted by stacksmith ci prepare. |
 | `--environment` | Environment row from the manifest to execute. |
-| `--phase` | Lifecycle phase to execute. CI manifests prepared with command test only support test; apply and operation manifests also support their corresponding dry-run and execution phases. Choices: `test`, `plan`, `apply`, `plan-operation`, `operation`. |
+| `--phase` | Lifecycle phase to execute. The phase must belong to the manifest command; destroy manifests support infrastructure and operation-state previews, operation-state cleanup, and infrastructure destruction. Choices: `test`, `plan`, `apply`, `destroy`, `plan-operation`, `operation`. |
 | `--validation-report-output` | Optional path for plan validation report output. When set, plan JSON report output is written to this file. |
 
 ### `stacksmith ci prepare-from-env`
@@ -2095,7 +2166,7 @@ stacksmith ci prepare-from-env [-h] [--provider {generic,github-actions,jenkins}
 ```text
 stacksmith ci execute-from-env [-h] [--provider {generic,github-actions,jenkins}]
                                       [--manifest-file MANIFEST_FILE] [--environment ENVIRONMENT]
-                                      [--phase {test,plan,apply,plan-operation,operation}]
+                                      [--phase {test,plan,apply,destroy,plan-operation,operation}]
                                       [--validation-report-output VALIDATION_REPORT_OUTPUT]
 ```
 
@@ -2104,7 +2175,7 @@ stacksmith ci execute-from-env [-h] [--provider {generic,github-actions,jenkins}
 | `--provider` | CI provider adapter mode for execution defaults. Choices: `generic`, `github-actions`, `jenkins`. |
 | `--manifest-file` | Optional manifest file path override. When omitted, CI_MANIFEST_FILE or STACKSMITH_CI_MANIFEST is used. |
 | `--environment` | Optional environment name override. When omitted, STACKSMITH_ENVIRONMENT or ENVIRONMENT is used. |
-| `--phase` | Optional lifecycle phase override. When omitted, STACKSMITH_CI_PHASE or the manifest command is used. CI manifests prepared with command test only support the test phase. Choices: `test`, `plan`, `apply`, `plan-operation`, `operation`. |
+| `--phase` | Optional lifecycle phase override. When omitted, STACKSMITH_CI_PHASE or the manifest command is used. The phase must belong to the manifest command; destroy manifests support previews, operation-state cleanup, and infrastructure destruction. Choices: `test`, `plan`, `apply`, `destroy`, `plan-operation`, `operation`. |
 | `--validation-report-output` | Optional plan validation report output path override. When omitted, STACKSMITH_VALIDATION_REPORT_PATH or provider defaults are used. |
 
 ### `stacksmith ci redact-plan`

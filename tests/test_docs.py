@@ -21,6 +21,12 @@ def test_cli_reference_contains_nested_commands():
     assert "### `stacksmith info modules-and-policies`" in reference
     assert "### `stacksmith ci environments`" in reference
     assert "### `stacksmith ci validate`" in reference
+    assert "### `stacksmith operation destroy`" in reference
+    assert (
+        "--command {test,plan,apply,destroy,plan-operation,apply-operation}"
+        in reference
+    )
+    assert "--phase {test,plan,apply,destroy,plan-operation,operation}" in reference
     assert "| `--dry-run` |" in reference
     assert "| `--validation-report-format` |" in reference
 
@@ -35,6 +41,17 @@ def test_readme_cli_reference_is_current():
         )
         == readme
     )
+
+
+def test_readme_documents_ci_destroy_safety_and_lifecycle():
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "examples/github-actions/stacksmith-destroy.yml" in readme
+    assert "first previews infrastructure with `plan --destroy`" in readme
+    assert "destroys the operation state before infrastructure" in readme
+    assert "rejects destructive execution on pull requests" in readme
+    assert "`destroy-plan.json`" in readme
+    assert "`COMMAND`: `plan`, `apply`, `destroy`" in readme
 
 
 def test_replace_generated_block_requires_cli_heading_when_markers_are_missing():

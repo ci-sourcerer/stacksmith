@@ -198,7 +198,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     operation_parser = subparsers.add_parser(
         "operation",
-        help="Plan or run native operations approved by managed configuration",
+        help=(
+            "Plan, run, or destroy native operations approved by managed configuration"
+        ),
     )
     operation_subparsers = operation_parser.add_subparsers(
         dest="operation_command",
@@ -207,19 +209,21 @@ def build_parser() -> argparse.ArgumentParser:
     for operation_command, command_help in (
         ("plan", "Plan approved operations declared by a stack"),
         ("run", "Run approved operations declared by a stack"),
+        ("destroy", "Destroy the isolated operation state for a stack"),
     ):
         operation_action_parser = operation_subparsers.add_parser(
             operation_command,
             help=command_help,
         )
-        operation_action_parser.add_argument(
-            "operation_names",
-            nargs="?",
-            help=(
-                "Comma-delimited stack-local operation names. Omit to select all "
-                "operations declared by the stack."
-            ),
-        )
+        if operation_command in {"plan", "run"}:
+            operation_action_parser.add_argument(
+                "operation_names",
+                nargs="?",
+                help=(
+                    "Comma-delimited stack-local operation names. Omit to select all "
+                    "operations declared by the stack."
+                ),
+            )
         if operation_command == "plan":
             operation_action_parser.add_argument(
                 "--after-apply",
@@ -227,16 +231,33 @@ def build_parser() -> argparse.ArgumentParser:
                 default=False,
                 help="Select only operations configured with the after_apply trigger.",
             )
-        operation_action_parser.add_argument(
-            "--force-rerun",
-            action="store_true",
-            default=env_truthy("FORCE_RERUN", prefix="STACKSMITH_"),
-            help=(
-                "Force the operation runner resource to be replaced even when its "
-                "execution identity has not changed. Can also be enabled with "
-                "STACKSMITH_FORCE_RERUN=1."
-            ),
-        )
+            operation_action_parser.add_argument(
+                "--destroy",
+                action="store_true",
+                default=False,
+                help="Plan destruction of the complete isolated operation state.",
+            )
+        if operation_command in {"plan", "run"}:
+            operation_action_parser.add_argument(
+                "--force-rerun",
+                action="store_true",
+                default=env_truthy("FORCE_RERUN", prefix="STACKSMITH_"),
+                help=(
+                    "Force the operation runner resource to be replaced even when its "
+                    "execution identity has not changed. Can also be enabled with "
+                    "STACKSMITH_FORCE_RERUN=1."
+                ),
+            )
+        if operation_command == "destroy":
+            operation_action_parser.add_argument(
+                "--auto-approve",
+                action="store_true",
+                default=False,
+                help=(
+                    "Apply the generated operation-state destruction plan without "
+                    "prompting."
+                ),
+            )
         add_stack_arg(operation_action_parser)
         add_common_args(operation_action_parser)
 

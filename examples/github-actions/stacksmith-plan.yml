@@ -18,6 +18,7 @@ on:
       - "**/manifests/environments/**"
       - .github/workflows/stacksmith-plan.yml
       - .github/workflows/stacksmith-apply.yml
+      - .github/workflows/stacksmith-destroy.yml
   workflow_dispatch:
     inputs:
       environments:

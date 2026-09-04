@@ -84,6 +84,27 @@ def _capture_plan_stack_operations_call(
     return calls
 
 
+def _capture_destroy_stack_operations_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, object]:
+    calls = {}
+
+    def _fake_destroy_stack_operations(stack_file, **kwargs):
+        calls["run"] = (stack_file, kwargs)
+        return {
+            "action": "destroy",
+            "scope": "operation-state",
+            "exit_code": 0,
+        }
+
+    monkeypatch.setattr(
+        cli_main,
+        "destroy_stack_operations",
+        _fake_destroy_stack_operations,
+    )
+    return calls
+
+
 def _capture_automatic_lockfile_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[tuple[object, dict[str, object]]]:
@@ -1034,6 +1055,70 @@ def test_cmd_operation_plan_supports_after_apply_selection(monkeypatch, parser):
     assert exit_code == 0
     assert calls["run"][1] is None
     assert calls["run"][2]["after_apply_only"] is True
+
+
+def test_cmd_operation_plan_supports_operation_state_destroy(monkeypatch, parser):
+    calls = _capture_plan_stack_operations_call(monkeypatch)
+    args = parser.parse_args(
+        ["operation", "plan", "--destroy", "--stack", "stack.yaml"]
+    )
+
+    exit_code = cli_main._cmd_operation_plan(args)
+
+    assert exit_code == 0
+    assert calls["run"][1] is None
+    assert calls["run"][2]["destroy"] is True
+
+
+def test_cmd_operation_destroy_uses_operation_state_api(
+    monkeypatch,
+    parser,
+    capsys,
+):
+    calls = _capture_destroy_stack_operations_call(monkeypatch)
+    args = parser.parse_args(
+        [
+            "operation",
+            "destroy",
+            "stack.yaml",
+            "--no-cas",
+            "--auto-approve",
+        ]
+    )
+
+    exit_code = cli_main._cmd_operation_destroy(args)
+
+    assert exit_code == 0
+    assert calls["run"][0] == Path("stack.yaml")
+    assert calls["run"][1]["no_cas"] is True
+    assert calls["run"][1]["auto_approve"] is True
+    assert json.loads(capsys.readouterr().out) == {
+        "action": "destroy",
+        "scope": "operation-state",
+        "exit_code": 0,
+    }
+
+
+def test_operation_destroy_does_not_accept_runner_options(parser):
+    args = parser.parse_args(["operation", "destroy", "stack.yaml"])
+
+    assert not hasattr(args, "operation_names")
+    assert not hasattr(args, "force_rerun")
+
+
+def test_cmd_operation_destroy_propagates_failure(monkeypatch, parser):
+    monkeypatch.setattr(
+        cli_main,
+        "destroy_stack_operations",
+        lambda *args, **kwargs: {
+            "action": "destroy",
+            "scope": "operation-state",
+            "exit_code": 7,
+        },
+    )
+    args = parser.parse_args(["operation", "destroy", "stack.yaml"])
+
+    assert cli_main._cmd_operation_destroy(args) == 7
 
 
 def test_cmd_operation_run_omits_names_for_all_operation_selection(
@@ -2023,6 +2108,21 @@ def test_ci_prepare_has_manifest_inputs(parser):
     assert args.config_ref == "platform/stacksmith-config.yaml"
 
 
+def test_ci_prepare_supports_destroy_command(parser):
+    args = parser.parse_args(
+        [
+            "ci",
+            "prepare",
+            "--command",
+            "destroy",
+            "--config-ref",
+            "platform/stacksmith-config.yaml",
+        ]
+    )
+
+    assert args.ci_execution_command == "destroy"
+
+
 def test_ci_prepare_from_env_has_adapter_inputs(parser):
     args = parser.parse_args(
         [
@@ -2229,6 +2329,51 @@ def test_cmd_ci_prepare_from_env_writes_github_outputs(monkeypatch, parser, tmp_
     assert "count=1" in output_lines
 
 
+@pytest.mark.parametrize("provider", ["github-actions", "jenkins"])
+def test_cmd_ci_prepare_from_env_serializes_destroy_for_both_providers(
+    provider,
+    monkeypatch,
+    parser,
+    tmp_path,
+    capsys,
+):
+    (tmp_path / "common").mkdir()
+    (tmp_path / "common" / "stacksmith.yaml").write_text("merge_mode: deep\n")
+    (tmp_path / "environments").mkdir()
+    (tmp_path / "environments" / "dev.yaml").write_text("stacks: []\n")
+    monkeypatch.setenv("INPUT_COMMAND", "destroy")
+    monkeypatch.setenv(
+        "INPUT_CONFIG_REF",
+        str(Path(__file__).parent / "fixtures/sample_config.yaml"),
+    )
+    monkeypatch.setenv("INPUT_GITOPS_ROOT", str(tmp_path))
+    monkeypatch.setenv("INPUT_DISCOVERY_MODE", "env-files")
+    monkeypatch.setenv("INPUT_ENVIRONMENTS", "dev")
+    monkeypatch.setenv("SKIP_BRANCH_VALIDATION", "true")
+    github_output = tmp_path / "github-output.txt"
+    if provider == "github-actions":
+        monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+
+    assert (
+        cli_main._cmd_ci_prepare_from_env(
+            parser.parse_args(["ci", "prepare-from-env", "--provider", provider])
+        )
+        == 0
+    )
+
+    if provider == "github-actions":
+        manifest_line = next(
+            line
+            for line in github_output.read_text(encoding="utf-8").splitlines()
+            if line.startswith("manifest=")
+        )
+        payload = json.loads(manifest_line.removeprefix("manifest="))
+    else:
+        payload = json.loads(capsys.readouterr().out)
+    assert payload["command"] == "destroy"
+    assert payload["matrix"][0]["environment"] == "dev"
+
+
 def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path):
     from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
 
@@ -2262,6 +2407,85 @@ def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path)
     assert calls["args"].config == ["platform/stacksmith-config.yaml"]
     assert calls["args"].no_cas is True
     assert calls["args"].fail_on_changes is True
+
+
+def test_cmd_ci_execute_reuses_destroy_handler(monkeypatch, parser, tmp_path: Path):
+    from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
+
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        CiExecutionManifest(
+            command="destroy",
+            config_ref="platform/stacksmith-config.yaml",
+            matrix=[
+                CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")
+            ],
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+    calls = {}
+
+    def _fake_destroy_handler(args, command):
+        calls["command"] = command
+        calls["args"] = args
+        return 0
+
+    monkeypatch.setattr(cli_main, "_cmd_terragrunt_action", _fake_destroy_handler)
+    args = parser.parse_args(
+        ["ci", "execute", "--manifest", str(manifest_path), "--environment", "dev"]
+    )
+
+    assert cli_main._cmd_ci_execute(args) == 0
+    assert calls["command"] == "destroy"
+    assert calls["args"].config == ["platform/stacksmith-config.yaml"]
+    assert calls["args"].auto_approve is True
+
+
+def test_cmd_ci_execute_routes_destroy_operation_state_phase(
+    monkeypatch,
+    parser,
+    tmp_path: Path,
+):
+    from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
+
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        CiExecutionManifest(
+            command="destroy",
+            config_ref="platform/stacksmith-config.yaml",
+            matrix=[
+                CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")
+            ],
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+    calls = {}
+
+    def _fake_operation_destroy_handler(args):
+        calls["args"] = args
+        return 0
+
+    monkeypatch.setattr(
+        cli_main,
+        "_cmd_operation_destroy",
+        _fake_operation_destroy_handler,
+    )
+    args = parser.parse_args(
+        [
+            "ci",
+            "execute",
+            "--manifest",
+            str(manifest_path),
+            "--environment",
+            "dev",
+            "--phase",
+            "operation",
+        ]
+    )
+
+    assert cli_main._cmd_ci_execute(args) == 0
+    assert calls["args"].operation_command == "destroy"
+    assert calls["args"].auto_approve is True
 
 
 def test_cmd_ci_execute_reuses_stacksmith_test_handler(

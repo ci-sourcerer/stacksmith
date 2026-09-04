@@ -94,6 +94,7 @@ from .variables import InputLayer, resolve_inputs
 from .vendor import get_vendor_dir, load_vendor_manifest
 
 __all__ = [
+    "destroy_stack_operations",
     "generate_stack",
     "inspect_cache_diagnostics",
     "inspect_dependency_graph",
@@ -1495,6 +1496,7 @@ def plan_stack_operations(
     no_cache: bool = False,
     no_cas: bool = False,
     force_rerun: bool = False,
+    destroy: bool = False,
     merge_mode: MergeConfig = MergeMode.DEEP,
 ) -> dict[str, Any]:
     """Plan a dependency-aware batch of approved native operations.
@@ -1512,6 +1514,8 @@ def plan_stack_operations(
         no_cache: When `True`, clear the Stacksmith remote cache first.
         no_cas: When `True`, disable Terragrunt CAS during this plan.
         force_rerun: When `True`, plan replacement of selected operation resources.
+        destroy: When `True`, plan destruction of the complete isolated operation
+            state without running operation provisioners.
         merge_mode: Merge strategy for layered configuration and inputs.
 
     Returns:
@@ -1532,6 +1536,7 @@ def plan_stack_operations(
         no_cache=no_cache,
         no_cas=no_cas,
         force_rerun=force_rerun,
+        destroy=destroy,
         merge_mode=merge_mode,
     )
 
@@ -1581,6 +1586,56 @@ def run_stack_operations(
         no_cache=no_cache,
         no_cas=no_cas,
         force_rerun=force_rerun,
+        destroy=False,
+        merge_mode=merge_mode,
+    )
+
+
+def destroy_stack_operations(
+    stack_file: Path | str | Sequence[Path | str],
+    config: list[str] | None = None,
+    vars_file: str | Sequence[str] | None = None,
+    input_layers: Sequence[InputLayer] | None = None,
+    build_dir: Path | None = None,
+    no_cache: bool = False,
+    no_cas: bool = False,
+    auto_approve: bool = False,
+    merge_mode: MergeConfig = MergeMode.DEEP,
+) -> dict[str, Any]:
+    """Destroy the complete isolated state for a stack's native operations.
+
+    The operation root is generated without operation modules, then a destroy plan is
+    saved and applied exactly. Operation runners are create-time provisioners and are
+    therefore never invoked by this action.
+
+    Args:
+        stack_file: Path, URL, or ordered sequence of stack definition files.
+        config: Optional managed config paths or URLs.
+        vars_file: Optional vars file paths or URLs.
+        input_layers: Optional ordered CLI input layers merged in call order.
+        build_dir: Optional directory for generated operation files.
+        no_cache: When `True`, clear the Stacksmith remote cache first.
+        no_cas: When `True`, disable Terragrunt CAS during destruction.
+        auto_approve: When `True`, apply the saved destruction plan without prompting.
+        merge_mode: Merge strategy for layered configuration and inputs.
+
+    Returns:
+        OpenTofu execution metadata for the complete operation-state destruction.
+    """
+    return _execute_stack_operations(
+        TerragruntAction.DESTROY,
+        stack_file,
+        None,
+        after_apply_only=False,
+        config=config,
+        vars_file=vars_file,
+        input_layers=input_layers,
+        build_dir=build_dir,
+        no_cache=no_cache,
+        no_cas=no_cas,
+        force_rerun=False,
+        destroy=True,
+        auto_approve=auto_approve,
         merge_mode=merge_mode,
     )
 
@@ -1598,16 +1653,29 @@ def _execute_stack_operations(
     no_cache: bool,
     no_cas: bool,
     force_rerun: bool,
+    destroy: bool,
+    auto_approve: bool = False,
     merge_mode: MergeConfig,
 ) -> dict[str, Any]:
-    if action not in {TerragruntAction.PLAN, TerragruntAction.APPLY}:
+    if action not in {
+        TerragruntAction.PLAN,
+        TerragruntAction.APPLY,
+        TerragruntAction.DESTROY,
+    }:
         raise StacksmithConfigError(
             f"Unsupported native operation action: {action.value}"
         )
+    _validate_operation_destroy_options(
+        action,
+        operation_names,
+        after_apply_only=after_apply_only,
+        force_rerun=force_rerun,
+        destroy=destroy,
+    )
     cache_dir, _, loaded_config = load_runtime_config(
         config, build_dir, no_cache=no_cache, merge_mode=merge_mode
     )
-    stack, _ = _prepare_stack_definition(
+    stack, resolved_inputs = _prepare_stack_definition(
         stack_file,
         loaded_config,
         vars_file,
@@ -1617,6 +1685,22 @@ def _execute_stack_operations(
     )
     if stack.source_path is None:
         raise RuntimeError("Loaded stack is missing a source path")
+    loaded_config = _with_stack_backend(
+        loaded_config,
+        stack,
+        resolved_inputs,
+        cache_dir,
+    )
+    if destroy:
+        return _execute_operation_state_destroy(
+            action,
+            stack,
+            loaded_config,
+            _resolve_build_dir(stack.source_path, build_dir),
+            cache_dir=cache_dir,
+            no_cas=no_cas or no_cache,
+            auto_approve=auto_approve,
+        )
     if after_apply_only and operation_names is not None:
         raise StacksmithConfigError(
             "Explicit operation names cannot be combined with after_apply selection"
@@ -1645,6 +1729,38 @@ def _execute_stack_operations(
     )
 
 
+def _validate_operation_destroy_options(
+    action: TerragruntAction,
+    operation_names: Sequence[str] | None,
+    *,
+    after_apply_only: bool,
+    force_rerun: bool,
+    destroy: bool,
+) -> None:
+    if action == TerragruntAction.DESTROY and not destroy:
+        raise StacksmithConfigError(
+            "Native operation destroy actions require destroy mode"
+        )
+    if not destroy:
+        return
+    if action not in {TerragruntAction.PLAN, TerragruntAction.DESTROY}:
+        raise StacksmithConfigError(
+            "Operation state destruction only supports plan or destroy actions"
+        )
+    if operation_names is not None:
+        raise StacksmithConfigError(
+            "Operation names cannot be combined with operation state destruction"
+        )
+    if after_apply_only:
+        raise StacksmithConfigError(
+            "After-apply selection cannot be combined with operation state destruction"
+        )
+    if force_rerun:
+        raise StacksmithConfigError(
+            "Force rerun cannot be combined with operation state destruction"
+        )
+
+
 def _execute_prepared_operations(
     action: TerragruntAction,
     stack: StackDefinition,
@@ -1666,15 +1782,103 @@ def _execute_prepared_operations(
         cache_dir=cache_dir,
         state_root=state_root,
     )
-    plan_json = (output_dir / "stacksmith-operation-plan.json").resolve()
-    plan_binary = (output_dir / "stacksmith-operation.tfplan").resolve()
-    plan_exit_code = run_terragrunt(
+    plan_exit_code, plan_binary = _plan_operation_changes(
         _operation_terragrunt_args(
             TerragruntAction.PLAN,
             selected_operation_names,
             force_rerun,
             stacksmith_env_int("MAX_PARALLEL_OPERATIONS", 10, minimum=1),
         ),
+        stack,
+        config,
+        output_dir,
+        cache_dir=cache_dir,
+        no_cas=no_cas,
+    )
+    if plan_exit_code != 0:
+        return {
+            "operations": list(selected_operation_names),
+            "execution_order": execution_order,
+            "exit_code": plan_exit_code,
+        }
+    exit_code = plan_exit_code
+    if action == TerragruntAction.APPLY:
+        exit_code = _apply_operation_plan(
+            stack,
+            config,
+            output_dir,
+            plan_binary,
+            cache_dir=cache_dir,
+            no_cas=no_cas,
+            auto_approve=True,
+        )
+    return {
+        "operations": list(selected_operation_names),
+        "execution_order": execution_order,
+        "exit_code": exit_code,
+    }
+
+
+def _execute_operation_state_destroy(
+    action: TerragruntAction,
+    stack: StackDefinition,
+    config: ToolConfig,
+    infrastructure_output_dir: Path,
+    *,
+    cache_dir: Path | None,
+    no_cas: bool,
+    auto_approve: bool,
+) -> dict[str, Any]:
+    output_dir = _generate_operation_stack(
+        stack,
+        config,
+        infrastructure_output_dir,
+        [],
+        cache_dir=cache_dir,
+    )
+    plan_exit_code, plan_binary = _plan_operation_changes(
+        [
+            TerragruntAction.PLAN.value,
+            "-destroy",
+            f"-parallelism={stacksmith_env_int('MAX_PARALLEL_OPERATIONS', 10, minimum=1)}",
+        ],
+        stack,
+        config,
+        output_dir,
+        cache_dir=cache_dir,
+        no_cas=no_cas,
+    )
+    exit_code = plan_exit_code
+    if plan_exit_code == 0 and action == TerragruntAction.DESTROY:
+        exit_code = _apply_operation_plan(
+            stack,
+            config,
+            output_dir,
+            plan_binary,
+            cache_dir=cache_dir,
+            no_cas=no_cas,
+            auto_approve=auto_approve,
+        )
+    return {
+        "action": action.value,
+        "scope": "operation-state",
+        "exit_code": exit_code,
+    }
+
+
+def _plan_operation_changes(
+    args: list[str],
+    stack: StackDefinition,
+    config: ToolConfig,
+    output_dir: Path,
+    *,
+    cache_dir: Path | None,
+    no_cas: bool,
+) -> tuple[int, Path]:
+    plan_json = (output_dir / "stacksmith-operation-plan.json").resolve()
+    plan_binary = (output_dir / "stacksmith-operation.tfplan").resolve()
+    exit_code = run_terragrunt(
+        args,
         output_dir,
         config=config,
         stack_name=stack.name,
@@ -1684,34 +1888,35 @@ def _execute_prepared_operations(
         save_plan_binary=plan_binary,
         no_cas=no_cas,
     )
-    if plan_exit_code != 0:
-        return {
-            "operations": list(selected_operation_names),
-            "execution_order": execution_order,
-            "exit_code": plan_exit_code,
-        }
-    _validate_operation_plan(plan_json)
-    exit_code = plan_exit_code
-    if action == TerragruntAction.APPLY:
-        exit_code = run_terragrunt(
-            [
-                TerragruntAction.APPLY.value,
-                f"-parallelism={stacksmith_env_int('MAX_PARALLEL_OPERATIONS', 10, minimum=1)}",
-                str(plan_binary),
-            ],
-            output_dir,
-            auto_approve=True,
-            config=config,
-            stack_name=stack.name,
-            cache_dir=cache_dir,
-            auth_config=config.remote_auth or None,
-            no_cas=no_cas,
-        )
-    return {
-        "operations": list(selected_operation_names),
-        "execution_order": execution_order,
-        "exit_code": exit_code,
-    }
+    if exit_code == 0:
+        _validate_operation_plan(plan_json)
+    return exit_code, plan_binary
+
+
+def _apply_operation_plan(
+    stack: StackDefinition,
+    config: ToolConfig,
+    output_dir: Path,
+    plan_binary: Path,
+    *,
+    cache_dir: Path | None,
+    no_cas: bool,
+    auto_approve: bool,
+) -> int:
+    return run_terragrunt(
+        [
+            TerragruntAction.APPLY.value,
+            f"-parallelism={stacksmith_env_int('MAX_PARALLEL_OPERATIONS', 10, minimum=1)}",
+            str(plan_binary),
+        ],
+        output_dir,
+        auto_approve=auto_approve,
+        config=config,
+        stack_name=stack.name,
+        cache_dir=cache_dir,
+        auth_config=config.remote_auth or None,
+        no_cas=no_cas,
+    )
 
 
 def _validate_operation_plan(plan_path: Path) -> None:

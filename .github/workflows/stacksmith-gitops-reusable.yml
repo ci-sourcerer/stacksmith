@@ -22,7 +22,7 @@ on:
         type: string
         default: latest
       upload_artifacts:
-        description: Upload plan artifacts when the manifest executes a plan.
+        description: Upload redacted plan artifacts when the manifest executes a plan.
         required: false
         type: boolean
         default: true
@@ -56,7 +56,9 @@ jobs:
   execute:
     name: stacksmith-${{ inputs.phase || fromJson(inputs.ci_manifest).command }}-${{ inputs.environment }}
     runs-on: ubuntu-latest
-    environment: ${{ ((inputs.phase || fromJson(inputs.ci_manifest).command) == 'apply' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'operation') && inputs.environment || '' }}
+    environment: ${{ ((inputs.phase || fromJson(inputs.ci_manifest).command) == 'apply' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'operation' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'destroy') && inputs.environment || '' }}
+    env:
+      STACKSMITH_PLAN_ARTIFACT_KIND: ${{ fromJson(inputs.ci_manifest).command == 'destroy' && 'destroy-plan' || 'plan' }}
     container:
       image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
     defaults:
@@ -93,10 +95,10 @@ jobs:
         if: ${{ (success() || failure()) && inputs.upload_artifacts && (inputs.phase || fromJson(inputs.ci_manifest).command) == 'plan' }}
         uses: actions/upload-artifact@v7
         with:
-          name: stacksmith-plan-${{ inputs.environment }}-${{ github.sha }}
+          name: stacksmith-${{ env.STACKSMITH_PLAN_ARTIFACT_KIND }}-${{ inputs.environment }}-${{ github.sha }}
           path: |
             ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/validation-report.${{ fromJson(inputs.ci_manifest).validation_report_format }}
-            ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/plan.json
+            ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/${{ env.STACKSMITH_PLAN_ARTIFACT_KIND }}.json
 
       - name: Summarize execution
         if: ${{ success() || failure() }}
@@ -115,30 +117,47 @@ jobs:
               item for item in manifest["matrix"]
               if item["environment"] == os.environ["STACKSMITH_ENVIRONMENT"]
           )
-          print(f"## Stacksmith {phase.title()}")
+          if manifest["command"] == "destroy" and phase == "plan":
+              heading = "Destroy Preview"
+          elif (
+              manifest["command"] == "destroy"
+              and phase in {"plan-operation", "operation"}
+          ):
+              heading = "Operation State Cleanup"
+          else:
+              heading = phase.title()
+          print(f"## Stacksmith {heading}")
           print()
           print(f"- Environment: `{row['environment']}`")
           print(f"- Runfile: `{row['runfile']}`")
           if phase in {"plan-operation", "operation"}:
-              selected_operations = ", ".join(manifest["operation_names"])
-              if not selected_operations:
-                  selected_operations = (
-                      "after_apply operations"
-                      if manifest["command"] in {"plan", "apply"}
-                      else "all operations"
+              if manifest["command"] == "destroy":
+                  print("- Scope: `complete isolated operation state`")
+              else:
+                  selected_operations = ", ".join(manifest["operation_names"])
+                  if not selected_operations:
+                      selected_operations = (
+                          "after_apply operations"
+                          if manifest["command"] in {"plan", "apply"}
+                          else "all operations"
+                      )
+                  print(
+                      "- Operations: `"
+                      f"{selected_operations}"
+                      "`"
                   )
-              print(
-                  "- Operations: `"
-                  f"{selected_operations}"
-                  "`"
-              )
-              print(
-                  "- Maximum parallel operations: "
-                  f"`{manifest.get('max_parallel_operations', 10)}`"
-              )
+                  print(
+                      "- Maximum parallel operations: "
+                      f"`{manifest.get('max_parallel_operations', 10)}`"
+                  )
           elif phase == "plan":
               print(
-                  "- Report: "
+                  "- Plan artifact: "
+                  f"`{manifest['workdir']}/.stacksmith-ci/{row['environment']}/"
+                  f"{'destroy-plan.json' if manifest['command'] == 'destroy' else 'plan.json'}`"
+              )
+              print(
+                  "- Validation report: "
                   f"`{manifest['workdir']}/.stacksmith-ci/{row['environment']}/"
                   f"validation-report.{manifest['validation_report_format']}`"
               )

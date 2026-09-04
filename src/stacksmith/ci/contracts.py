@@ -7,8 +7,22 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from ..enums import ValidationReportFormat
 from ..exceptions import StacksmithConfigError, StacksmithError
 
-CiCommand = Literal["test", "plan", "apply", "plan-operation", "apply-operation"]
-CiExecutionPhase = Literal["test", "plan", "apply", "plan-operation", "operation"]
+CiCommand = Literal[
+    "test",
+    "plan",
+    "apply",
+    "destroy",
+    "plan-operation",
+    "apply-operation",
+]
+CiExecutionPhase = Literal[
+    "test",
+    "plan",
+    "apply",
+    "destroy",
+    "plan-operation",
+    "operation",
+]
 
 
 class CiExecutionRow(BaseModel):
@@ -90,8 +104,14 @@ class CiExecutionManifest(BaseModel):
                 "operation names are only supported when command is "
                 "'plan-operation' or 'apply-operation'"
             )
-        if self.command in {"plan", "apply"} and self.offline and not self.locked:
+        if (
+            self.command in {"plan", "apply", "destroy"}
+            and self.offline
+            and not self.locked
+        ):
             raise ValueError("offline CI execution requires locked execution")
+        if self.command == "destroy" and self.force_rerun:
+            raise ValueError("destroy CI execution cannot force operation reruns")
         ValidationReportFormat(self.validation_report_format)
         return self
 
@@ -179,12 +199,13 @@ def validate_ci_policy(
         "test",
         "plan",
         "apply",
+        "destroy",
         "plan-operation",
         "apply-operation",
     }:
         raise StacksmithConfigError(
             f"Invalid command '{command}'. Expected 'test', 'plan', 'apply', "
-            "'plan-operation', or 'apply-operation'."
+            "'destroy', 'plan-operation', or 'apply-operation'."
         )
     if command not in {"plan-operation", "apply-operation"} and operation_names:
         raise StacksmithConfigError(
@@ -196,7 +217,7 @@ def validate_ci_policy(
     if command == "test":
         return
     if event_name == "pull_request":
-        if command in {"apply", "apply-operation"}:
+        if command in {"apply", "destroy", "apply-operation"}:
             raise StacksmithConfigError(
                 f"'{command}' is not allowed on pull requests. Use 'plan' instead."
             )
@@ -241,6 +262,7 @@ def resolve_ci_execution_phase(
             "test": {"test"},
             "plan": {"plan", "plan-operation"},
             "apply": {"plan", "plan-operation", "apply", "operation"},
+            "destroy": {"plan", "plan-operation", "operation", "destroy"},
             "plan-operation": {"plan-operation"},
             "apply-operation": {"plan-operation", "operation"},
         }[manifest.command]
@@ -319,7 +341,7 @@ def build_ci_execution_argv(
         common_args.append("--debug")
     if manifest.no_cas:
         common_args.append("--no-cas")
-    if execution_phase in {"plan", "apply"}:
+    if execution_phase in {"plan", "apply", "destroy"}:
         if manifest.locked:
             common_args.append("--locked")
         if manifest.offline:
@@ -331,9 +353,13 @@ def build_ci_execution_argv(
             "plan",
             *common_args,
             "--save-redacted-plan-json",
-            f".stacksmith-ci/{row.environment}/plan.json",
+            (
+                f".stacksmith-ci/{row.environment}/"
+                f"{'destroy-plan.json' if manifest.command == 'destroy' else 'plan.json'}"
+            ),
             "--validation-report-format",
             manifest.validation_report_format,
+            *(["--destroy"] if manifest.command == "destroy" else []),
             *(
                 ["--fail-on-changes"]
                 if manifest.command == "plan" and manifest.fail_on_changes
@@ -347,15 +373,20 @@ def build_ci_execution_argv(
         ]
     if execution_phase == "apply":
         return ["apply", *common_args, "--auto-approve", "--no-after-apply"]
+    if execution_phase == "destroy":
+        return ["destroy", *common_args, "--auto-approve"]
     if execution_phase == "plan-operation":
         return [
             "operation",
             "plan",
             *([",".join(manifest.operation_names)] if manifest.operation_names else []),
             *common_args,
+            *(["--destroy"] if manifest.command == "destroy" else []),
             *(["--after-apply"] if manifest.command in {"plan", "apply"} else []),
             *(["--force-rerun"] if manifest.force_rerun else []),
         ]
+    if manifest.command == "destroy":
+        return ["operation", "destroy", *common_args, "--auto-approve"]
     return [
         "operation",
         "run",

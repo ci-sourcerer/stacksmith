@@ -51,16 +51,21 @@ def _should_run_plan_validation_flow(
     save_plan_binary: Path | None = None,
     fail_on_changes: bool = False,
 ) -> bool:
+    is_destroy_plan = "-destroy" in args
     return bool(
         args
         and _parse_terragrunt_action(args[0]) == TerragruntAction.PLAN
-        and "-destroy" not in args
         and (
             save_plan_json is not None
             or save_redacted_plan_json is not None
             or save_plan_binary is not None
-            or (config is not None and _has_enabled_plan_validations(config))
-            or fail_on_changes
+            or (
+                not is_destroy_plan
+                and (
+                    (config is not None and _has_enabled_plan_validations(config))
+                    or fail_on_changes
+                )
+            )
         )
     )
 
@@ -495,6 +500,9 @@ def _run_plan_validations(
             )
             write_redacted_plan(plan_data, save_path)
             LOGGER.info("Saved redacted plan JSON to {path}", path=save_path)
+
+        if "-destroy" in args:
+            return PlanValidationExitCode.PASS
 
         if config is None or not _has_enabled_plan_validations(config):
             if fail_on_changes and _has_plan_changes(plan_data):

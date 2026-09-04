@@ -532,6 +532,22 @@ def test_prepare_ci_execution_rejects_offline_without_locked(tmp_path: Path):
         )
 
 
+def test_prepare_ci_destroy_execution_rejects_offline_without_locked(
+    tmp_path: Path,
+):
+    _create_env_files_layout(tmp_path)
+
+    with pytest.raises(ValueError, match="requires locked"):
+        prepare_ci_execution(
+            command="destroy",
+            config_ref="platform/stacksmith-config.yaml",
+            gitops_root=str(tmp_path),
+            discovery_mode="env-files",
+            locked=False,
+            offline=True,
+        )
+
+
 def test_prepare_ci_manifest_from_env_reads_debug_and_lock_settings(
     monkeypatch, tmp_path: Path
 ):
@@ -586,6 +602,39 @@ def test_prepare_ci_execution_applies_shared_pull_request_policy(tmp_path: Path)
             base_ref="main",
             default_branch="main",
         )
+
+
+def test_prepare_ci_execution_rejects_destroy_on_pull_request(tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+
+    with pytest.raises(StacksmithConfigError, match="not allowed on pull requests"):
+        prepare_ci_execution(
+            command="destroy",
+            config_ref="platform/stacksmith-config.yaml",
+            gitops_root=str(tmp_path),
+            discovery_mode="env-files",
+            event_name="pull_request",
+            base_ref="main",
+            default_branch="main",
+        )
+
+
+def test_prepare_ci_execution_accepts_destroy_on_default_branch(tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+
+    manifest = prepare_ci_execution(
+        command="destroy",
+        config_ref=str(_REMOTE_BACKEND_CONFIG),
+        gitops_root=str(tmp_path),
+        discovery_mode="env-files",
+        environments="dev",
+        event_name="push",
+        ref_name="main",
+        default_branch="main",
+    )
+
+    assert manifest.command == "destroy"
+    assert [row.environment for row in manifest.matrix] == ["dev"]
 
 
 def test_prepare_ci_execution_has_identical_provider_normalized_output(
@@ -669,15 +718,17 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     approval_stage = jenkins_pipeline.index("stage('Approve')")
     apply_stage = jenkins_pipeline.index("stage('Apply')")
     operation_stage = jenkins_pipeline.index("stage('Run operation(s)')")
+    destroy_operation_stage = jenkins_pipeline.index("stage('Destroy operation state')")
+    destroy_stage = jenkins_pipeline.index("stage('Destroy')")
     assert plan_stage < operation_plan_stage < approval_stage < apply_stage
-    assert approval_stage < operation_stage
+    assert approval_stage < operation_stage < destroy_operation_stage < destroy_stage
     assert "setManifestCommand" not in jenkins_pipeline
-    assert jenkins_pipeline.count("returnPojo: true") == 3
+    assert jenkins_pipeline.count("returnPojo: true") == 4
     assert "readJSON(text: manifestOutput, returnPojo: true)" in jenkins_pipeline
     assert "import org.jenkinsci.plugins.pipeline.modeldefinition.Utils" in (
         jenkins_pipeline
     )
-    assert jenkins_pipeline.count("Utils.markStageSkippedForConditional") == 5
+    assert jenkins_pipeline.count("Utils.markStageSkippedForConditional") == 7
     push_trigger = apply_workflow.split("  push:", 1)[1].split(
         "  workflow_dispatch:", 1
     )[0]
@@ -686,20 +737,35 @@ def test_ci_workflow_adapters_delegate_to_manifest_contract():
     assert "github.event.repository.default_branch" in apply_workflow
     assert '"STACKSMITH_CI_PHASE=${command}"' in jenkins_pipeline
     assert '--phase "$STACKSMITH_CI_PHASE"' in jenkins_pipeline
-    assert "inputs.command == 'plan' || inputs.command == 'apply'" in actions_workflow
-    assert "needs: [discover, plan, plan-operation, run-operation]" in actions_workflow
+    assert (
+        "inputs.command == 'plan' || inputs.command == 'apply' || "
+        "inputs.command == 'destroy'"
+    ) in actions_workflow
+    assert "needs: [discover, plan, plan-operation]" in actions_workflow
     assert "needs: [discover, plan-operation]" in actions_workflow
+    assert "needs: [discover, plan-operation, apply]" in actions_workflow
+    assert (
+        "needs: [discover, plan, plan-operation, destroy-operation]" in actions_workflow
+    )
     assert "phase: plan" in actions_workflow
     assert "phase: apply" in actions_workflow
+    assert "phase: destroy" in actions_workflow
     assert "phase: plan-operation" in actions_workflow
+    assert "run-after-apply-operation:" in actions_workflow
+    assert "destroy-operation:" in actions_workflow
     assert "inputs.command == 'plan-operation'" in actions_workflow
     assert (
-        "env.COMMAND in ['plan', 'apply', 'plan-operation', 'apply-operation']"
-        in jenkins_pipeline
+        "env.COMMAND in ['plan', 'apply', 'destroy', 'plan-operation', "
+        "'apply-operation']" in jenkins_pipeline
     )
     assert "      max_parallel_operations:" not in actions_workflow
     assert "STACKSMITH_MAX_PARALLEL_OPERATIONS" in actions_workflow
     assert "inputs.phase || fromJson(inputs.ci_manifest).command" in actions_executor
+    assert "== 'destroy'" in actions_executor
+    assert "STACKSMITH_PLAN_ARTIFACT_KIND" in actions_executor
+    assert "destroy-plan.json" in actions_executor
+    assert "complete isolated operation state" in actions_executor
+    assert "destroy-plan.json" in jenkins_pipeline
     assert '--phase "$STACKSMITH_CI_PHASE"' in actions_executor
 
 
@@ -718,6 +784,136 @@ def test_jenkins_pipeline_uses_environment_controlled_test_mode():
     assert "'test'," in jenkins_pipeline
     assert "stacksmith test" not in jenkins_pipeline
     assert "poe test" not in jenkins_pipeline
+
+
+def test_jenkins_pipeline_orders_apply_and_destroy_operation_phases():
+    jenkins_pipeline = (
+        Path(__file__).parents[1] / "jenkins/vars/stacksmith.groovy"
+    ).read_text()
+    plan_stage = jenkins_pipeline.split("stage('Plan')", 1)[1].split(
+        "stage('Plan operation(s)')", 1
+    )[0]
+    plan_operation_stage = jenkins_pipeline.split("stage('Plan operation(s)')", 1)[
+        1
+    ].split("stage('Approve')", 1)[0]
+    approval_stage = jenkins_pipeline.split("stage('Approve')", 1)[1].split(
+        "stage('Apply')", 1
+    )[0]
+    apply_stage = jenkins_pipeline.split("stage('Apply')", 1)[1].split(
+        "stage('Run operation(s)')", 1
+    )[0]
+    run_operation_stage = jenkins_pipeline.split("stage('Run operation(s)')", 1)[
+        1
+    ].split("stage('Destroy operation state')", 1)[0]
+    destroy_operation_stage = jenkins_pipeline.split(
+        "stage('Destroy operation state')", 1
+    )[1].split("stage('Destroy')", 1)[0]
+    destroy_stage = jenkins_pipeline.split("stage('Destroy')", 1)[1]
+
+    assert "env.COMMAND in ['plan', 'apply', 'destroy']" in plan_stage
+    assert "'destroy', 'plan-operation'" in plan_operation_stage
+    assert "env.COMMAND in ['apply', 'destroy', 'apply-operation']" in approval_stage
+    assert "buildApprovalMessage(" in approval_stage
+    assert "operation state and infrastructure" in jenkins_pipeline
+    assert "env.COMMAND == 'apply'" in apply_stage
+    assert "env.COMMAND in ['apply', 'apply-operation']" in run_operation_stage
+    assert "env.COMMAND == 'destroy'" in destroy_operation_stage
+    assert "'operation'," in destroy_operation_stage
+    assert "env.COMMAND == 'destroy'" in destroy_stage
+    assert "'destroy'," in destroy_stage
+
+
+def test_ci_workflow_adapters_preserve_distinct_destroy_plan_artifacts():
+    repository_root = Path(__file__).parents[1]
+    actions_executor = (
+        repository_root / ".github/workflows/stacksmith-gitops-reusable.yml"
+    ).read_text()
+    jenkins_pipeline = (repository_root / "jenkins/vars/stacksmith.groovy").read_text()
+
+    assert (
+        "fromJson(inputs.ci_manifest).command == 'destroy' && 'destroy-plan' || "
+        "'plan'" in actions_executor
+    )
+    assert (
+        "name: stacksmith-${{ env.STACKSMITH_PLAN_ARTIFACT_KIND }}-"
+        "${{ inputs.environment }}-${{ github.sha }}" in actions_executor
+    )
+    assert "${{ env.STACKSMITH_PLAN_ARTIFACT_KIND }}.json" in actions_executor
+    assert "(success() || failure()) && inputs.upload_artifacts" in actions_executor
+    assert 'heading = "Destroy Preview"' in actions_executor
+    assert "- Plan artifact: " in actions_executor
+
+    assert (
+        "env.COMMAND == 'destroy' ? 'destroy-plan.json' : 'plan.json'"
+        in jenkins_pipeline
+    )
+    status = jenkins_pipeline.index("int status = withStacksmithCredentials(")
+    archive = jenkins_pipeline.index("archiveArtifacts(", status)
+    branch_result = jenkins_pipeline.index("return status", archive)
+    assert status < archive < branch_result
+
+
+def test_github_destroy_example_is_manual_only_and_environment_scoped():
+    destroy_workflow = (
+        Path(__file__).parents[1] / "examples/github-actions/stacksmith-destroy.yml"
+    ).read_text()
+    plan_workflow = (
+        Path(__file__).parents[1] / "examples/github-actions/stacksmith-plan.yml"
+    ).read_text()
+    triggers = destroy_workflow.split("\non:\n", 1)[1].split("\npermissions:\n", 1)[0]
+    environment_input = triggers.split("      environments:\n", 1)[1].split(
+        "      gitops_root:\n", 1
+    )[0]
+
+    assert "  workflow_dispatch:" in triggers
+    assert "  push:" not in triggers
+    assert "  pull_request:" not in triggers
+    assert "required: true" in environment_input
+    assert "command: destroy" in destroy_workflow
+    assert "environments: ${{ inputs.environments }}" in destroy_workflow
+    assert "secrets: inherit" in destroy_workflow
+    assert ".github/workflows/stacksmith-destroy.yml" in plan_workflow
+
+
+def test_github_operation_example_uses_the_manifest_command_name():
+    operation_workflow = (
+        Path(__file__).parents[1] / "examples/github-actions/stacksmith-operation.yml"
+    ).read_text()
+
+    assert "command: apply-operation" in operation_workflow
+    assert "command: operation" not in operation_workflow
+
+
+def test_github_pipeline_orders_apply_and_destroy_operation_phases():
+    actions_workflow = (
+        Path(__file__).parents[1]
+        / ".github/workflows/stacksmith-gitops-opinionated-reusable.yml"
+    ).read_text()
+    apply_job = actions_workflow.split("\n  apply:\n", 1)[1].split(
+        "\n  plan-operation:\n", 1
+    )[0]
+    run_operation_job = actions_workflow.split("\n  run-operation:\n", 1)[1].split(
+        "\n  run-after-apply-operation:\n", 1
+    )[0]
+    after_apply_job = actions_workflow.split("\n  run-after-apply-operation:\n", 1)[
+        1
+    ].split("\n  destroy-operation:\n", 1)[0]
+    destroy_operation_job = actions_workflow.split("\n  destroy-operation:\n", 1)[
+        1
+    ].split("\n  destroy:\n", 1)[0]
+    destroy_job = actions_workflow.split("\n  destroy:\n", 1)[1].split(
+        "\n  no-op:\n", 1
+    )[0]
+
+    assert "needs: [discover, plan, plan-operation]" in apply_job
+    assert "inputs.command == 'apply-operation'" in run_operation_job
+    assert "inputs.command == 'apply'" not in run_operation_job
+    assert "needs: [discover, plan-operation, apply]" in after_apply_job
+    assert "inputs.command == 'apply'" in after_apply_job
+    assert "needs: [discover, plan, plan-operation]" in destroy_operation_job
+    assert "phase: operation" in destroy_operation_job
+    assert "needs: [discover, plan, plan-operation, destroy-operation]" in destroy_job
+    assert "phase: destroy" in destroy_job
 
 
 def test_jenkins_pipeline_provides_configured_credentials_during_preparation():
@@ -757,6 +953,29 @@ def test_ci_plan_execution_only_writes_redacted_plan_json():
     assert "--save-plan-json" not in argv
     assert argv[argv.index("--save-redacted-plan-json") + 1] == (
         ".stacksmith-ci/dev/plan.json"
+    )
+
+
+def test_ci_destroy_plan_uses_a_distinct_redacted_artifact_path():
+    argv = build_ci_execution_argv(
+        CiExecutionManifest(
+            command="destroy",
+            config_ref="platform/stacksmith-config.yaml",
+            matrix=[
+                CiExecutionRow(
+                    environment="dev",
+                    runfile="common/stacksmith.yaml",
+                )
+            ],
+        ),
+        "dev",
+        "plan",
+    )
+
+    assert "--save-redacted-plan-json" in argv
+    assert "--save-plan-json" not in argv
+    assert argv[argv.index("--save-redacted-plan-json") + 1] == (
+        ".stacksmith-ci/dev/destroy-plan.json"
     )
 
 
@@ -801,6 +1020,57 @@ def test_ci_apply_manifest_supports_plan_then_apply_phases():
     assert "--fail-on-changes" not in plan_argv
     assert apply_argv[0] == "apply"
     assert "--auto-approve" in apply_argv
+
+
+def test_ci_destroy_manifest_supports_destroy_plan_then_destroy_phases():
+    manifest = CiExecutionManifest(
+        command="destroy",
+        config_ref="platform/stacksmith-config.yaml",
+        locked=True,
+        offline=True,
+        lockfile="locks/stacksmith.lock.yaml",
+        matrix=[CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")],
+    )
+
+    plan_argv = build_ci_execution_argv(manifest, "dev", "plan")
+    destroy_argv = build_ci_execution_argv(manifest, "dev", "destroy")
+
+    assert plan_argv[0] == "plan"
+    assert "--destroy" in plan_argv
+    assert "--save-redacted-plan-json" in plan_argv
+    assert destroy_argv[0] == "destroy"
+    assert "--auto-approve" in destroy_argv
+    assert "--locked" in destroy_argv
+    assert "--offline" in destroy_argv
+    assert destroy_argv[destroy_argv.index("--lockfile") + 1] == (
+        "locks/stacksmith.lock.yaml"
+    )
+
+
+def test_ci_destroy_manifest_supports_operation_state_cleanup_phases():
+    manifest = CiExecutionManifest(
+        command="destroy",
+        config_ref="platform/stacksmith-config.yaml",
+        matrix=[CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")],
+    )
+
+    plan_argv = build_ci_execution_argv(manifest, "dev", "plan-operation")
+    destroy_argv = build_ci_execution_argv(manifest, "dev", "operation")
+
+    assert plan_argv[:2] == ["operation", "plan"]
+    assert "--destroy" in plan_argv
+    assert "--after-apply" not in plan_argv
+    assert destroy_argv[:2] == ["operation", "destroy"]
+    assert "--auto-approve" in destroy_argv
+
+
+def test_ci_destroy_manifest_rejects_force_rerun():
+    with pytest.raises(ValueError, match="cannot force operation reruns"):
+        CiExecutionManifest(
+            command="destroy",
+            config_ref="platform/stacksmith-config.yaml",
+            force_rerun=True,
+        )
 
 
 def test_ci_operation_manifest_supports_plan_then_run_phases():
@@ -883,6 +1153,9 @@ def test_ci_manifest_rejects_unapproved_execution_phase():
 
     with pytest.raises(StacksmithError, match="cannot execute phase 'test'"):
         build_ci_execution_argv(manifest, "dev", "test")
+
+    with pytest.raises(StacksmithError, match="cannot execute phase 'destroy'"):
+        build_ci_execution_argv(manifest, "dev", "destroy")
 
 
 def test_prepare_ci_execution_accepts_colon_delimited_config_refs(tmp_path: Path):

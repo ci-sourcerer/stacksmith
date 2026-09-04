@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       command:
-        description: Stacksmith command to run. Supported values are plan, apply, plan-operation, and apply-operation.
+        description: Stacksmith command to run. Supported values are plan, apply, destroy, plan-operation, and apply-operation.
         required: true
         type: string
       operation_names:
@@ -98,7 +98,7 @@ jobs:
   plan:
     name: plan
     needs: discover
-    if: ${{ (inputs.command == 'plan' || inputs.command == 'apply') && needs.discover.outputs.count != '0' }}
+    if: ${{ (inputs.command == 'plan' || inputs.command == 'apply' || inputs.command == 'destroy') && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false
       matrix:
@@ -114,7 +114,7 @@ jobs:
 
   apply:
     name: apply
-    needs: [discover, plan, plan-operation, run-operation]
+    needs: [discover, plan, plan-operation]
     if: ${{ inputs.command == 'apply' && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false
@@ -131,7 +131,7 @@ jobs:
   plan-operation:
     name: plan-operation
     needs: discover
-    if: ${{ (inputs.command == 'plan' || inputs.command == 'apply' || inputs.command == 'plan-operation' || inputs.command == 'apply-operation') && needs.discover.outputs.count != '0' }}
+    if: ${{ (inputs.command == 'plan' || inputs.command == 'apply' || inputs.command == 'destroy' || inputs.command == 'plan-operation' || inputs.command == 'apply-operation') && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false
       matrix:
@@ -147,7 +147,7 @@ jobs:
   run-operation:
     name: run-operation
     needs: [discover, plan-operation]
-    if: ${{ (inputs.command == 'apply' || inputs.command == 'apply-operation') && needs.discover.outputs.count != '0' }}
+    if: ${{ inputs.command == 'apply-operation' && needs.discover.outputs.count != '0' }}
     strategy:
       fail-fast: false
       matrix:
@@ -157,6 +157,54 @@ jobs:
       ci_manifest: ${{ needs.discover.outputs.manifest }}
       environment: ${{ matrix.environment }}
       phase: operation
+      image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+    secrets: inherit
+
+  run-after-apply-operation:
+    name: run-after-apply-operation
+    needs: [discover, plan-operation, apply]
+    if: ${{ inputs.command == 'apply' && needs.discover.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/stacksmith-gitops-reusable.yml
+    with:
+      ci_manifest: ${{ needs.discover.outputs.manifest }}
+      environment: ${{ matrix.environment }}
+      phase: operation
+      image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+    secrets: inherit
+
+  destroy-operation:
+    name: destroy-operation
+    needs: [discover, plan, plan-operation]
+    if: ${{ inputs.command == 'destroy' && needs.discover.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/stacksmith-gitops-reusable.yml
+    with:
+      ci_manifest: ${{ needs.discover.outputs.manifest }}
+      environment: ${{ matrix.environment }}
+      phase: operation
+      image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+    secrets: inherit
+
+  destroy:
+    name: destroy
+    needs: [discover, plan, plan-operation, destroy-operation]
+    if: ${{ inputs.command == 'destroy' && needs.discover.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/stacksmith-gitops-reusable.yml
+    with:
+      ci_manifest: ${{ needs.discover.outputs.manifest }}
+      environment: ${{ matrix.environment }}
+      phase: destroy
       image_version: ${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
     secrets: inherit
 
