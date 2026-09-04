@@ -364,12 +364,13 @@ def test_operation_input_preserves_component_output_reference(tmp_path: Path):
     assert module["spec"]["environment"] == {
         "RELEASE_TAG": (
             "production-release/${data.terraform_remote_state.infrastructure.outputs."
-            "stacksmith_operation_bridge_app_release_name}"
+            '_stacksmith_operation_bridge["app"]["release_name"]}'
         )
     }
     assert "depends_on" not in module
-    assert infrastructure["output"]["stacksmith_operation_bridge_app_release_name"] == {
-        "value": "${module.app.release_name}",
+    assert infrastructure["output"]["_stacksmith_operation_bridge"] == {
+        "value": {"app": {"release_name": "${module.app.release_name}"}},
+        "description": "Internal component outputs consumed by Stacksmith operations.",
         "sensitive": True,
     }
     assert "app" not in generated["module"]
@@ -401,14 +402,23 @@ def test_infrastructure_bridge_outputs_exist_before_operations_are_declared():
                     "version": "1.0.0",
                 },
             },
-            "outputs": {"release_name": {}},
+            "outputs": {
+                "release_name": {},
+                "endpoint": {"mapped_from": "service_endpoint"},
+            },
         }
     )
 
     generated = generate_tf_json(stack, config, {})
 
-    assert generated["output"]["stacksmith_operation_bridge_app_release_name"] == {
-        "value": "${module.app.release_name}",
+    assert generated["output"]["_stacksmith_operation_bridge"] == {
+        "value": {
+            "app": {
+                "release_name": "${module.app.release_name}",
+                "service_endpoint": "${module.app.service_endpoint}",
+            }
+        },
+        "description": "Internal component outputs consumed by Stacksmith operations.",
         "sensitive": True,
     }
 

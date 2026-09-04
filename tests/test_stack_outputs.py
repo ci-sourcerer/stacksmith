@@ -137,7 +137,7 @@ def test_stack_output_mock_uses_the_same_transform():
     }
 
 
-def test_emits_only_private_operation_bridge_when_stack_exports_nothing():
+def test_emits_single_private_operation_bridge_when_stack_exports_nothing():
     stack = StackDefinition.model_validate(
         {
             "name": "exports",
@@ -148,11 +148,37 @@ def test_emits_only_private_operation_bridge_when_stack_exports_nothing():
     )
 
     assert generate_tf_json(stack, _config(), {})["output"] == {
-        "stacksmith_operation_bridge_producer_underlying_id": {
-            "value": "${module.producer.underlying_id}",
+        "_stacksmith_operation_bridge": {
+            "value": {
+                "producer": {
+                    "underlying_id": "${module.producer.underlying_id}",
+                }
+            },
+            "description": "Internal component outputs consumed by Stacksmith operations.",
             "sensitive": True,
         }
     }
+
+
+def test_rejects_reserved_operation_bridge_stack_output():
+    with pytest.raises(
+        StacksmithConfigError,
+        match="'_stacksmith_operation_bridge' is reserved",
+    ):
+        generate_tf_json(
+            StackDefinition.model_validate(
+                {
+                    "name": "exports",
+                    "outputs": {
+                        "_stacksmith_operation_bridge": {
+                            "value": "reserved",
+                        }
+                    },
+                }
+            ),
+            _config(),
+            {},
+        )
 
 
 def test_rejects_stack_output_transform_computation(tmp_path: Path):

@@ -45,8 +45,10 @@ _OPERATION_RUNNER_ASSETS = ("main.tf", "local.py", "jenkins.py")
 _MODULE_REFERENCE_PATTERN = re.compile(
     r"\$\{module\.([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\}"
 )
-_OPERATION_BRIDGE_OUTPUT_PATTERN = re.compile(
-    r"data\.terraform_remote_state\.infrastructure\.outputs\.([A-Za-z_][A-Za-z0-9_]*)"
+_OPERATION_BRIDGE_OUTPUT_NAME = "_stacksmith_operation_bridge"
+_OPERATION_BRIDGE_OUTPUT_PATH = (
+    "data.terraform_remote_state.infrastructure.outputs."
+    f"{_OPERATION_BRIDGE_OUTPUT_NAME}"
 )
 
 
@@ -132,14 +134,10 @@ def _generate_operation_blocks(
     return modules
 
 
-def _operation_bridge_output_name(component_name: str, output_name: str) -> str:
-    return f"stacksmith_operation_bridge_{component_name}_{output_name}"
-
-
 def _operation_bridge_output_reference(component_name: str, output_name: str) -> str:
     return (
-        "${data.terraform_remote_state.infrastructure.outputs."
-        f"{_operation_bridge_output_name(component_name, output_name)}}}"
+        f"${{{_OPERATION_BRIDGE_OUTPUT_PATH}"
+        f"[{json.dumps(component_name)}][{json.dumps(output_name)}]}}"
     )
 
 
@@ -162,7 +160,18 @@ def _rewrite_operation_component_references(value: Any) -> Any:
     return value
 
 
-def _component_bridge_outputs(
+def _operation_bridge_values(
+    references: set[tuple[str, str]],
+) -> dict[str, dict[str, str]]:
+    values: dict[str, dict[str, str]] = {}
+    for component_name, output_name in sorted(references):
+        values.setdefault(component_name, {})[output_name] = (
+            f"${{module.{component_name}.{output_name}}}"
+        )
+    return values
+
+
+def _component_bridge_output(
     stack: StackDefinition,
     config: ToolConfig,
     cache_dir: Path | None,
@@ -206,12 +215,14 @@ def _component_bridge_outputs(
                     ),
                 )
             )
+    if not references:
+        return {}
     return {
-        _operation_bridge_output_name(component_name, output_name): {
-            "value": f"${{module.{component_name}.{output_name}}}",
+        _OPERATION_BRIDGE_OUTPUT_NAME: {
+            "value": _operation_bridge_values(references),
+            "description": "Internal component outputs consumed by Stacksmith operations.",
             "sensitive": True,
         }
-        for component_name, output_name in sorted(references)
     }
 
 
@@ -594,19 +605,20 @@ def generate_tf_json(
         auth_config=auth_config,
         vendor_dir=vendor_dir,
     )
-    bridge_outputs = _component_bridge_outputs(
-        stack,
-        config,
-        cache_dir,
-        auth_config,
-        vendor_dir,
-    )
-    if collisions := sorted(set(output_blocks) & set(bridge_outputs)):
+    if _OPERATION_BRIDGE_OUTPUT_NAME in output_blocks:
         raise StacksmithConfigError(
-            "Stack output names reserved for operation bridges: "
-            f"{', '.join(collisions)}"
+            f"Stack output name '{_OPERATION_BRIDGE_OUTPUT_NAME}' is reserved "
+            "for the operation bridge"
         )
-    output_blocks.update(bridge_outputs)
+    output_blocks.update(
+        _component_bridge_output(
+            stack,
+            config,
+            cache_dir,
+            auth_config,
+            vendor_dir,
+        )
+    )
     if output_blocks:
         doc["output"] = output_blocks
 
@@ -626,7 +638,7 @@ def generate_tf_json(
 
 def _has_bridge_output_reference(value: Any) -> bool:
     if isinstance(value, str):
-        return _OPERATION_BRIDGE_OUTPUT_PATTERN.search(value) is not None
+        return _OPERATION_BRIDGE_OUTPUT_PATH in value
     if isinstance(value, dict):
         return any(_has_bridge_output_reference(v) for v in value.values())
     if isinstance(value, list):

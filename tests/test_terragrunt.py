@@ -157,7 +157,7 @@ class TestGenerateOperationsTerragruntJson:
         doc = generate_operations_terragrunt_json(
             stack,
             config,
-            operation_inputs=["stacksmith_operation_bridge_app_release_name"],
+            operation_inputs=["_stacksmith_operation_bridge"],
         )
 
         assert "dependency" not in doc
