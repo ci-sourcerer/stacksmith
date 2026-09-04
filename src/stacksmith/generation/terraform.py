@@ -525,11 +525,9 @@ def _generate_module_blocks(
             if output_name in module_block or prop_spec.default is None:
                 continue
 
-            output_name, module_block[output_name] = property_renderer.render(
+            output_name, module_block[output_name] = property_renderer.render_default(
                 prop_name,
-                prop_spec.default,
                 prop_spec,
-                kind="module_property_default",
             )
 
         modules[component_name] = module_block

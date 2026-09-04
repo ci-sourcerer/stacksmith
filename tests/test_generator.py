@@ -755,6 +755,25 @@ class TestPropertyValidation:
 
         assert result["module"]["my-bucket"]["bucket_acl"] == "private"
 
+    def test_property_default_renders_jinja_with_resolved_inputs(
+        self, sample_stack_yaml: Path, sample_config_yaml: Path
+    ):
+        stack = load_stack(sample_stack_yaml)
+        stack.components["my-bucket"].properties.pop("acl", None)
+        config = load_config(sample_config_yaml)
+        config.module_mappings["aws_s3_bucket"].properties["acl"] = ModulePropertySpec(
+            mapped_to="bucket_acl",
+            default="{{ inputs.beep }}",
+        )
+
+        result = generate_tf_json(
+            stack,
+            config,
+            {"bucket_name": "my-bucket-test", "beep": "boop"},
+        )
+
+        assert result["module"]["my-bucket"]["bucket_acl"] == "boop"
+
     def test_property_default_runs_through_transform_and_validation(
         self, sample_stack_yaml: Path, sample_config_yaml: Path
     ):

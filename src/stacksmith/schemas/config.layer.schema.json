@@ -418,7 +418,7 @@
           "description": "Optional mapped module input name for the property. If omitted, the original property name is used."
         },
         "default": {
-          "description": "Default value used when no explicit value is supplied for this module property."
+          "description": "Default value used when no explicit value is supplied for this module property. Jinja templates are rendered against resolved inputs and component context during module generation."
         },
         "transform": {
           "$ref": "#/$defs/transformSpec",

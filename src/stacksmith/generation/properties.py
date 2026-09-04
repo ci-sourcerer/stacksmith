@@ -1,19 +1,34 @@
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from jinja2 import TemplateError
 from loguru import logger as LOGGER
 
-from ..component_references import bind_component_references
-from ..exceptions import StacksmithTransformError, StacksmithValidationError
+from ..component_references import (
+    bind_component_references,
+    with_component_reference_context,
+)
+from ..exceptions import (
+    StacksmithConfigError,
+    StacksmithTransformError,
+    StacksmithValidationError,
+)
 from ..models import (
     ModulePropertySpec,
     RemoteAuthConfig,
     StackDefinition,
     ToolConfig,
 )
+from ..templating import (
+    create_sandboxed_jinja_environment,
+    render_jinja_template_values,
+)
 from ..transforms import render_jinja_transform
 from ..validations import InputValidationOutcome, apply_transform, validate_value
+
+_JINJA_ENV = create_sandboxed_jinja_environment()
 
 
 def _resolve_module_input_path(value: str, base_paths: list[Path]) -> str:
@@ -281,3 +296,50 @@ class PropertyRenderer:
             ),
             self.base_paths,
         )
+
+    def render_default(
+        self,
+        name: str,
+        property_spec: ModulePropertySpec,
+    ) -> tuple[str, Any]:
+        """Render a configured default into its mapped module input.
+
+        Args:
+            name: Source property name.
+            property_spec: Managed property specification containing the default.
+
+        Returns:
+            Mapped output name and rendered default value.
+
+        Raises:
+            StacksmithConfigError: If the default's Jinja template cannot be
+                rendered.
+        """
+        output_name = self.output_name(name, property_spec)
+        try:
+            return self.render(
+                name,
+                render_jinja_template_values(
+                    deepcopy(property_spec.default),
+                    with_component_reference_context(
+                        build_property_context(
+                            name=name,
+                            kind="module_property_default",
+                            component_name=self.component_name,
+                            component_type=self.component_type,
+                            output_name=output_name,
+                            inputs=self.resolved_inputs,
+                            stack=self.stack,
+                            git_repository=self.git_repository,
+                        )
+                    ),
+                    jinja_env=_JINJA_ENV,
+                ),
+                property_spec,
+                kind="module_property_default",
+            )
+        except TemplateError as exc:
+            raise StacksmithConfigError(
+                f"Component '{self.component_name}' property '{name}' default "
+                f"template could not be rendered: {exc}"
+            ) from exc

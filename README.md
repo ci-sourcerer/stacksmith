@@ -595,11 +595,12 @@ Stacksmith supports Jinja in specific surfaces rather than as a global feature.
 | Runfile stage 1 (`stacksmith.yaml`) | During runfile load before schema validation | `runfile.path`, `runfile.dir`, `runfile.name`, `runfile.stem`, `git_repository` when available | Primarily for structured references and inline vars source data. |
 | Runfile stage 2 (runfile inline vars after merge) | During input resolution | `inputs`, `stack`, `git_repository` when available | Lets runfile-provided values compose with final merged inputs and stack metadata. |
 | `default_module_mapping.source` | During module mapping resolution when no explicit mapping exists | `component.type`, `component.name`, `env.git_repository` when available | Strict sandboxed render with post-render source validation. |
+| Module property `default` values | During module input generation when the component omits the property | `property.name`, `property.kind`, `property.output_name`, `component.name`, `component.type`, `inputs`, `stack`, `components`, `env.git_repository` when available | Applies to explicit and default module mappings. Recursively renders configured defaults before transforms and validations; deferred component output references are preserved and bound afterward. |
 | `properties.*.transform.jinja` | During input transform execution | `property.value` plus transform context (`property.name`, `property.kind`, `property.output_name`, `component.name`, `component.type`, `inputs`, `stack`, `env.git_repository` when available) | Adapts a resolved stack property into a module input. |
 | `module_mappings.*.outputs.*.transform.jinja` | During component output binding | `output.value`, `output.name`, `output.module_output`, `component.name`, `component.type`, `stack`, `env.git_repository` when available | Adapts the unresolved module output reference into the public component output. |
 | Stack `outputs.*.transform.jinja` | During root output generation | `output.value`, `output.name`, `stack`, `env.git_repository` when available | Safely adapts the exported value and its mock after component output binding. |
 
-Ordinary managed-config fields are intentionally non-templated.
+Other managed-config fields are intentionally non-templated.
 
 ### Remote resources
 

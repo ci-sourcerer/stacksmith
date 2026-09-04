@@ -331,6 +331,16 @@ def _default_config_paths() -> list[str]:
     return [str(Path.cwd() / "stacksmith-config.yaml")]
 
 
+def _paths_for_log(paths: Sequence[Path] | list[Path]) -> list[str]:
+    """Convert Path objects to strings for clean logging output."""
+    return [str(path) for path in paths]
+
+
+def _stack_build_dirs_for_log(stack_build_dirs: dict[str, Path]) -> dict[str, str]:
+    """Convert Path values in a dict to strings for clean logging output."""
+    return {name: str(path) for name, path in stack_build_dirs.items()}
+
+
 def _resolve_config_paths(
     config_args: list[str | FileReference] | None, cache_dir: Path | None = None
 ) -> list[Path]:
@@ -342,7 +352,7 @@ def _resolve_config_paths(
             f"Cannot fetch remote config without a cache directory: {reference}"
         ),
     )
-    LOGGER.debug("Resolved config paths: {paths}", paths=resolved)
+    LOGGER.debug("Resolved config paths: {paths}", paths=_paths_for_log(resolved))
     return resolved
 
 
@@ -374,7 +384,7 @@ def _resolve_stack_paths(
     if len(resolved) == 1 and not (is_remote_url(stack_refs[0])):
         resolved[0] = _find_stack_file(resolved[0])
 
-    LOGGER.debug("Resolved stack paths: {paths}", paths=resolved)
+    LOGGER.debug("Resolved stack paths: {paths}", paths=_paths_for_log(resolved))
     return resolved
 
 
@@ -454,7 +464,7 @@ def _resolve_build_dir(stack_path: Path, build_dir: Path | None) -> Path:
 def _find_stack_file(stack_file: Path) -> Path:
     if stack_file.exists():
         LOGGER.debug(
-            "Using explicit stack file path: {stack_file}", stack_file=stack_file
+            "Using explicit stack file path: {stack_file}", stack_file=str(stack_file)
         )
         return stack_file
 
@@ -466,7 +476,8 @@ def _find_stack_file(stack_file: Path) -> Path:
         candidate = parent / candidate_name
         if candidate.exists():
             LOGGER.debug(
-                "Resolved stack file from fallback: {candidate}", candidate=candidate
+                "Resolved stack file from fallback: {candidate}",
+                candidate=str(candidate),
             )
             return candidate
 
@@ -481,7 +492,7 @@ def _resolve_cache_dir(build_dir: Path | None, base: Path | None = None) -> Path
 
 def _clean_cache(cache_dir: Path) -> None:
     if cache_dir.exists():
-        LOGGER.debug("Cleaning remote cache: {cache_dir}", cache_dir=cache_dir)
+        LOGGER.debug("Cleaning remote cache: {cache_dir}", cache_dir=str(cache_dir))
         shutil.rmtree(cache_dir)
 
 
@@ -698,7 +709,7 @@ def _generate_single_stack(
         )
 
     if not silent:
-        LOGGER.info("Generated files in {output_dir}", output_dir=output_dir)
+        LOGGER.info("Generated files in {output_dir}", output_dir=str(output_dir))
     return output_dir
 
 
@@ -975,7 +986,7 @@ def _clean_prepared_stacks(prepared: _PreparedStacks) -> None:
     if prepared.custom_build_dir and prepared.root_build_dir.exists():
         LOGGER.debug(
             "Cleaning existing build directory: {root_build_dir}",
-            root_build_dir=prepared.root_build_dir,
+            root_build_dir=str(prepared.root_build_dir),
         )
         shutil.rmtree(prepared.root_build_dir)
         return
@@ -984,14 +995,14 @@ def _clean_prepared_stacks(prepared: _PreparedStacks) -> None:
             if stack_build_dir.exists():
                 LOGGER.debug(
                     "Cleaning existing build directory: {stack_build_dir}",
-                    stack_build_dir=stack_build_dir,
+                    stack_build_dir=str(stack_build_dir),
                 )
                 shutil.rmtree(stack_build_dir)
         return
     if prepared.root_build_dir.exists():
         LOGGER.debug(
             "Cleaning existing build directory: {root_build_dir}",
-            root_build_dir=prepared.root_build_dir,
+            root_build_dir=str(prepared.root_build_dir),
         )
         shutil.rmtree(prepared.root_build_dir)
 
@@ -1088,11 +1099,11 @@ def _generate_all_stacks(
         LOGGER.info(
             "Generated {count} stacks in {root_build_dir}",
             count=len(prepared.stacks),
-            root_build_dir=prepared.root_build_dir,
+            root_build_dir=str(prepared.root_build_dir),
         )
     LOGGER.debug(
         "Stack build dirs: {stack_build_dirs}",
-        stack_build_dirs=prepared.stack_build_dirs,
+        stack_build_dirs=_stack_build_dirs_for_log(prepared.stack_build_dirs),
     )
     return (
         prepared.root_build_dir,
