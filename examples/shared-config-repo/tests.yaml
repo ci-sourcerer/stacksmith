@@ -18,6 +18,32 @@ var_validations:
       value: eu-west-1
       expect: fail
 
+  instance_type:
+    - name: Accepts approved instance size
+      value: t3.micro
+      expect: pass
+    - name: Rejects unapproved instance size
+      value: c5.24xlarge
+      expect: fail
+
+  subnet_id:
+    - value: subnet-0123456789abcdef0
+      expect: pass
+    - value: not-a-subnet
+      expect: fail
+
+  bucket_name:
+    - value: example-logs
+      expect: pass
+    - value: Invalid_Bucket
+      expect: fail
+
+  ssh_ingress_cidrs:
+    - value: 10.0.0.0/8,192.168.0.0/16
+      expect: pass
+    - value: not-a-network
+      expect: fail
+
 plan_validations:
   ec2_requires_imdsv2:
     - name: Passes when tokens are required
@@ -46,6 +72,48 @@ plan_validations:
         tags:
           - critical
       expect: warn
+
+  s3_public_access_block_enabled:
+    - name: Accepts fully restricted public access
+      resources:
+        - type: aws_s3_bucket_public_access_block
+          after:
+            block_public_acls: true
+            block_public_policy: true
+            ignore_public_acls: true
+            restrict_public_buckets: true
+      expect: pass
+    - name: Rejects a public ACL
+      resources:
+        - type: aws_s3_bucket_acl
+          after:
+            acl: public-read
+      expect: fail
+
+  s3_write_policy_is_scoped:
+    - name: Accepts a scoped writer
+      resources:
+        - type: aws_s3_bucket_policy
+          after:
+            policy:
+              Statement:
+                - Effect: Allow
+                  Action: s3:PutObject
+                  Principal:
+                    AWS: arn:aws:iam::123456789012:role/writer
+                  Resource: arn:aws:s3:::example-logs/uploads/*
+      expect: pass
+    - name: Rejects a wildcard principal
+      resources:
+        - type: aws_s3_bucket_policy
+          after:
+            policy:
+              Statement:
+                - Effect: Allow
+                  Action: s3:PutObject
+                  Principal: "*"
+                  Resource: arn:aws:s3:::example-logs/uploads/*
+      expect: fail
 
 component_properties:
   aws_s3_bucket:
