@@ -12,8 +12,8 @@ from ..component_references import (
 )
 from ..exceptions import (
     StacksmithConfigError,
+    StacksmithPolicyRejectionError,
     StacksmithTransformError,
-    StacksmithValidationError,
 )
 from ..models import (
     ModulePropertySpec,
@@ -75,6 +75,8 @@ def apply_property_spec(
     config: ToolConfig,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
+    *,
+    raise_validation_errors: bool = False,
 ) -> Any:
     """Apply a configured property transform and validation.
 
@@ -85,13 +87,16 @@ def apply_property_spec(
         config: Managed Stacksmith configuration.
         cache_dir: Optional cache directory for remote scripts.
         auth_config: Optional remote authentication configuration.
+        raise_validation_errors: Raise separately for policy execution errors.
 
     Returns:
         Transformed and validated property value.
 
     Raises:
         StacksmithTransformError: If the property transform fails.
-        StacksmithValidationError: If the property validation fails.
+        StacksmithPolicyRejectionError: If the property validation fails.
+        StacksmithValidationExecutionError: If strict validation is requested
+            and the policy cannot execute or returns an invalid outcome.
     """
     rendered = value
     if property_spec is None:
@@ -137,9 +142,10 @@ def apply_property_spec(
         context=property_context,
         cache_dir=cache_dir,
         auth_config=auth_config,
+        raise_errors=raise_validation_errors,
     )
     if outcome != InputValidationOutcome.PASS:
-        raise StacksmithValidationError(
+        raise StacksmithPolicyRejectionError(
             f"Component '{property_context['component']['name']}' property "
             f"'{property_context['property']['name']}': {error_msg}"
         )

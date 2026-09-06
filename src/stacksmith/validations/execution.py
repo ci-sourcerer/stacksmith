@@ -11,6 +11,7 @@ from ..exceptions import (
     StacksmithNotFoundError,
     StacksmithTransformError,
     StacksmithValidationError,
+    StacksmithValidationExecutionError,
 )
 from ..models import (
     FileReference,
@@ -419,13 +420,38 @@ def validate_value_with_outcome(
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
     allow_warn: bool = False,
+    *,
+    raise_errors: bool = False,
 ) -> tuple[PlanValidationOutcome, str]:
+    """Evaluate a policy, optionally raising on execution or contract errors.
+
+    Args:
+        spec: Validation code reference or inline source.
+        value: Value passed to the policy.
+        base_path: Base directory for local scripts.
+        context: Keyword arguments exposed to the policy.
+        cache_dir: Cache directory for remote scripts.
+        auth_config: Authentication for remote scripts.
+        allow_warn: Whether a warning is a valid policy outcome.
+        raise_errors: Raise instead of converting policy errors into failures.
+
+    Returns:
+        Normalized outcome and diagnostic message.
+
+    Raises:
+        StacksmithValidationExecutionError: If `raise_errors` is set and the
+            policy cannot execute or returns an invalid outcome.
+    """
     try:
         code, origin = _load_code(
             spec, base_path, cache_dir=cache_dir, auth_config=auth_config
         )
         code = textwrap.dedent(code)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
+        if raise_errors:
+            raise StacksmithValidationExecutionError(
+                str(exc) or type(exc).__name__
+            ) from exc
         return PlanValidationOutcome.FAIL, _format_validation_error(
             str(exc) if str(exc) else f"{type(exc).__name__} raised during validation",
             origin="<validation-spec>",
@@ -444,7 +470,11 @@ def validate_value_with_outcome(
     ns = {"value": value, "context": context or {}} if spec.inline is not None else {}
     try:
         exec(compile(code, origin, "exec"), ns)  # noqa: S102
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
+        if raise_errors:
+            raise StacksmithValidationExecutionError(
+                str(exc) or type(exc).__name__
+            ) from exc
         return PlanValidationOutcome.FAIL, _format_validation_error(
             str(exc) if str(exc) else f"{type(exc).__name__} raised during validation",
             origin,
@@ -458,7 +488,11 @@ def validate_value_with_outcome(
     if callable(validate_fn):
         try:
             raw_result = validate_fn(value, **(context or {}))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
+            if raise_errors:
+                raise StacksmithValidationExecutionError(
+                    str(exc) or type(exc).__name__
+                ) from exc
             return PlanValidationOutcome.FAIL, _format_validation_error(
                 (
                     str(exc)
@@ -473,7 +507,11 @@ def validate_value_with_outcome(
     elif spec.inline is not None:
         try:
             raw_result = _evaluate_inline_validation(code, origin, value, context)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
+            if raise_errors:
+                raise StacksmithValidationExecutionError(
+                    str(exc) or type(exc).__name__
+                ) from exc
             return PlanValidationOutcome.FAIL, _format_validation_error(
                 (
                     str(exc)
@@ -486,6 +524,10 @@ def validate_value_with_outcome(
                 rule_description=spec.description,
             )
     else:
+        if raise_errors:
+            raise StacksmithValidationExecutionError(
+                "Validation code must define a callable validate(value, **context)"
+            )
         return PlanValidationOutcome.FAIL, _format_validation_error(
             "Validation code must define a callable 'validate(value, **context)'",
             origin,
@@ -493,12 +535,19 @@ def validate_value_with_outcome(
             rule_description=spec.description,
         )
 
+    if raise_errors and _extract_outcome_status_and_message(raw_result)[0] not in (
+        {"pass", "warn", "fail"} if allow_warn else {"pass", "fail"}
+    ):
+        raise StacksmithValidationExecutionError(
+            _invalid_outcome_contract_message(allow_warn, raw_result)
+        )
+
     outcome, outcome_message = _coerce_validation_outcome(
         raw_result,
         allow_warn=allow_warn,
     )
     if outcome == PlanValidationOutcome.PASS:
-        return PlanValidationOutcome.PASS, ""
+        return PlanValidationOutcome.PASS, outcome_message or ""
 
     fallback_message = (
         "Validation warning"
@@ -521,6 +570,8 @@ def validate_value(
     context: dict[str, Any] | None = None,
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
+    *,
+    raise_errors: bool = False,
 ) -> tuple[InputValidationOutcome, str]:
     """Evaluate a Python validation rule against a value.
 
@@ -536,10 +587,15 @@ def validate_value(
         context: Additional names forwarded as keyword arguments to `validate`.
         cache_dir: Cache directory for fetching remote scripts.
         auth_config: Optional host-keyed auth configuration for remote fetching.
+        raise_errors: Raise on policy execution or return-contract errors.
 
     Returns:
         Tuple of (`InputValidationOutcome`, error_message).
-        error_message is empty when the outcome is `PASS`.
+        Successful policies may also return a diagnostic message.
+
+    Raises:
+        StacksmithValidationExecutionError: If `raise_errors` is set and the
+            policy cannot execute or returns an invalid outcome.
     """
     outcome, message = validate_value_with_outcome(
         spec,
@@ -549,9 +605,10 @@ def validate_value(
         cache_dir=cache_dir,
         auth_config=auth_config,
         allow_warn=False,
+        raise_errors=raise_errors,
     )
     if outcome == PlanValidationOutcome.PASS:
-        return InputValidationOutcome.PASS, ""
+        return InputValidationOutcome.PASS, message
 
     return InputValidationOutcome.FAIL, message
 

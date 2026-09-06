@@ -10,6 +10,14 @@ class StacksmithValidationError(ValueError, StacksmithError):
     """Validation rule or validation-contract failure."""
 
 
+class StacksmithValidationExecutionError(StacksmithError):
+    """A policy could not execute or returned an invalid outcome."""
+
+
+class StacksmithPolicyRejectionError(StacksmithValidationError):
+    """A property validation policy intentionally rejected its input."""
+
+
 class StacksmithTransformError(StacksmithValidationError):
     """Transform loading or execution failure."""
 
