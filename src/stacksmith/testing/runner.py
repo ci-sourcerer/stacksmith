@@ -8,6 +8,7 @@ from ..generation.properties import apply_property_spec, build_property_context
 from ..loading import load_config
 from ..models import MergeConfig, RemoteAuthConfig, ToolConfig
 from ..module_mapping import resolve_module_mapping
+from ..remote import resolve_reference_path
 from ..validations import (
     InputValidationOutcome,
     PlanValidationOutcome,
@@ -120,6 +121,8 @@ class StacksmithTestRunner:
 
         Raises:
             StacksmithNotFoundError: If no plan-validation policy has the name.
+            StacksmithValidationExecutionError: If the policy cannot execute or
+                returns an invalid outcome.
         """
         policy = self._config.plan_validations.get(name)
         if policy is None:
@@ -133,6 +136,7 @@ class StacksmithTestRunner:
             cache_dir=self._cache_dir,
             auth_config=self._auth_config,
             allow_warn=True,
+            raise_errors=True,
         )
 
     def run_variable_policy(
@@ -151,6 +155,8 @@ class StacksmithTestRunner:
 
         Raises:
             StacksmithNotFoundError: If no variable-validation policy has the name.
+            StacksmithValidationExecutionError: If the policy cannot execute or
+                returns an invalid outcome.
         """
         policy = self._config.var_validations.get(name)
         if policy is None:
@@ -163,6 +169,27 @@ class StacksmithTestRunner:
             value,
             base_path=self._config_directory,
             context={"name": name, "kind": "config_variable"},
+            raise_errors=True,
+            cache_dir=self._cache_dir,
+            auth_config=self._auth_config,
+        )
+
+    def resolve_fixture_script(self, reference: str) -> Path:
+        """Resolve a fixture script using the configured cache and authentication.
+
+        Args:
+            reference: Absolute local path or rendered remote file reference.
+
+        Returns:
+            Local path to the fixture script.
+
+        Raises:
+            StacksmithRemoteError: If fetching the reference fails.
+            StacksmithNotFoundError: If the script does not exist.
+        """
+        return resolve_reference_path(
+            reference,
+            base_path=self._config_directory,
             cache_dir=self._cache_dir,
             auth_config=self._auth_config,
         )
@@ -196,6 +223,9 @@ class StacksmithTestRunner:
         Raises:
             StacksmithNotFoundError: If the mapping has no specification for the
                 requested property.
+            StacksmithPolicyRejectionError: If validation rejects the value.
+            StacksmithValidationExecutionError: If the validation policy is broken.
+            StacksmithTransformError: If the transform fails.
         """
         mapping = resolve_module_mapping(
             self._config,
@@ -227,6 +257,7 @@ class StacksmithTestRunner:
             self._config,
             cache_dir=self._cache_dir,
             auth_config=self._auth_config,
+            raise_validation_errors=True,
         )
         return ComponentPropertyResult(output_name=output_name, value=rendered)
 

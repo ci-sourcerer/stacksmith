@@ -87,7 +87,7 @@ def _merge_config(pytestconfig: pytest.Config) -> MergeConfig:
         ) from exc
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def stacksmith_test_runner(
     request: pytest.FixtureRequest,
 ) -> StacksmithTestRunner:

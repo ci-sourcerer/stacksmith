@@ -30,7 +30,7 @@ from stacksmith.models import (
     StacksmithTestManifest,
 )
 from stacksmith.remote import is_remote_url, resolve_if_remote
-from stacksmith.testing import StacksmithTestGenerator
+from stacksmith.testing import StacksmithTestGenerator, find_untested_policies
 from stacksmith.utils import parse_bool
 
 from ..api import (
@@ -527,7 +527,7 @@ def _pytest_merge_args(merge_mode: MergeConfig) -> list[str]:
 def _cmd_test(args: argparse.Namespace) -> int:
     _apply_runfile(args)
     merge_mode = _merge_mode_arg(args)
-    cache_dir, config_paths, _ = load_runtime_config(
+    cache_dir, config_paths, config = load_runtime_config(
         args.config,
         args.build_dir,
         no_cache=args.no_cache,
@@ -561,6 +561,11 @@ def _cmd_test(args: argparse.Namespace) -> int:
     if generated_module.test_count == 0:
         raise StacksmithConfigError("No test cases were generated from test manifests.")
 
+    if untested := find_untested_policies(config, test_manifest):
+        LOGGER.info(
+            "Policies without manifest cases: {policies}", policies=", ".join(untested)
+        )
+
     dump_tests_path = (
         args.dump_tests.expanduser().resolve() if args.dump_tests is not None else None
     )
@@ -589,7 +594,7 @@ def _cmd_test(args: argparse.Namespace) -> int:
     )
     with manager:
         return subprocess.run(
-            [sys.executable, "-m", "pytest", *pytest_args], check=False
+            [sys.executable, "-m", "pytest", *pytest_args], check=False, shell=False
         ).returncode
 
 

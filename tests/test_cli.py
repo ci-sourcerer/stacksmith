@@ -222,7 +222,8 @@ def test_test_command_forwards_merged_config_to_pytest(
         calls["config"] = (args, kwargs)
         return cache_dir, [base_config, override_config], object()
 
-    def _fake_run(command, check):
+    def _fake_run(command, check, shell):
+        assert shell is False
         calls["pytest"] = (command, check)
         return SimpleNamespace(returncode=7)
 
@@ -239,6 +240,7 @@ def test_test_command_forwards_merged_config_to_pytest(
             return SimpleNamespace(source="# generated\n", test_count=1)
 
     monkeypatch.setattr(cli_main, "StacksmithTestGenerator", _FakeGenerator)
+    monkeypatch.setattr(cli_main, "find_untested_policies", lambda *args: [])
     monkeypatch.setattr(
         cli_main,
         "_write_generated_test_module",
@@ -312,7 +314,8 @@ def test_test_command_discovers_test_directories_for_all_config_layers(
     generated_test = tmp_path / "generated" / "test_stacksmith_generated.py"
     calls = {}
 
-    def _fake_run(command, check):
+    def _fake_run(command, check, shell):
+        assert shell is False
         calls["pytest"] = (command, check)
         return SimpleNamespace(returncode=0)
 
@@ -341,6 +344,7 @@ def test_test_command_discovers_test_directories_for_all_config_layers(
             return SimpleNamespace(source="# generated\n", test_count=1)
 
     monkeypatch.setattr(cli_main, "StacksmithTestGenerator", _FakeGenerator)
+    monkeypatch.setattr(cli_main, "find_untested_policies", lambda *args: [])
     monkeypatch.setattr(
         cli_main,
         "_write_generated_test_module",

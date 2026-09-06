@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 from pprint import pformat
 
-from ..models import StacksmithTestManifest, render_file_reference
+from ..models import (
+    ComponentPropertyTestCase,
+    StacksmithTestManifest,
+    render_file_reference,
+)
 
 
 @dataclass(frozen=True)
@@ -31,16 +35,18 @@ class StacksmithTestGenerator:
             "",
             "import pytest",
             "from stacksmith.validations.outcomes import InputValidationOutcome, PlanValidationOutcome",
+            "from stacksmith.exceptions import StacksmithPolicyRejectionError",
             "",
         ]
 
         if self._manifest.fixtures is not None:
             lines.extend(self._render_fixture_helpers())
 
+        used_names: set[str] = set()
         test_count = 0
-        test_count += self._render_variable_policy_tests(lines)
-        test_count += self._render_plan_policy_tests(lines)
-        test_count += self._render_component_property_tests(lines)
+        test_count += self._render_variable_policy_tests(lines, used_names)
+        test_count += self._render_plan_policy_tests(lines, used_names)
+        test_count += self._render_component_property_tests(lines, used_names)
 
         return GeneratedPytestModule(
             source="\n".join(lines).rstrip() + "\n", test_count=test_count
@@ -53,20 +59,20 @@ class StacksmithTestGenerator:
         fixture_lines = [
             "_STACKSMITH_FIXTURE_STATE: dict[str, object] = {}",
             "",
-            "def _run_fixture(inline_code: str | None, script_path: str | None, origin: str) -> None:",
+            "def _run_fixture(stacksmith_test_runner, inline_code: str | None, script_path: str | None, origin: str) -> None:",
             '    namespace = {"fixture_state": _STACKSMITH_FIXTURE_STATE}',
             "    if inline_code is not None:",
             '        exec(compile(inline_code, origin, "exec"), namespace)  # noqa: S102',
             "        return",
             "    if script_path is None:",
             "        return",
-            "    loaded = runpy.run_path(script_path, init_globals=namespace)",
+            "    loaded = runpy.run_path(str(stacksmith_test_runner.resolve_fixture_script(script_path)), init_globals=namespace)",
             '    runner = loaded.get("run")',
             "    if callable(runner):",
             "        runner(state=_STACKSMITH_FIXTURE_STATE)",
             "",
             f'@pytest.fixture(scope="{fixture_scope}", autouse=True)',
-            "def _stacksmith_generated_fixtures() -> None:",
+            "def _stacksmith_generated_fixtures(stacksmith_test_runner) -> None:",
         ]
 
         setup_inline, setup_script = self._fixture_source_values("setup")
@@ -75,12 +81,14 @@ class StacksmithTestGenerator:
             [
                 "    _STACKSMITH_FIXTURE_STATE.clear()",
                 "    _run_fixture(",
+                "        stacksmith_test_runner,",
                 f"        inline_code={setup_inline},",
                 f"        script_path={setup_script},",
                 '        origin="fixtures.setup",',
                 "    )",
                 "    yield",
                 "    _run_fixture(",
+                "        stacksmith_test_runner,",
                 f"        inline_code={teardown_inline},",
                 f"        script_path={teardown_script},",
                 '        origin="fixtures.teardown",',
@@ -108,7 +116,9 @@ class StacksmithTestGenerator:
             return "None", "None"
         return "None", repr(render_file_reference(script_reference))
 
-    def _render_variable_policy_tests(self, lines: list[str]) -> int:
+    def _render_variable_policy_tests(
+        self, lines: list[str], used_names: set[str]
+    ) -> int:
         count = 0
         for policy_name, cases in self._manifest.var_validations.items():
             for index, case in enumerate(cases):
@@ -117,27 +127,29 @@ class StacksmithTestGenerator:
                     policy_name,
                     case.name,
                     index,
+                    used_names,
                 )
                 lines.append(f"def {function_name}(stacksmith_test_runner) -> None:")
                 self._append_assignment(lines, "value", case.value)
                 lines.append(
-                    "    outcome, _ = stacksmith_test_runner.run_variable_policy("
+                    "    outcome, message = stacksmith_test_runner.run_variable_policy("
                     f"{policy_name!r}, value)"
                 )
                 lines.append(
                     "    assert outcome == "
-                    f"InputValidationOutcome.{case.expect.upper()}"
+                    f"InputValidationOutcome.{case.expect.upper()}, message"
                 )
+                self._append_message_assertion(lines, case.message_contains)
                 lines.append("")
                 count += 1
         return count
 
-    def _render_plan_policy_tests(self, lines: list[str]) -> int:
+    def _render_plan_policy_tests(self, lines: list[str], used_names: set[str]) -> int:
         count = 0
         for policy_name, cases in self._manifest.plan_validations.items():
             for index, case in enumerate(cases):
                 function_name = self._function_name(
-                    "plan", policy_name, case.name, index
+                    "plan", policy_name, case.name, index, used_names
                 )
                 lines.append(f"def {function_name}(stacksmith_test_runner) -> None:")
                 payload = (
@@ -154,22 +166,25 @@ class StacksmithTestGenerator:
                 if case.context:
                     self._append_assignment(lines, "context", case.context)
                     lines.append(
-                        "    outcome, _ = stacksmith_test_runner.run_plan_policy("
+                        "    outcome, message = stacksmith_test_runner.run_plan_policy("
                         f"{policy_name!r}, plan_payload, context=context)"
                     )
                 else:
                     lines.append(
-                        "    outcome, _ = stacksmith_test_runner.run_plan_policy("
+                        "    outcome, message = stacksmith_test_runner.run_plan_policy("
                         f"{policy_name!r}, plan_payload)"
                     )
                 lines.append(
-                    f"    assert outcome == PlanValidationOutcome.{case.expect.upper()}"
+                    f"    assert outcome == PlanValidationOutcome.{case.expect.upper()}, message"
                 )
+                self._append_message_assertion(lines, case.message_contains)
                 lines.append("")
                 count += 1
         return count
 
-    def _render_component_property_tests(self, lines: list[str]) -> int:
+    def _render_component_property_tests(
+        self, lines: list[str], used_names: set[str]
+    ) -> int:
         count = 0
         for component_type, properties in self._manifest.component_properties.items():
             for property_name, cases in properties.items():
@@ -179,26 +194,63 @@ class StacksmithTestGenerator:
                         f"{component_type}_{property_name}",
                         case.name,
                         index,
+                        used_names,
                     )
                     lines.append(
                         f"def {function_name}(stacksmith_test_runner) -> None:"
                     )
-                    self._append_assignment(lines, "value", case.value)
-                    self._append_assignment(lines, "inputs", case.inputs)
-                    lines.append(
-                        "    result = stacksmith_test_runner.run_component_property("
-                        f"{component_type!r}, {property_name!r}, value, inputs=inputs)"
+                    self._render_component_property_case(
+                        lines, component_type, property_name, case
                     )
-                    self._append_assignment(lines, "expected_value", case.expect.value)
-                    lines.append("    assert result.value == expected_value")
-                    if case.expect.output_name is not None:
-                        lines.append(
-                            "    assert result.output_name == "
-                            f"{case.expect.output_name!r}"
-                        )
                     lines.append("")
                     count += 1
         return count
+
+    def _render_component_property_case(
+        self,
+        lines: list[str],
+        component_type: str,
+        property_name: str,
+        case: ComponentPropertyTestCase,
+    ) -> None:
+        self._append_assignment(lines, "value", case.value)
+        self._append_assignment(lines, "inputs", case.inputs)
+        self._append_assignment(
+            lines,
+            "property_context",
+            {
+                "component_name": case.component_name,
+                "stack": case.stack,
+                "git_repository": case.git_repository,
+            },
+        )
+        call = (
+            "stacksmith_test_runner.run_component_property("
+            f"{component_type!r}, {property_name!r}, value, inputs=inputs, **property_context)"
+        )
+        if case.expect == "fail":
+            lines.append(
+                "    with pytest.raises(StacksmithPolicyRejectionError) as error:"
+            )
+            lines.append(f"        {call}")
+            self._append_message_assertion(
+                lines, case.message_contains, "str(error.value)"
+            )
+            return
+
+        lines.append(f"    result = {call}")
+        self._append_assignment(lines, "expected_value", case.expect.value)
+        lines.append("    assert result.value == expected_value")
+        if case.expect.output_name is not None:
+            lines.append(
+                f"    assert result.output_name == {case.expect.output_name!r}"
+            )
+
+    def _append_message_assertion(
+        self, lines: list[str], expected: str | None, expression: str = "message"
+    ) -> None:
+        if expected is not None:
+            lines.append(f"    assert {expected!r} in {expression}, {expression}")
 
     def _append_assignment(self, lines: list[str], name: str, value: object) -> None:
         literal = pformat(value, sort_dicts=True, width=88)
@@ -216,6 +268,7 @@ class StacksmithTestGenerator:
         scope: str,
         case_name: str | None,
         index: int,
+        used_names: set[str],
     ) -> str:
         normalized_scope = self._sanitize_identifier(scope)
         normalized_case = (
@@ -223,11 +276,19 @@ class StacksmithTestGenerator:
             if case_name is not None
             else f"case_{index + 1}"
         )
-        return f"test_{prefix}_{normalized_scope}_{normalized_case}"
+        base_name = f"test_{prefix}_{normalized_scope}_{normalized_case}"
+        function_name = base_name
+        suffix = 2
+        while function_name in used_names:
+            function_name = f"{base_name}_{suffix}"
+            suffix += 1
+        used_names.add(function_name)
+        return function_name
 
     def _sanitize_identifier(self, value: str) -> str:
         sanitized = "".join(
-            char.lower() if char.isalnum() else "_" for char in value.strip()
+            char.lower() if (char.isascii() and char.isalnum()) else "_"
+            for char in value.strip()
         )
         while "__" in sanitized:
             sanitized = sanitized.replace("__", "_")

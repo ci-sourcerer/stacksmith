@@ -2,6 +2,34 @@ from stacksmith.models import StacksmithTestManifest
 from stacksmith.testing import StacksmithTestGenerator
 
 
+def test_generated_module_preserves_colliding_cases() -> None:
+    manifest = StacksmithTestManifest.model_validate(
+        {
+            "var_validations": {
+                "region": [
+                    {"name": name, "value": index, "expect": "pass"}
+                    for index, name in enumerate(
+                        ["reject invalid", "reject-invalid", "reject_invalid_2", "²"]
+                    )
+                ],
+                "region!": [{"name": "reject invalid", "value": 4, "expect": "pass"}],
+            },
+            "component_properties": {
+                "a_b": {"c": [{"value": 5, "expect": {"value": 5}}]},
+                "a": {"b_c": [{"value": 6, "expect": {"value": 6}}]},
+            },
+        }
+    )
+    generator = StacksmithTestGenerator(manifest)
+    generated = generator.generate_pytest_module()
+    namespace = {}
+    exec(compile(generated.source, "<generated-tests>", "exec"), namespace)  # noqa: S102
+
+    assert len([name for name in namespace if name.startswith("test_")]) == 7
+    assert generated.test_count == 7
+    assert generator.generate_pytest_module() == generated
+
+
 def test_generate_pytest_module_includes_all_test_types() -> None:
     manifest = StacksmithTestManifest.model_validate(
         {
@@ -47,7 +75,7 @@ def test_generate_pytest_module_includes_all_test_types() -> None:
     assert "PlanValidationOutcome.WARN" in generated.source
     assert "context=context" in generated.source
     assert (
-        "run_component_property('aws_s3_bucket', 'bucket_name', value, inputs=inputs)"
+        "run_component_property('aws_s3_bucket', 'bucket_name', value, inputs=inputs, **property_context)"
         in generated.source
     )
     assert "assert result.output_name == 'bucket'" in generated.source
@@ -79,7 +107,9 @@ def test_generate_pytest_module_includes_fixture_hooks() -> None:
 
     generated = StacksmithTestGenerator(manifest).generate_pytest_module()
 
-    assert "def _stacksmith_generated_fixtures()" in generated.source
+    assert (
+        "def _stacksmith_generated_fixtures(stacksmith_test_runner)" in generated.source
+    )
     assert 'origin="fixtures.setup"' in generated.source
     assert 'origin="fixtures.teardown"' in generated.source
     assert "fixture_state['setup'] = True" in generated.source

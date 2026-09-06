@@ -391,13 +391,19 @@ def test_test_manifest_fields_match_schema():
 
     assert _field_names(FixtureSpec) == {"inline", "script"}
     assert _field_names(StacksmithTestFixtures) == {"mode", "setup", "teardown"}
-    assert _field_names(VariablePolicyTestCase) == {"name", "value", "expect"}
+    assert _field_names(VariablePolicyTestCase) == {
+        "name",
+        "value",
+        "expect",
+        "message_contains",
+    }
     assert _field_names(PlanPolicyTestCase) == {
         "name",
         "plan",
         "resources",
         "context",
         "expect",
+        "message_contains",
     }
     assert _field_names(PlanTestResource) == {
         "type",
@@ -414,6 +420,10 @@ def test_test_manifest_fields_match_schema():
         "value",
         "inputs",
         "expect",
+        "component_name",
+        "stack",
+        "git_repository",
+        "message_contains",
     }
 
 

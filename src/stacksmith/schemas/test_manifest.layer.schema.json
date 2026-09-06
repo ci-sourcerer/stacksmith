@@ -160,6 +160,10 @@
             "PASS",
             "FAIL"
           ]
+        },
+        "message_contains": {
+          "type": "string",
+          "description": "Literal substring required in the policy diagnostic."
         }
       }
     },
@@ -193,6 +197,10 @@
             "WARN",
             "FAIL"
           ]
+        },
+        "message_contains": {
+          "type": "string",
+          "description": "Literal substring required in the policy diagnostic."
         }
       },
       "anyOf": [
@@ -255,7 +263,29 @@
           "additionalProperties": true
         },
         "expect": {
-          "$ref": "#/$defs/componentPropertyExpectation"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/componentPropertyExpectation"
+            },
+            {
+              "const": "fail"
+            }
+          ]
+        },
+        "message_contains": {
+          "type": "string",
+          "description": "Literal substring required in the policy diagnostic."
+        },
+        "component_name": {
+          "type": "string",
+          "default": "test-component"
+        },
+        "stack": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "git_repository": {
+          "type": "string"
         }
       }
     }

@@ -6,4 +6,6 @@ __all__ = [
     "GeneratedPytestModule",
     "StacksmithTestGenerator",
     "StacksmithTestRunner",
+    "find_untested_policies",
 ]
+from .coverage import find_untested_policies

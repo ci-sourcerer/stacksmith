@@ -57,6 +57,7 @@ class VariablePolicyTestCase(BaseModel):
     name: str | None = None
     value: Any
     expect: str
+    message_contains: str | None = None
 
     @field_validator("expect")
     @classmethod
@@ -109,6 +110,7 @@ class PlanPolicyTestCase(BaseModel):
     resources: list[PlanTestResource] | None = None
     context: dict[str, Any] = Field(default_factory=dict)
     expect: str
+    message_contains: str | None = None
 
     @field_validator("expect")
     @classmethod
@@ -135,7 +137,17 @@ class ComponentPropertyTestCase(BaseModel):
     name: str | None = None
     value: Any
     inputs: dict[str, Any] = Field(default_factory=dict)
-    expect: ComponentPropertyExpectation
+    component_name: str = "test-component"
+    stack: dict[str, Any] | None = None
+    git_repository: str | None = None
+    expect: ComponentPropertyExpectation | Literal["fail"]
+    message_contains: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_failure_message(self) -> ComponentPropertyTestCase:
+        if self.message_contains is not None and self.expect != "fail":
+            raise ValueError("Property message_contains requires expect: fail")
+        return self
 
 
 class StacksmithTestManifest(BaseModel):
