@@ -971,6 +971,12 @@ stacksmith test \
 
 Manifest test cases cover variable policies, plan policies, and component properties. Plan policy cases can include optional context (for example stack metadata), and manifests can define optional setup/teardown fixtures using either inline Python or script references. Fixture execution mode can be set to `per-suite` (default) or `per-test-case`.
 
+Generated test names remain unique when case or policy names normalize to the same Python identifier. Policy exceptions, missing scripts, and invalid return values fail tests even when a case expects `fail`. Use `message_contains` on variable and plan cases to check a literal substring in the returned diagnostic; outcome assertion failures also display that diagnostic.
+
+Fixture scripts support local, HTTP, and Git references. Local paths resolve relative to their declaring manifest, and remote scripts use the managed configuration's authentication and the test command's cache.
+
+The test command reports named variable and plan policies without cases in the merged manifest, including disabled policies. This is an informational inventory of declared cases, not line coverage or a count of tests selected by pytest filters.
+
 ```yaml
 description: Policy and transform tests for the production platform configuration.
 
@@ -1007,6 +1013,24 @@ component_properties:
 ```
 
 Each `resources` item requires `type`; Stacksmith supplies `address: <type>.this` and `change.actions: [create]` by default. Set `address` or `actions` explicitly for address-sensitive policies, multiple resources of the same type, deletes, replacements, or other non-default plan behavior. Use `plan` instead of `resources` when a test requires exact OpenTofu plan JSON.
+
+Property cases also accept `component_name` (default `test-component`), `stack`, and `git_repository`. These values use the same context structure as production transforms and validations, alongside `inputs`.
+
+For a property with a configured validation, use `expect: fail` to require an explicit rejection. An unexpected successful result, a transform error, or a broken validation fails the test. Property `message_contains` is available only with `expect: fail`.
+
+```yaml
+component_properties:
+  storage:
+    access:
+      - name: Rejects public access
+        value: public
+        component_name: audit-logs
+        stack:
+          name: production
+        git_repository: https://example.com/platform.git
+        expect: fail
+        message_contains: Private access is required
+```
 
 ### Local path resolution
 
