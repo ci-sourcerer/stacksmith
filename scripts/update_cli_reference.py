@@ -8,14 +8,14 @@ from pathlib import Path
 
 from stacksmith.cli.parser import build_parser
 
-README_PATH = Path("README.md")
+DOCS_REFERENCE_PATH = Path("docs/reference/cli.md")
 START_MARKER = "<!-- BEGIN GENERATED CLI REFERENCE -->"
 END_MARKER = "<!-- END GENERATED CLI REFERENCE -->"
 _CLI_REFERENCE_WIDTH = 110
 
 
 def generate_cli_reference() -> str:
-    """Generate the README CLI reference from the argparse parser.
+    """Generate the CLI reference from the argparse parser.
 
     Returns:
         Markdown content for the generated CLI reference block.
@@ -37,18 +37,17 @@ def generate_cli_reference() -> str:
     )
 
 
-def update_readme(check: bool = False) -> int:
-    """Update or check the README generated CLI reference block.
+def update_docs_reference(check: bool = False) -> int:
+    """Update or check the generated CLI reference page.
 
     Args:
-        check: When `True`, report drift without writing the README.
+        check: When `True`, report drift without writing the page.
 
     Returns:
         Process exit code.
     """
-    original = README_PATH.read_text(encoding="utf-8")
+    original = DOCS_REFERENCE_PATH.read_text(encoding="utf-8")
     updated = replace_generated_block(original, generate_cli_reference())
-
     if original == updated:
         return 0
 
@@ -57,25 +56,27 @@ def update_readme(check: bool = False) -> int:
             difflib.unified_diff(
                 original.splitlines(keepends=True),
                 updated.splitlines(keepends=True),
-                fromfile=str(README_PATH),
-                tofile=f"{README_PATH} (generated)",
+                fromfile=str(DOCS_REFERENCE_PATH),
+                tofile=f"{DOCS_REFERENCE_PATH} (generated)",
             )
         )
         return 1
 
-    README_PATH.write_text(updated, encoding="utf-8")
+    DOCS_REFERENCE_PATH.write_text(updated, encoding="utf-8")
     return 0
 
 
-def replace_generated_block(content: str, generated_block: str) -> str:
-    """Replace the generated CLI reference block in README content.
+def replace_generated_block(
+    content: str,
+    generated_block: str,
+) -> str:
+    """Replace the generated CLI reference block in doc content.
 
     Args:
-        content: Existing README content.
+        content: Existing documentation content.
         generated_block: Generated markdown block, including markers.
-
     Returns:
-        README content with the generated block replaced.
+        Documentation content with the generated block replaced.
 
     Raises:
         ValueError: If the generated block markers are missing or reversed.
@@ -90,22 +91,19 @@ def replace_generated_block(content: str, generated_block: str) -> str:
 
 def main() -> None:
     """Run the CLI reference updater."""
-    sys.exit(update_readme(check="--check" in sys.argv[1:]))
+    sys.exit(update_docs_reference(check="--check" in sys.argv[1:]))
 
 
-def _insert_generated_block(content: str, generated_block: str) -> str:
-    heading = "## CLI reference\n\n"
-    next_heading = "\n### Validation report output"
+def _insert_generated_block(
+    content: str,
+    generated_block: str,
+) -> str:
+    heading = "# CLI reference\n\n"
     if heading not in content:
-        raise ValueError("Could not find `## CLI reference` in README.md.")
-    if next_heading not in content:
-        raise ValueError(
-            "Could not find `### Validation report output` after CLI reference."
-        )
+        raise ValueError("Could not find `# CLI reference` in the docs reference page.")
 
     start = content.index(heading) + len(heading)
-    end = content.index(next_heading, start)
-    return f"{content[:start]}{generated_block}\n{content[end:]}"
+    return f"{content[:start]}{generated_block}\n"
 
 
 def _format_parser_reference(

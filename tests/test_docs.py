@@ -1,4 +1,5 @@
 import importlib.util
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -31,27 +32,35 @@ def test_cli_reference_contains_nested_commands():
     assert "| `--validation-report-format` |" in reference
 
 
-def test_readme_cli_reference_is_current():
-    readme = Path("README.md").read_text(encoding="utf-8")
+def test_docs_cli_reference_is_current():
+    cli_reference = Path("docs/reference/cli.md").read_text(encoding="utf-8")
 
     assert (
         _UPDATE_CLI_REFERENCE.replace_generated_block(
-            readme,
+            cli_reference,
             _UPDATE_CLI_REFERENCE.generate_cli_reference(),
         )
-        == readme
+        == cli_reference
     )
 
 
-def test_readme_documents_ci_destroy_safety_and_lifecycle():
+def test_ci_docs_cover_destroy_safety_and_lifecycle():
+    ci_docs = Path("docs/integrations/ci.md").read_text(encoding="utf-8")
+
+    assert "examples/github-actions/stacksmith-destroy.yml" in ci_docs
+    assert "first previews infrastructure with `plan --destroy`" in ci_docs
+    assert "destroys the operation state before infrastructure" in ci_docs
+    assert "rejects destructive execution on pull requests" in ci_docs
+    assert "`destroy-plan.json`" in ci_docs
+    assert "`COMMAND`: `plan`, `apply`, `destroy`" in ci_docs
+
+
+def test_readme_is_a_concise_documentation_entrypoint():
     readme = Path("README.md").read_text(encoding="utf-8")
 
-    assert "examples/github-actions/stacksmith-destroy.yml" in readme
-    assert "first previews infrastructure with `plan --destroy`" in readme
-    assert "destroys the operation state before infrastructure" in readme
-    assert "rejects destructive execution on pull requests" in readme
-    assert "`destroy-plan.json`" in readme
-    assert "`COMMAND`: `plan`, `apply`, `destroy`" in readme
+    assert len(readme.splitlines()) < 100
+    assert "https://stacksmith.ci-sourcerer.com/" in readme
+    assert _UPDATE_CLI_REFERENCE.START_MARKER not in readme
 
 
 def test_replace_generated_block_requires_cli_heading_when_markers_are_missing():
@@ -60,6 +69,48 @@ def test_replace_generated_block_requires_cli_heading_when_markers_are_missing()
             "# Stacksmith\n",
             _UPDATE_CLI_REFERENCE.generate_cli_reference(),
         )
+
+
+def test_zensical_site_has_basic_local_pages():
+    with Path("zensical.toml").open("rb") as config_file:
+        zensical_config = tomllib.load(config_file)
+    docs_index = Path("docs/index.md")
+
+    assert docs_index.exists()
+    assert zensical_config["project"]["site_name"] == "Stacksmith"
+    assert len(zensical_config["project"]["nav"]) == 7
+    assert "Stacksmith" in docs_index.read_text(encoding="utf-8")
+
+
+def test_canonical_documentation_pages_exist():
+    expected_pages = {
+        "docs/concepts.md",
+        "docs/contributing.md",
+        "docs/getting-started.md",
+        "docs/guides/advanced-authoring.md",
+        "docs/guides/docker.md",
+        "docs/guides/execution.md",
+        "docs/guides/managed-configuration.md",
+        "docs/guides/stack-authoring.md",
+        "docs/integrations/ci.md",
+        "docs/reference/cli-usage.md",
+        "docs/reference/cli.md",
+        "docs/reference/python-api.md",
+        "docs/roadmap.md",
+    }
+
+    assert all(Path(page).is_file() for page in expected_pages)
+
+
+def test_docs_deployment_publishes_the_zensical_site_to_github_pages():
+    workflow = Path(".github/workflows/docs-deploy.yml").read_text(encoding="utf-8")
+
+    assert "actions/configure-pages@v6" in workflow
+    assert "actions/upload-pages-artifact@v5" in workflow
+    assert "path: site/" in workflow
+    assert "actions/deploy-pages@v5" in workflow
+    assert "pages: write" in workflow
+    assert "id-token: write" in workflow
 
 
 def test_replace_generated_block_replaces_existing_markers():

@@ -1,0 +1,59 @@
+[project]
+site_name = "Stacksmith"
+site_description = "YAML/JSON-driven OpenTofu wrapper with Terragrunt orchestration"
+site_url = "https://stacksmith.ci-sourcerer.com/"
+repo_name = "ci-sourcerer/stacksmith"
+repo_url = "https://github.com/ci-sourcerer/stacksmith"
+nav = [
+  { "Home" = "index.md" },
+  { "Getting started" = "getting-started.md" },
+  { "Core concepts" = "concepts.md" },
+  { "Guides" = [
+    { "Stack authoring" = "guides/stack-authoring.md" },
+    { "Managed configuration" = "guides/managed-configuration.md" },
+    { "Execution and orchestration" = "guides/execution.md" },
+    { "Advanced authoring" = "guides/advanced-authoring.md" },
+    { "Docker" = "guides/docker.md" },
+  ] },
+  { "Integrations" = [
+    { "CI and GitOps" = "integrations/ci.md" },
+  ] },
+  { "Reference" = [
+    { "CLI" = "reference/cli.md" },
+    { "CLI usage notes" = "reference/cli-usage.md" },
+    { "Python API" = "reference/python-api.md" },
+  ] },
+  { "Project" = [
+    { "Contributing" = "contributing.md" },
+    { "Roadmap" = "roadmap.md" },
+  ] },
+]
+
+[project.theme]
+features = [
+  "navigation.sections",
+  "navigation.expand",
+  "navigation.top",
+  "content.code.copy",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "deep purple"
+accent = "indigo"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "deep purple"
+accent = "indigo"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+md_in_html = {}
+pymdownx.highlight = {}
+pymdownx.inlinehilite = {}
+pymdownx.superfences = {}
