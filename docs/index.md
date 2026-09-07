@@ -34,5 +34,3 @@ In short, Stacksmith is a wrapper for Terragrunt, which is itself a wrapper for 
 3. Stacksmith resolves inputs, policies, modules, providers, and state configuration.
 4. The application team validates and reviews an OpenTofu plan.
 5. Stacksmith applies the reviewed infrastructure and any approved operations.
-
-The documentation site is the canonical source for Stacksmith behavior. The repository README intentionally remains a short project overview.

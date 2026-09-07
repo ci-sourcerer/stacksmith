@@ -41,7 +41,7 @@ For local documentation development, use `poe docs-serve`. Run `poe docs-build` 
 
 ## Development
 
-Run the standard project checks before submitting changes.
+Run the standard project checks before submitting changes. This project uses [`common-python-tasks`](https://github.com/ci-sourcerer/common-python-tasks).
 
 ```sh
 poe format
