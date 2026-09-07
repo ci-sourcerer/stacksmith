@@ -1,0 +1,46 @@
+name: docs-preview
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/docs-preview.yml'
+      - 'docs/**'
+      - 'zensical.toml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'scripts/update_cli_reference.py'
+      - 'src/stacksmith/cli/**'
+  workflow_dispatch:
+
+jobs:
+  build-docs:
+    name: Documentation build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+
+      - name: Install dependencies
+        run: uv sync --locked --group dev
+
+      - name: Check generated CLI reference
+        run: uv run python scripts/update_cli_reference.py --check
+
+      - name: Build documentation site
+        run: uv run zensical build --strict
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: stacksmith-docs-site
+          path: site/

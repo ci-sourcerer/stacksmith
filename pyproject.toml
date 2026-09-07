@@ -32,11 +32,19 @@ include_script = "common_python_tasks:tasks(exclude_tags=['fastapi'])"
 
 [tool.poe.tasks.docs-cli-reference]
 cmd = "python scripts/update_cli_reference.py"
-help = "Update the generated CLI reference block in README.md"
+help = "Update the generated CLI reference page"
 
 [tool.poe.tasks.docs-cli-reference-check]
 cmd = "python scripts/update_cli_reference.py --check"
-help = "Check that the README.md CLI reference block is current"
+help = "Check that the generated CLI reference page is current"
+
+[tool.poe.tasks.docs-build]
+cmd = "uv run zensical build --strict"
+help = "Build the documentation site locally in strict mode"
+
+[tool.poe.tasks.docs-serve]
+cmd = "uv run zensical serve"
+help = "Serve the documentation site locally for live preview"
 
 [tool.poe.tasks.schemas-layer]
 cmd = "python scripts/update_layer_schemas.py"
@@ -73,6 +81,7 @@ dev = [
     "common-python-tasks==0.9.0",
     "boto3 (>=1.43.14,<2.0.0)",
     "botocore[crt] (>=1.43.15,<2.0.0)",
+    "zensical>=0.0.59",
 ]
 
 [build-system]

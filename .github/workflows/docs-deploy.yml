@@ -1,0 +1,71 @@
+name: docs-deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/docs-deploy.yml'
+      - 'docs/**'
+      - 'zensical.toml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'scripts/update_cli_reference.py'
+      - 'src/stacksmith/cli/**'
+  workflow_dispatch:
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build documentation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+
+      - name: Install dependencies
+        run: uv sync --locked --group dev
+
+      - name: Check generated CLI reference
+        run: uv run python scripts/update_cli_reference.py --check
+
+      - name: Build documentation site
+        run: uv run zensical build --strict
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/
+
+  deploy:
+    name: Deploy documentation
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
