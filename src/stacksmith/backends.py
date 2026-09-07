@@ -1,5 +1,3 @@
-"""Backend policy evaluation for managed Stacksmith configuration."""
-
 import os
 import textwrap
 from pathlib import Path
