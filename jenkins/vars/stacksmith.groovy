@@ -246,6 +246,7 @@ void executeStacksmithMatrix(
             withEnv([
                 "ENVIRONMENT=${environment}",
                 "STACKSMITH_CI_PHASE=${command}",
+                "STACKSMITH_CONSOLE_WIDTH=${env.STACKSMITH_CONSOLE_WIDTH ?: '160'}",
                 "VALIDATION_REPORT_PATH=${artifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}",
             ]) {
                 int status = withStacksmithCredentials(

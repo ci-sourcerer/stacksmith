@@ -83,6 +83,7 @@ jobs:
           STACKSMITH_JENKINS_USERNAME: ${{ secrets.STACKSMITH_JENKINS_USERNAME }}
           STACKSMITH_JENKINS_API_TOKEN: ${{ secrets.STACKSMITH_JENKINS_API_TOKEN }}
           STACKSMITH_MAX_PARALLEL_OPERATIONS: ${{ fromJson(inputs.ci_manifest).max_parallel_operations }}
+          STACKSMITH_CONSOLE_WIDTH: ${{ vars.STACKSMITH_CONSOLE_WIDTH || '160' }}
           TG_AUTH_PROVIDER_CMD: ${{ vars.TG_AUTH_PROVIDER_CMD || '' }}
           TG_IAM_ASSUME_ROLE: ${{ vars.TG_IAM_ASSUME_ROLE || '' }}
         run: |

@@ -840,6 +840,10 @@ def test_ci_workflow_adapters_preserve_distinct_destroy_plan_artifacts():
     )
     assert "${{ env.STACKSMITH_PLAN_ARTIFACT_KIND }}.json" in actions_executor
     assert actions_executor.count("stacksmith-report.json") >= 3
+    assert (
+        "STACKSMITH_CONSOLE_WIDTH: ${{ vars.STACKSMITH_CONSOLE_WIDTH || '160' }}"
+        in actions_executor
+    )
     assert "(success() || failure()) && inputs.upload_artifacts" in actions_executor
     assert 'heading = "Destroy Preview"' in actions_executor
     assert "- Plan artifact: " in actions_executor
@@ -849,6 +853,10 @@ def test_ci_workflow_adapters_preserve_distinct_destroy_plan_artifacts():
         in jenkins_pipeline
     )
     assert jenkins_pipeline.count("stacksmith-report.json") == 4
+    assert (
+        "STACKSMITH_CONSOLE_WIDTH=${env.STACKSMITH_CONSOLE_WIDTH ?: '160'}"
+        in jenkins_pipeline
+    )
     status = jenkins_pipeline.index("int status = withStacksmithCredentials(")
     archive = jenkins_pipeline.index("archiveArtifacts(", status)
     branch_result = jenkins_pipeline.index("return status", archive)

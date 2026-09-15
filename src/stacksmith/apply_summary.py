@@ -8,10 +8,13 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from rich.console import Console
 from rich.table import Table
 
-from .change_reports import component_for_address, write_change_report
+from .change_reports import (
+    change_report_console,
+    component_for_address,
+    write_change_report,
+)
 
 _ACTIVE_REPORT: ContextVar[ApplySummary | None] = ContextVar(
     "apply_summary", default=None
@@ -465,7 +468,7 @@ class ApplySummary:
 
 
 def _render_report(payload: dict[str, Any], path: Path, detail: str) -> None:
-    console = Console(stderr=True, markup=False, highlight=False)
+    console = change_report_console()
     console.print(
         f"Applied changes — {'complete' if payload['complete'] else 'INCOMPLETE'}"
     )
@@ -474,9 +477,11 @@ def _render_report(payload: dict[str, Any], path: Path, detail: str) -> None:
         console.print(
             "Failed operations may have additional effects that could not be confirmed."
         )
-    table = Table(
-        "Stack", "Component", "Created", "Updated", "Replaced", "Destroyed", "Failed"
-    )
+    table = Table(expand=True)
+    table.add_column("Stack", min_width=18, ratio=3, overflow="fold")
+    table.add_column("Component", min_width=18, ratio=3, overflow="fold")
+    for heading in ("Created", "Updated", "Replaced", "Destroyed", "Failed"):
+        table.add_column(heading, justify="right", no_wrap=True)
     for stack in payload["stacks"]:
         if "json_event_capture_unavailable" in stack["issues"]:
             console.print(

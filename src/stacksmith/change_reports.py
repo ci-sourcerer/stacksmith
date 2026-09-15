@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import tempfile
 from collections.abc import Iterator, Sequence
@@ -7,9 +8,30 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
+from rich.console import Console
+
 _VALIDATION_REPORT_PATH: ContextVar[Path | None] = ContextVar(
     "validation_report_path", default=None
 )
+
+
+def change_report_console() -> Console:
+    """Create a console using the configured change-report width.
+
+    Returns:
+        Rich console using `STACKSMITH_CONSOLE_WIDTH` when it is a positive integer.
+    """
+    configured_width = os.getenv("STACKSMITH_CONSOLE_WIDTH", "").strip()
+    return Console(
+        stderr=True,
+        markup=False,
+        highlight=False,
+        width=(
+            max(80, int(configured_width))
+            if configured_width.isdecimal() and configured_width != "0"
+            else None
+        ),
+    )
 
 
 def component_for_address(address: str, components: Sequence[str]) -> str | None:

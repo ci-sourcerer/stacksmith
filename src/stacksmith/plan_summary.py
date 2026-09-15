@@ -10,7 +10,11 @@ from uuid import uuid4
 from rich.console import Console
 from rich.table import Table
 
-from .change_reports import component_for_address, write_change_report
+from .change_reports import (
+    change_report_console,
+    component_for_address,
+    write_change_report,
+)
 
 _ACTIONS = {
     ("no-op",): "no_op",
@@ -361,16 +365,19 @@ class PlanSummary:
 
 
 def _render_report(payload: dict[str, Any], path: Path, detail: str) -> None:
-    console = Console(stderr=True, markup=False, highlight=False)
+    console = change_report_console()
     console.print(
         f"Plan summary — {'complete' if payload['complete'] else 'INCOMPLETE'}"
     )
     console.print(f"{len(payload['stacks'])} stacks · exit code {payload['exit_code']}")
     if payload["empty_selection"]:
         console.print("No stacks selected.")
-    table = Table(
-        "Stack", "Component", "Create", "Update", "Replace", "Destroy", "Status"
-    )
+    table = Table(expand=True)
+    table.add_column("Stack", min_width=18, ratio=3, overflow="fold")
+    table.add_column("Component", min_width=18, ratio=3, overflow="fold")
+    for heading in ("Create", "Update", "Replace", "Destroy"):
+        table.add_column(heading, justify="right", no_wrap=True)
+    table.add_column("Status", min_width=10, ratio=2, overflow="fold")
     for stack in payload["stacks"]:
         if "plan" not in stack:
             table.add_row(stack["name"], "—", "—", "—", "—", "—", stack["status"])

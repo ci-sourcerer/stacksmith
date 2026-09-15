@@ -198,6 +198,30 @@ def test_validation_linkage_uses_shared_run_id_and_combined_footer(tmp_path, cap
     assert f"  Validation report: {validation_path}" in captured.err
 
 
+def test_console_table_folds_long_stack_names_without_ellipsis(
+    monkeypatch, tmp_path, capsys
+):
+    monkeypatch.setenv("STACKSMITH_CONSOLE_WIDTH", "100")
+    with plan_summary_session(
+        True,
+        tmp_path / "plan-summary.json",
+        {"production-stack-with-an-intentionally-very-long-name": ["api"]},
+        "plan",
+        "normal",
+    ) as report:
+        stack_name = "production-stack-with-an-intentionally-very-long-name"
+        report.start(stack_name)
+        report.collect(stack_name, _plan(_change()))
+        report.finish(stack_name, 0)
+        report.exit_code = 0
+
+    rendered = capsys.readouterr().err
+    assert "…" not in rendered
+    assert (
+        len(next(line for line in rendered.splitlines() if line.startswith("┏"))) == 100
+    )
+
+
 def test_direct_plan_links_validation_to_stdout(tmp_path):
     with plan_summary_session(
         True, tmp_path / "plan-summary.json", {}, "plan", "normal", "none"
