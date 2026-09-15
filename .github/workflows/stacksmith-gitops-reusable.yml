@@ -22,7 +22,7 @@ on:
         type: string
         default: latest
       upload_artifacts:
-        description: Upload redacted plan artifacts when the manifest executes a plan.
+        description: Upload plan artifacts and applied-change reports for the executed phase.
         required: false
         type: boolean
         default: true
@@ -97,8 +97,19 @@ jobs:
         with:
           name: stacksmith-${{ env.STACKSMITH_PLAN_ARTIFACT_KIND }}-${{ inputs.environment }}-${{ github.sha }}
           path: |
+            ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/stacksmith-report.json
+            ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/plan-summary.json
             ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/validation-report.${{ fromJson(inputs.ci_manifest).validation_report_format }}
             ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/${{ env.STACKSMITH_PLAN_ARTIFACT_KIND }}.json
+
+      - name: Upload applied-change report
+        if: ${{ (success() || failure()) && inputs.upload_artifacts && contains(fromJSON('["apply", "destroy"]'), inputs.phase || fromJson(inputs.ci_manifest).command) }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: stacksmith-${{ inputs.phase || fromJson(inputs.ci_manifest).command }}-results-${{ inputs.environment }}-${{ github.sha }}
+          path: |
+            ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/stacksmith-report.json
+            ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/apply-summary.json
 
       - name: Summarize execution
         if: ${{ success() || failure() }}
@@ -152,6 +163,11 @@ jobs:
                   )
           elif phase == "plan":
               print(
+                  "- CI report: "
+                  f"`{manifest['workdir']}/.stacksmith-ci/{row['environment']}/"
+                  "stacksmith-report.json`"
+              )
+              print(
                   "- Plan artifact: "
                   f"`{manifest['workdir']}/.stacksmith-ci/{row['environment']}/"
                   f"{'destroy-plan.json' if manifest['command'] == 'destroy' else 'plan.json'}`"
@@ -160,5 +176,11 @@ jobs:
                   "- Validation report: "
                   f"`{manifest['workdir']}/.stacksmith-ci/{row['environment']}/"
                   f"validation-report.{manifest['validation_report_format']}`"
+              )
+          elif phase in {"apply", "destroy"}:
+              print(
+                  "- CI report: "
+                  f"`{manifest['workdir']}/.stacksmith-ci/{row['environment']}/"
+                  "stacksmith-report.json`"
               )
           PY

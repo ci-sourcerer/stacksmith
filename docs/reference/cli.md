@@ -170,11 +170,13 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
                           [--strict-validation-warnings] [--use-local-modules | --no-local-modules] [--debug |
                           -q] [--validation-report-format {json}] [--destroy]
-                          [--save-plan-json SAVE_PLAN_JSON |
+                          [--save-plan-summary-json SAVE_PLAN_SUMMARY_JSON]
+                          [--plan-summary {table,detailed,none}] [--save-plan-json SAVE_PLAN_JSON |
                           --save-redacted-plan-json SAVE_REDACTED_PLAN_JSON] [--out OUT] [--fail-on-changes]
-                          [--plan PLAN] [--no-after-apply] [--tag TAG] [--tag-expr TAG_EXPR]
-                          [--include-tag INCLUDE_TAG] [--exclude-tag EXCLUDE_TAG] [--clean] [--auto-approve]
-                          [--dry-run] [--format {table,json}]
+                          [--save-apply-summary-json SAVE_APPLY_SUMMARY_JSON]
+                          [--apply-summary {table,detailed,none}] [--plan PLAN] [--no-after-apply] [--tag TAG]
+                          [--tag-expr TAG_EXPR] [--include-tag INCLUDE_TAG] [--exclude-tag EXCLUDE_TAG]
+                          [--clean] [--auto-approve] [--dry-run] [--format {table,json}]
                           {init,plan,apply,destroy}
 ```
 
@@ -200,10 +202,14 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 | `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
 | `--destroy` | Plan destroy operations instead of a create/update when action is plan. |
+| `--save-plan-summary-json` | Write the aggregate plan report here (default: build directory/plan-summary.json). |
+| `--plan-summary` | Console plan summary format (default: table). JSON is always saved. Choices: `table`, `detailed`, `none`. |
 | `--save-plan-json` | Save raw rendered plan JSON to the given file or directory. The raw document can contain sensitive values. |
 | `--save-redacted-plan-json` | Save archive-safe redacted plan JSON to the given file or directory. |
 | `--out` | Save generated execution plan to the given file or directory. |
 | `--fail-on-changes` | Return a non-zero exit code if the plan contains any resource changes. |
+| `--save-apply-summary-json` | Write confirmed applied changes here (default: build directory/apply-summary.json). |
+| `--apply-summary` | Applied-change console format (default: table). JSON is always saved. Choices: `table`, `detailed`, `none`. |
 | `--plan` | Path or directory to a pre-generated execution plan to apply. |
 | `--no-after-apply` | When applying infrastructure, do not automatically reconcile operations configured with trigger: after_apply. Use a separate operation run phase instead. |
 | `--tag` | Select components by tag. Repeat to require multiple tags. Supported for run-all plan/apply/destroy. |
@@ -256,9 +262,11 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
                        [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                        [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
                        [--use-local-modules | --no-local-modules] [--debug | -q] [--destroy]
-                       [--save-plan-json SAVE_PLAN_JSON | --save-redacted-plan-json SAVE_REDACTED_PLAN_JSON]
-                       [--out OUT] [--fail-on-changes] [--tag TAG] [--tag-expr TAG_EXPR]
-                       [--validation-report-format {json}] [--locked] [--offline] [--lockfile LOCKFILE]
+                       [--save-plan-summary-json SAVE_PLAN_SUMMARY_JSON]
+                       [--plan-summary {table,detailed,none}] [--save-plan-json SAVE_PLAN_JSON |
+                       --save-redacted-plan-json SAVE_REDACTED_PLAN_JSON] [--out OUT] [--fail-on-changes]
+                       [--tag TAG] [--tag-expr TAG_EXPR] [--validation-report-format {json}] [--locked]
+                       [--offline] [--lockfile LOCKFILE]
                        [stack_file]
 ```
 
@@ -282,6 +290,8 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
 | `--destroy` | Plan destroy operations instead of a create/update when action is plan. |
+| `--save-plan-summary-json` | Write the aggregate plan report here (default: build directory/plan-summary.json). |
+| `--plan-summary` | Console plan summary format (default: table). JSON is always saved. Choices: `table`, `detailed`, `none`. |
 | `--save-plan-json` | Save raw rendered plan JSON to the given file or directory. The raw document can contain sensitive values. |
 | `--save-redacted-plan-json` | Save archive-safe redacted plan JSON to the given file or directory. |
 | `--out` | Save generated execution plan to the given file or directory. |
@@ -299,9 +309,10 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file ENV_FILE]
                         [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}] [--build-dir BUILD_DIR]
                         [--log LOG] [--no-cache] [--no-cas] [--strict-validation-warnings]
-                        [--use-local-modules | --no-local-modules] [--debug | -q] [--plan PLAN]
-                        [--no-after-apply] [--tag TAG] [--tag-expr TAG_EXPR] [--auto-approve] [--locked]
-                        [--offline] [--lockfile LOCKFILE]
+                        [--use-local-modules | --no-local-modules] [--debug | -q]
+                        [--save-apply-summary-json SAVE_APPLY_SUMMARY_JSON]
+                        [--apply-summary {table,detailed,none}] [--plan PLAN] [--no-after-apply] [--tag TAG]
+                        [--tag-expr TAG_EXPR] [--auto-approve] [--locked] [--offline] [--lockfile LOCKFILE]
                         [stack_file]
 ```
 
@@ -324,6 +335,8 @@ stacksmith apply [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-fil
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+| `--save-apply-summary-json` | Write confirmed applied changes here (default: build directory/apply-summary.json). |
+| `--apply-summary` | Applied-change console format (default: table). JSON is always saved. Choices: `table`, `detailed`, `none`. |
 | `--plan` | Path or directory to a pre-generated execution plan to apply. |
 | `--no-after-apply` | When applying infrastructure, do not automatically reconcile operations configured with trigger: after_apply. Use a separate operation run phase instead. |
 | `--tag` | Select components by tag. Repeat to require multiple tags. |
@@ -340,8 +353,9 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-f
                           [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}]
                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
                           [--strict-validation-warnings] [--use-local-modules | --no-local-modules] [--debug |
-                          -q] [--tag TAG] [--tag-expr TAG_EXPR] [--auto-approve] [--locked] [--offline]
-                          [--lockfile LOCKFILE]
+                          -q] [--save-apply-summary-json SAVE_APPLY_SUMMARY_JSON]
+                          [--apply-summary {table,detailed,none}] [--tag TAG] [--tag-expr TAG_EXPR]
+                          [--auto-approve] [--locked] [--offline] [--lockfile LOCKFILE]
                           [stack_file]
 ```
 
@@ -364,6 +378,8 @@ stacksmith destroy [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-f
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
+| `--save-apply-summary-json` | Write confirmed applied changes here (default: build directory/apply-summary.json). |
+| `--apply-summary` | Applied-change console format (default: table). JSON is always saved. Choices: `table`, `detailed`, `none`. |
 | `--tag` | Select components by tag. Repeat to require multiple tags. |
 | `--tag-expr` | JMESPath expression used to select resource targets. |
 | `--auto-approve` | Skip interactive approval |

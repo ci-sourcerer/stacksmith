@@ -6,14 +6,17 @@ import sys
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from functools import cache
 from pathlib import Path
 from typing import Any
 
 from loguru import logger as LOGGER
 
+from .apply_summary import active_apply_summary
 from .enums import TerragruntAction
 from .models import RemoteAuthConfig, ToolConfig
 from .plan_redaction import write_redacted_plan
+from .plan_summary import active_plan_summary
 from .remote import terragrunt_auth_env
 from .tooling import ResolvedToolchain, resolve_toolchain
 from .utils import env_truthy
@@ -56,7 +59,8 @@ def _should_run_plan_validation_flow(
         args
         and _parse_terragrunt_action(args[0]) == TerragruntAction.PLAN
         and (
-            save_plan_json is not None
+            active_plan_summary() is not None
+            or save_plan_json is not None
             or save_redacted_plan_json is not None
             or save_plan_binary is not None
             or (
@@ -214,6 +218,7 @@ def _run_terragrunt_streaming(
             env=env,
             stdout=sys.stderr,
             stderr=sys.stderr,
+            shell=False,
         )
     LOGGER.debug(
         "Terragrunt command exited with code {return_code}: {command}",
@@ -221,6 +226,51 @@ def _run_terragrunt_streaming(
         command=_format_command(cmd),
     )
     return int(result.returncode)
+
+
+@cache
+def _supports_json_event_file(executable: str) -> bool:
+    result = subprocess.run(
+        [executable, "apply", "-help"],
+        capture_output=True,
+        text=True,
+        check=False,
+        shell=False,
+    )
+    return result.returncode == 0 and "-json-into" in result.stdout
+
+
+def _run_apply_reporting(
+    cmd: list[str],
+    working_dir: Path,
+    stack_name: str,
+    auth_config: RemoteAuthConfig | None,
+) -> int:
+    summary = active_apply_summary()
+    if summary is None:
+        raise RuntimeError("Apply reporting requires an active report.")
+    summary.start(stack_name)
+    if not _supports_json_event_file(_RESOLVED_TOOLCHAIN.tofu):
+        summary.unavailable(stack_name)
+        result = _run_terragrunt_streaming(cmd, working_dir, auth_config=auth_config)
+        summary.finish(stack_name, result)
+        return result
+    with tempfile.TemporaryDirectory(prefix="stacksmith-apply-") as temporary_dir:
+        event_path = Path(temporary_dir) / "events.jsonl"
+        event_path.touch(mode=0o600)
+        # OpenTofu flags precede positional saved-plan arguments.
+        command = list(cmd)
+        command.insert(
+            command.index(_command_action(command)) + 1, f"-json-into={event_path}"
+        )
+        try:
+            result = _run_terragrunt_streaming(
+                command, working_dir, auth_config=auth_config
+            )
+        finally:
+            summary.collect_file(stack_name, event_path)
+        summary.finish(stack_name, result)
+        return result
 
 
 def _run_terragrunt_capture_text(
@@ -340,7 +390,10 @@ def run_terragrunt(
             else []
         )
         LOGGER.debug("Enabled plan validations: {rules}", rules=enabled_rules)
-        return _run_plan_validations(
+        summary = active_plan_summary()
+        if summary is not None:
+            summary.start(stack_name or working_dir.name, args)
+        result = _run_plan_validations(
             cmd,
             args,
             working_dir,
@@ -354,6 +407,25 @@ def run_terragrunt(
             strict_validation_warnings=strict_validation_warnings,
             fail_on_changes=fail_on_changes,
             plan_validation_results=plan_validation_results,
+        )
+
+        if summary is not None:
+            summary.finish(
+                stack_name or working_dir.name,
+                result,
+                successful=result == 0
+                or (result == 2 and "-detailed-exitcode" in args),
+            )
+        return result
+
+    if (
+        active_apply_summary() is not None
+        and args
+        and _parse_terragrunt_action(args[0])
+        in {TerragruntAction.APPLY, TerragruntAction.DESTROY}
+    ):
+        return _run_apply_reporting(
+            cmd, working_dir, stack_name or working_dir.name, auth_config
         )
 
     if save_plan_binary:
@@ -439,7 +511,7 @@ def _run_plan_validations(
             str(plan_path),
         ]
         LOGGER.info(
-            "Running plan for JSON validation in {working_dir}",
+            "Running plan for JSON reporting and validation in {working_dir}",
             working_dir=working_dir,
         )
         LOGGER.debug(
@@ -452,7 +524,9 @@ def _run_plan_validations(
             working_dir,
             auth_config=auth_config,
         )
-        if plan_result_code != 0:
+        if plan_result_code != 0 and not (
+            plan_result_code == 2 and "-detailed-exitcode" in args
+        ):
             return plan_result_code
 
         show_cmd = [*plan_cmd_prefix, "show", "-json", str(plan_path)]
@@ -488,6 +562,9 @@ def _run_plan_validations(
             LOGGER.error("Failed to parse plan JSON output: {exc}", exc=exc)
             return 1
 
+        if (summary := active_plan_summary()) is not None:
+            summary.collect(stack_name, plan_data)
+
         if save_plan_json is not None:
             save_path = _resolve_plan_json_output_path(save_plan_json, stack_name)
             save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -502,13 +579,13 @@ def _run_plan_validations(
             LOGGER.info("Saved redacted plan JSON to {path}", path=save_path)
 
         if "-destroy" in args:
-            return PlanValidationExitCode.PASS
+            return plan_result_code
 
         if config is None or not _has_enabled_plan_validations(config):
             if fail_on_changes and _has_plan_changes(plan_data):
                 LOGGER.info("Failing plan because resource changes were detected")
                 return PlanValidationExitCode.FAIL
-            return PlanValidationExitCode.PASS
+            return plan_result_code
 
         outcomes = check_plan_validations(
             config,
@@ -531,7 +608,7 @@ def _run_plan_validations(
             LOGGER.info("Failing plan because resource changes were detected")
             return PlanValidationExitCode.FAIL
 
-        return PlanValidationExitCode.PASS
+        return plan_result_code
     finally:
         if cleanup_plan:
             plan_path.unlink(missing_ok=True)
@@ -574,7 +651,8 @@ def run_terragrunt_all_ordered(
             redacted plan JSON for each planned stack.
 
     Returns:
-        Process exit code (first non-zero code short-circuits the run).
+        Process exit code. Execution failures stop the run; reporting sessions
+        collect remaining plans after policy failures.
     """
     if save_plan_json is not None and save_redacted_plan_json is not None:
         raise ValueError(
@@ -587,6 +665,7 @@ def run_terragrunt_all_ordered(
     if action_enum == TerragruntAction.DESTROY:
         stack_items = list(reversed(stack_items))
 
+    aggregate_exit_code = 0
     for stack_name, stack_dir in stack_items:
         terragrunt_args = (
             stack_args_by_name.get(stack_name)
@@ -638,7 +717,19 @@ def run_terragrunt_all_ordered(
             plan_validation_results=plan_validation_results,
             no_cas=no_cas,
         )
+        summary = active_plan_summary()
+        if (
+            exit_code == 2
+            and "-detailed-exitcode" in terragrunt_args
+            and (summary is None or summary.stacks[stack_name]["status"] == "completed")
+        ):
+            if aggregate_exit_code == 0:
+                aggregate_exit_code = 2
+            continue
         if exit_code != 0:
-            return exit_code
+            if summary is None or "plan" not in summary.stacks[stack_name]:
+                return exit_code
+            if aggregate_exit_code in {0, 2}:
+                aggregate_exit_code = exit_code
 
-    return 0
+    return aggregate_exit_code

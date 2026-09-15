@@ -244,3 +244,69 @@ Stacksmith supports both stack-level and component-level targeting.
 - Stack tags come from the stack `tags` field and can be filtered in `run-all` with `--include-tag` and `--exclude-tag`.
 - Component tags come from component `tags` plus optional managed-config module tags.
 - Target expressions use `--tag-expr` and are evaluated with context keys including `tags`, `tag`, `stack_tags`, `component_name`, and `component_type`.
+
+## Aggregate plan reports
+
+`stacksmith plan` and `stacksmith run-all plan` print a final table of planned resource changes grouped by stack and component. They also write `plan-summary.json` into the build directory, including when console reporting is disabled. Destroy previews (`--destroy`) use the same report with `mode: "destroy"`. Apply execution uses the separate applied-change report below; operation planning does not produce this plan report.
+
+```sh
+stacksmith run-all plan --root . --save-plan-summary-json artifacts/plan-summary.json
+stacksmith plan --stack stack.yaml --plan-summary detailed
+stacksmith plan --stack stack.yaml --plan-summary none
+```
+
+The `table` format is the default. `detailed` also lists resource addresses, moves, imports, output changes, drift, and deferred changes. Human output goes to stderr; existing machine-readable validation output on stdout is preserved. Collection renders each saved plan once and shares it with validation and existing plan exports.
+
+### JSON contract
+
+Reports have `schema_version: 1`, command and planning mode, timestamps, selection metadata, an exit code, aggregate `totals`, and a `stacks` array. Each stack records its components and execution status, and includes a `plan` inventory when JSON collection succeeded. Stack plans contain their own totals, component totals, resource changes, output changes, drift, and deferred changes. Resource records retain original ordered `actions` as well as a normalized `action`.
+
+- `create`, `update`, `replace`, and `destroy` count resource instances. A replacement counts once under `replace`, without incrementing `create` or `destroy`.
+- `read`, `forget`, `import`, and `move` are reported separately. Imports and moves can overlap other actions; adding all counters together does not give a distinct resource count.
+- `resources` counts changed managed resource instances, excluding data source reads. `outputs` counts changed root outputs.
+- `drift` describes observed changes outside OpenTofu. `deferred` describes changes OpenTofu could not fully plan. Neither is added to planned mutation totals.
+- Nested modules are attributed to their top-level Stacksmith component. Resources without a known component have `component: null` and appear under `(root/unmapped)`.
+- `complete` means every selected stack was collected successfully and its plan had no deferred or unrecognized actions. It describes coverage of the selected scope, not policy approval or coverage of filtered-out infrastructure.
+- Stack `status` is `completed`, `failed`, or `not_run`. `policy_status` and `exit_code` distinguish successful collection from policy rejection. `empty_selection` explicitly identifies runs with no selected stacks.
+
+The summary contains identities and action metadata, without before/after values, input variables, import IDs, generated configuration, or diagnostic messages. Resource addresses and output names remain visible. Use the separate `--save-redacted-plan-json` artifact for attribute-level review.
+
+The plan summary and plan validation report remain separate contracts, but share a `run_id`. The plan summary records `validation_status`, validation counts, and the validation report destination. The validation report records `plan_summary_path`, whether plan collection was complete, and basic create, update, replace, destroy, resource, and output totals. Direct CLI validation is emitted to stdout, so its plan-summary reference uses `destination: "stdout"` and a null path. Managed CI runs record the validation artifact path. The console ends with one footer containing the change outcome, validation outcome, and both destinations.
+
+### Failure behavior
+
+During `run-all plan`, validation failures and `--fail-on-changes` failures allow subsequent plans to finish before returning a nonzero status. Execution failures stop planning; the final report contains completed results and marks remaining stacks `not_run`. Interruptions during planning produce a partial report when Python cleanup can run. Failure to write the report is an error.
+
+Each invocation builds its report in memory and atomically replaces the destination. It never reads old plan files to compute totals. Reports begin after stack preparation; failures before planning starts do not produce a new report. CI matrix jobs produce separate reports per environment; merging reports across jobs is outside this initial scope.
+
+## Applied-change reports
+
+`stacksmith apply`, `stacksmith destroy`, and their `run-all` equivalents print a report of confirmed changes and write `apply-summary.json` into the build directory. Existing approval prompts, live OpenTofu output, saved-plan execution, and fail-fast behavior are preserved.
+
+```sh
+stacksmith apply --stack stack.yaml --apply-summary detailed
+stacksmith run-all apply --root . --save-apply-summary-json artifacts/applied.json
+stacksmith destroy --stack stack.yaml --apply-summary none
+```
+
+The `table` format is the default; `detailed` adds resource addresses and individual operation outcomes. `none` hides console reporting while still writing JSON. The report covers infrastructure execution; separately executed after-apply operations retain their own results. Consequently, an infrastructure report can succeed even if a later after-apply operation fails.
+
+### Event capture and compatibility
+
+Stacksmith detects whether the resolved OpenTofu binary supports `-json-into`, available in OpenTofu 1.12 and newer. This captures structured events alongside the normal human-readable UI without changing approval behavior. Unsupported binaries still execute their original command, and the artifact explicitly reports `json_event_capture_unavailable` with `complete: false`.
+
+Raw events can contain sensitive data. Stacksmith captures them in a private temporary directory, extracts only identity and action metadata, and removes the temporary files during normal cleanup. CI archives the resulting summary, which excludes resource IDs, attribute values, output values, and diagnostic messages. See OpenTofu's [apply options](https://opentofu.org/docs/cli/commands/apply/) and [JSON UI contract](https://opentofu.org/docs/internals/machine-readable-ui/) for the event source.
+
+### Confirmed results and partial failures
+
+The JSON has `schema_version: 1`, command, selection metadata, timestamps, infrastructure exit code, aggregate totals, and a per-stack inventory. Each resource includes its component, planned action, operation outcomes, and overall status. Operations record their confirmation source.
+
+- Resource mutations are counted after completion hooks. A planned or started action does not increase completed totals.
+- A replacement counts once after both create and destroy complete. A replacement whose deletion succeeds and creation fails records one confirmed destruction, a failed operation, and a partial resource outcome.
+- Imports and state removals are confirmed after successful execution when the final apply counters match the known planned operations. Moves are confirmed from their planned addresses and successful execution. Their confirmation source distinguishes these results from resource completion hooks.
+- Failed operations may have effects the provider could not confirm. Their attempted actions remain in the inventory, and confirmed totals represent only the known completed work.
+- Remaining stacks are `not_run` after a failure. Partial, interrupted, malformed, unsupported, or inconsistent event streams produce `complete: false`.
+- Final OpenTofu counters are retained as `reported_totals` and checked against the collected inventory. Missing completion events cannot be mistaken for a successful run with zero changes.
+- Root output names are included as `output_names`. The event stream does not provide an applied before/after output diff, so `output_changes_available` is explicitly `false`; these names are not claimed as changed outputs.
+
+`complete` describes resource-operation coverage for the selected infrastructure scope. `exit_code` records whether infrastructure execution succeeded. State-only operations that cannot be confirmed remain visible as `unconfirmed`, rather than being counted as applied.

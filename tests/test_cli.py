@@ -2386,6 +2386,7 @@ def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path)
         CiExecutionManifest(
             command="plan",
             config_ref="platform/stacksmith-config.yaml",
+            workdir=str(tmp_path),
             matrix=[
                 CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")
             ],
@@ -2421,6 +2422,7 @@ def test_cmd_ci_execute_reuses_destroy_handler(monkeypatch, parser, tmp_path: Pa
         CiExecutionManifest(
             command="destroy",
             config_ref="platform/stacksmith-config.yaml",
+            workdir=str(tmp_path),
             matrix=[
                 CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")
             ],
@@ -2457,6 +2459,7 @@ def test_cmd_ci_execute_routes_destroy_operation_state_phase(
         CiExecutionManifest(
             command="destroy",
             config_ref="platform/stacksmith-config.yaml",
+            workdir=str(tmp_path),
             matrix=[
                 CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")
             ],
@@ -2555,6 +2558,7 @@ def test_cmd_ci_execute_skips_modules_and_policies_tables_in_debug_mode(
         CiExecutionManifest(
             command="plan",
             config_ref="platform/stacksmith-config.yaml",
+            workdir=str(tmp_path),
             debug=True,
             matrix=[
                 CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")
@@ -2627,6 +2631,55 @@ def test_cmd_ci_execute_from_env_uses_manifest_env(monkeypatch, parser, tmp_path
     assert calls["validation_report_output"] == Path(
         ".stacksmith-ci/dev/validation-report.json"
     )
+
+
+def test_run_ci_execute_exposes_validation_artifact_path(monkeypatch, tmp_path):
+    from stacksmith.change_reports import current_validation_report_path
+    from stacksmith.ci.contracts import CiExecutionManifest
+
+    output = tmp_path / "validation-report.json"
+    observed = []
+    monkeypatch.setattr(
+        cli_main,
+        "_execute_ci_manifest",
+        lambda *args: observed.append(current_validation_report_path()) or 0,
+    )
+
+    assert (
+        cli_main._run_ci_execute(
+            CiExecutionManifest(
+                command="plan", config_ref="config.yaml", workdir=str(tmp_path)
+            ),
+            "dev",
+            output,
+        )
+        == 0
+    )
+    assert observed == [output]
+    assert current_validation_report_path() is None
+
+
+def test_run_ci_execute_writes_incomplete_umbrella_after_failure(monkeypatch, tmp_path):
+    from stacksmith.ci.contracts import CiExecutionManifest
+
+    monkeypatch.setattr(cli_main, "_execute_ci_manifest", lambda *args: 7)
+
+    assert (
+        cli_main._run_ci_execute(
+            CiExecutionManifest(
+                command="apply", config_ref="config.yaml", workdir=str(tmp_path)
+            ),
+            "dev",
+            None,
+        )
+        == 7
+    )
+    payload = json.loads(
+        (tmp_path / ".stacksmith-ci/dev/stacksmith-report.json").read_text()
+    )
+    assert payload["exit_code"] == 7
+    assert payload["complete"] is False
+    assert payload["reports"] == {"apply_summary": None}
 
 
 def test_cmd_info_modules_and_policies_json_emits_stdout(monkeypatch, parser, capsys):

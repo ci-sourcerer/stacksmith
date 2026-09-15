@@ -51,6 +51,7 @@ from ..api import (
     validate_ci_inputs,
     validate_stack,
 )
+from ..change_reports import validation_report_path_context
 from ..ci.adapters import (
     load_ci_execution_manifest,
     manifest_output_json,
@@ -66,6 +67,7 @@ from ..ci.contracts import (
     build_ci_execution_argv,
     resolve_ci_execution_phase,
 )
+from ..ci.reporting import clear_ci_execution_reports, write_ci_execution_report
 from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME, TEST_FILE_CANDIDATES
 from ..enums import (
     ExecutionPreviewFormat,
@@ -643,6 +645,10 @@ def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
         tag_expr=args.tag_expr,
         save_plan_json=getattr(args, "save_plan_json", None),
         save_redacted_plan_json=getattr(args, "save_redacted_plan_json", None),
+        save_plan_summary_json=getattr(args, "save_plan_summary_json", None),
+        plan_summary=getattr(args, "plan_summary", "table"),
+        save_apply_summary_json=getattr(args, "save_apply_summary_json", None),
+        apply_summary=getattr(args, "apply_summary", "table"),
         out=getattr(args, "out", None),
         plan=getattr(args, "plan", None),
         strict_validation_warnings=args.strict_validation_warnings,
@@ -1149,7 +1155,12 @@ def _cmd_ci_execute(args: argparse.Namespace) -> int:
     return _run_ci_execute(
         manifest,
         args.environment,
-        getattr(args, "validation_report_output", None),
+        resolve_validation_report_output(
+            getattr(args, "validation_report_output", None),
+            manifest,
+            args.environment,
+            args.phase,
+        ),
         args.phase,
     )
 
@@ -1208,18 +1219,33 @@ def _run_ci_execute(
     validation_report_output: Path | None,
     phase: str = "",
 ) -> int:
-    if (
-        resolve_ci_execution_phase(manifest, phase) != "plan"
-        or validation_report_output is None
-    ):
-        return _execute_ci_manifest(manifest, environment, phase)
-
-    validation_report_output.parent.mkdir(parents=True, exist_ok=True)
-    with (
-        validation_report_output.open("w", encoding="utf-8") as output_stream,
-        contextlib.redirect_stdout(output_stream),
-    ):
-        return _execute_ci_manifest(manifest, environment, phase)
+    execution_phase = resolve_ci_execution_phase(manifest, phase)
+    exit_code = 1
+    try:
+        clear_ci_execution_reports(manifest, environment, execution_phase)
+        if execution_phase != "plan" or validation_report_output is None:
+            exit_code = _execute_ci_manifest(manifest, environment, phase)
+        else:
+            validation_report_output.unlink(missing_ok=True)
+            validation_report_output.parent.mkdir(parents=True, exist_ok=True)
+            with (
+                validation_report_output.open("w", encoding="utf-8") as output_stream,
+                contextlib.redirect_stdout(output_stream),
+                validation_report_path_context(validation_report_output),
+            ):
+                exit_code = _execute_ci_manifest(manifest, environment, phase)
+        return exit_code
+    except KeyboardInterrupt:
+        exit_code = 130
+        raise
+    finally:
+        write_ci_execution_report(
+            manifest,
+            environment,
+            execution_phase,
+            exit_code,
+            validation_report_output,
+        )
 
 
 def _cmd_ci_execute_from_env(args: argparse.Namespace) -> int:
@@ -1336,6 +1362,10 @@ def _cmd_run_all(args: argparse.Namespace) -> int:
         tag_expr=args.tag_expr,
         save_plan_json=args.save_plan_json,
         save_redacted_plan_json=getattr(args, "save_redacted_plan_json", None),
+        save_plan_summary_json=getattr(args, "save_plan_summary_json", None),
+        plan_summary=getattr(args, "plan_summary", "table"),
+        save_apply_summary_json=getattr(args, "save_apply_summary_json", None),
+        apply_summary=getattr(args, "apply_summary", "table"),
         out=getattr(args, "out", None),
         plan=getattr(args, "plan", None),
         strict_validation_warnings=args.strict_validation_warnings,

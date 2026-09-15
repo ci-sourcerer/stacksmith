@@ -294,3 +294,19 @@ Each credential object supports the following.
 - `keyFileVariable` (optional): Variable name for SSH key path (default: `STACKSMITH_<CREDENTIALID_UPPERCASE>_KEY`)
 
 This example now also shows app deployment and native operation patterns alongside infrastructure stacks. The shared config can expose approved Terraform component types such as `helm_app` and `k8s_app`, plus approved operations for local commands and Jenkins builds.
+
+### Aggregate planned changes
+
+Managed GitHub Actions and Jenkins plan phases archive `.stacksmith-ci/<environment>/plan-summary.json` alongside the redacted plan and validation report, including failed plan runs. This report contains totals and the complete resource change inventory for that invocation, grouped by stack and component. Destroy previews use the same summary filename and identify their mode inside the report.
+
+Check `complete` before treating totals as covering the whole selected scope, and check `exit_code` for policy or execution failure. A complete report can still fail validation. See [Aggregate plan reports](../guides/execution.md#aggregate-plan-reports) for the versioned JSON contract and console options.
+
+The plan summary and validation report share a `run_id` and link to one another. This allows CI consumers to verify that separately archived files came from the same invocation. The validation report also carries basic change totals for policy-oriented consumers, while the full resource inventory remains in `plan-summary.json`.
+
+### Applied changes
+
+Managed GitHub Actions and Jenkins apply and destroy phases archive `.stacksmith-ci/<environment>/apply-summary.json`, including failed runs. GitHub Actions uses a distinct `stacksmith-<phase>-results-<environment>-<sha>` artifact name. The report records confirmed infrastructure changes, partial resource outcomes, and stacks that never ran. Existing plan artifacts remain separate.
+
+Each managed infrastructure phase also archives `.stacksmith-ci/<environment>/stacksmith-report.json`. This versioned CI envelope embeds the plan summary and validation report for plan phases, or the applied-change report for apply and destroy phases. It records the manifest command, executed phase, environment, exit code, source paths, and explicit issues for reports that were missing or malformed. The standalone reports remain available in the same artifact for consumers that use their existing schemas.
+
+Capture requires a resolved OpenTofu binary with `-json-into` support (OpenTofu 1.12 or newer). Older binaries produce an explicit unavailable report while retaining normal execution behavior. See [Applied-change reports](../guides/execution.md#applied-change-reports) for confirmation rules and coverage limits.

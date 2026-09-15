@@ -209,6 +209,17 @@ def add_plan_output_args(parser: argparse.ArgumentParser) -> None:
         default=False,
         help="Plan destroy operations instead of a create/update when action is plan.",
     )
+    parser.add_argument(
+        "--save-plan-summary-json",
+        type=path_type,
+        help="Write the aggregate plan report here (default: build directory/plan-summary.json).",
+    )
+    parser.add_argument(
+        "--plan-summary",
+        choices=("table", "detailed", "none"),
+        default="table",
+        help="Console plan summary format (default: table). JSON is always saved.",
+    )
     plan_json_group = parser.add_mutually_exclusive_group()
     plan_json_group.add_argument(
         "--save-plan-json",
@@ -236,6 +247,25 @@ def add_plan_output_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         default=False,
         help="Return a non-zero exit code if the plan contains any resource changes.",
+    )
+
+
+def add_apply_output_args(parser: argparse.ArgumentParser) -> None:
+    """Add applied-change reporting options.
+
+    Args:
+        parser: Parser receiving the options.
+    """
+    parser.add_argument(
+        "--save-apply-summary-json",
+        type=path_type,
+        help="Write confirmed applied changes here (default: build directory/apply-summary.json).",
+    )
+    parser.add_argument(
+        "--apply-summary",
+        choices=("table", "detailed", "none"),
+        default="table",
+        help="Applied-change console format (default: table). JSON is always saved.",
     )
 
 

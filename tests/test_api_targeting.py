@@ -1110,3 +1110,192 @@ def test_generate_stack_offline_rejects_no_cache(
             no_cache=True,
             lockfile=lockfile,
         )
+
+
+def test_plan_writes_default_aggregate_report(
+    monkeypatch, tmp_path, sample_stack_yaml, sample_config_yaml, capsys
+):
+    from stacksmith import runner
+
+    _setup_run_stack_action_mocks(
+        monkeypatch, tmp_path, sample_stack_yaml, sample_config_yaml, {"prod"}
+    )
+    monkeypatch.setattr(api, "run_terragrunt", runner.run_terragrunt)
+    monkeypatch.setattr(runner, "_TOOL_VERSION_CHECKED", True)
+    monkeypatch.setattr(runner, "_run_terragrunt_streaming", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(runner, "_run_terragrunt_capture_text", _aggregate_plan_result)
+    (tmp_path / ".stacksmith").mkdir()
+    assert (
+        api.run_stack_action(
+            "plan",
+            sample_stack_yaml,
+            config=[str(sample_config_yaml)],
+            build_dir=tmp_path / ".stacksmith",
+            tags=["prod"],
+            plan_summary="detailed",
+        )
+        == 0
+    )
+    report = json.loads((tmp_path / ".stacksmith" / "plan-summary.json").read_text())
+    assert report["complete"] is True
+    assert report["totals"]["create"] == 1
+    assert report["stacks"][0]["plan"]["resources"][0]["component"] == "my-bucket"
+    assert report["stacks"][0]["selected_components"] == ["my-bucket"]
+    assert report["stacks"][0]["targets"] == ["module.my-bucket"]
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["exit_code"] == 0
+    assert "Plan summary — complete" in captured.err
+    validation_report = json.loads(captured.out)
+    assert report["run_id"] == validation_report["run_id"]
+    assert report["validation_status"] == validation_report["status"]
+    assert validation_report["plan_summary_path"] == str(
+        tmp_path / ".stacksmith" / "plan-summary.json"
+    )
+    assert validation_report["plan_complete"] is True
+    assert validation_report["change_totals"] == {
+        "create": 1,
+        "update": 0,
+        "replace": 0,
+        "destroy": 0,
+        "resources": 1,
+        "outputs": 0,
+    }
+    assert "Validation: pass" in captured.err
+    assert "Validation report: stdout" in captured.err
+
+
+def _aggregate_plan_result(*args, **kwargs):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        returncode=0,
+        stderr="",
+        stdout=json.dumps(
+            {
+                "format_version": "1.0",
+                "resource_changes": [
+                    {
+                        "address": "module.my-bucket.aws_s3_bucket.bucket",
+                        "type": "aws_s3_bucket",
+                        "change": {"actions": ["create"]},
+                    }
+                ],
+            }
+        ),
+    )
+
+
+@pytest.mark.parametrize("action", ["apply", "destroy", "init"])
+def test_rejects_plan_summary_destination_for_non_plan_actions(tmp_path, action):
+    with pytest.raises(ValueError, match="only supported for plan"):
+        api.run_stack_action(
+            action,
+            tmp_path / "stack.yaml",
+            save_plan_summary_json=tmp_path / "report.json",
+        )
+    with pytest.raises(ValueError, match="only supported for plan"):
+        api.run_all_stacks(
+            action, tmp_path, save_plan_summary_json=tmp_path / "report.json"
+        )
+
+
+def test_dry_run_rejects_plan_summary_destination(tmp_path):
+    with pytest.raises(ValueError, match="--dry-run"):
+        api.run_all_stacks(
+            "plan",
+            tmp_path,
+            dry_run=True,
+            save_plan_summary_json=tmp_path / "report.json",
+        )
+
+
+def _aggregate_apply_result(cmd, working_dir, auth_config=None):
+    Path(
+        next(
+            argument.split("=", 1)[1]
+            for argument in cmd
+            if argument.startswith("-json-into=")
+        )
+    ).write_text(
+        "\n".join(
+            json.dumps(event)
+            for event in [
+                {"type": "version", "ui": "1.0"},
+                {
+                    "type": "apply_start",
+                    "hook": {
+                        "action": "create",
+                        "resource": {
+                            "addr": "module.my-bucket.aws_s3_bucket.bucket",
+                            "resource_type": "aws_s3_bucket",
+                        },
+                    },
+                },
+                {
+                    "type": "apply_complete",
+                    "hook": {
+                        "action": "create",
+                        "resource": {
+                            "addr": "module.my-bucket.aws_s3_bucket.bucket",
+                            "resource_type": "aws_s3_bucket",
+                        },
+                    },
+                },
+                {"type": "change_summary", "changes": {"operation": "apply", "add": 1}},
+            ]
+        )
+    )
+    return 0
+
+
+def test_apply_writes_default_report(
+    monkeypatch, tmp_path, sample_stack_yaml, sample_config_yaml
+):
+    from stacksmith import runner
+
+    _setup_run_stack_action_mocks(
+        monkeypatch, tmp_path, sample_stack_yaml, sample_config_yaml, {"prod"}
+    )
+    monkeypatch.setattr(api, "run_terragrunt", runner.run_terragrunt)
+    monkeypatch.setattr(runner, "_TOOL_VERSION_CHECKED", True)
+    monkeypatch.setattr(runner, "_supports_json_event_file", lambda executable: True)
+    monkeypatch.setattr(runner, "_run_terragrunt_streaming", _aggregate_apply_result)
+    assert (
+        api.run_stack_action(
+            "apply",
+            sample_stack_yaml,
+            config=[str(sample_config_yaml)],
+            build_dir=tmp_path / ".stacksmith",
+            apply_summary="none",
+            skip_after_apply=True,
+        )
+        == 0
+    )
+    report = json.loads((tmp_path / ".stacksmith" / "apply-summary.json").read_text())
+    assert report["complete"] is True
+    assert report["totals"]["create"] == 1
+    assert not (tmp_path / ".stacksmith" / "plan-summary.json").exists()
+
+
+@pytest.mark.parametrize("action", ["plan", "init"])
+def test_rejects_apply_summary_destination_for_other_actions(tmp_path, action):
+    with pytest.raises(ValueError, match="only supported for apply and destroy"):
+        api.run_stack_action(
+            action,
+            tmp_path / "stack.yaml",
+            save_apply_summary_json=tmp_path / "report.json",
+        )
+    with pytest.raises(ValueError, match="only supported for apply and destroy"):
+        api.run_all_stacks(
+            action, tmp_path, save_apply_summary_json=tmp_path / "report.json"
+        )
+
+
+def test_dry_run_rejects_apply_summary_destination(tmp_path):
+    with pytest.raises(ValueError, match="--dry-run"):
+        api.run_all_stacks(
+            "apply",
+            tmp_path,
+            dry_run=True,
+            save_apply_summary_json=tmp_path / "report.json",
+        )

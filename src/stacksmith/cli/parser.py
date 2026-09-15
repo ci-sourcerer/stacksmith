@@ -6,6 +6,7 @@ from ..enums import TerragruntAction
 from ..utils import env_truthy, stacksmith_env
 from .args import (
     add_apply_args,
+    add_apply_output_args,
     add_common_args,
     add_execution_preview_format_arg,
     add_lock_policy_args,
@@ -115,6 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_args(run_all_parser)
     add_validation_report_format_arg(run_all_parser)
     add_plan_output_args(run_all_parser)
+    add_apply_output_args(run_all_parser)
     add_apply_args(run_all_parser)
     add_target_selection_args(
         run_all_parser,
@@ -183,6 +185,7 @@ def build_parser() -> argparse.ArgumentParser:
                 add_validation_report_format_arg(action_parser)
                 add_lock_policy_args(action_parser)
             case TerragruntAction.APPLY:
+                add_apply_output_args(action_parser)
                 add_apply_args(action_parser)
                 add_target_selection_args(
                     action_parser,
@@ -190,6 +193,7 @@ def build_parser() -> argparse.ArgumentParser:
                 )
                 add_lock_policy_args(action_parser)
             case TerragruntAction.DESTROY:
+                add_apply_output_args(action_parser)
                 add_target_selection_args(
                     action_parser,
                     include_auto_approve=True,

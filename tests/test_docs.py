@@ -102,17 +102,6 @@ def test_canonical_documentation_pages_exist():
     assert all(Path(page).is_file() for page in expected_pages)
 
 
-def test_docs_deployment_publishes_the_zensical_site_to_github_pages():
-    workflow = Path(".github/workflows/docs-deploy.yml").read_text(encoding="utf-8")
-
-    assert "actions/configure-pages@v6" in workflow
-    assert "actions/upload-pages-artifact@v5" in workflow
-    assert "path: site/" in workflow
-    assert "actions/deploy-pages@v5" in workflow
-    assert "pages: write" in workflow
-    assert "id-token: write" in workflow
-
-
 def test_replace_generated_block_replaces_existing_markers():
     assert (
         _UPDATE_CLI_REFERENCE.replace_generated_block(

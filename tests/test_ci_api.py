@@ -839,6 +839,7 @@ def test_ci_workflow_adapters_preserve_distinct_destroy_plan_artifacts():
         "${{ inputs.environment }}-${{ github.sha }}" in actions_executor
     )
     assert "${{ env.STACKSMITH_PLAN_ARTIFACT_KIND }}.json" in actions_executor
+    assert actions_executor.count("stacksmith-report.json") >= 3
     assert "(success() || failure()) && inputs.upload_artifacts" in actions_executor
     assert 'heading = "Destroy Preview"' in actions_executor
     assert "- Plan artifact: " in actions_executor
@@ -847,6 +848,7 @@ def test_ci_workflow_adapters_preserve_distinct_destroy_plan_artifacts():
         "env.COMMAND == 'destroy' ? 'destroy-plan.json' : 'plan.json'"
         in jenkins_pipeline
     )
+    assert jenkins_pipeline.count("stacksmith-report.json") == 4
     status = jenkins_pipeline.index("int status = withStacksmithCredentials(")
     archive = jenkins_pipeline.index("archiveArtifacts(", status)
     branch_result = jenkins_pipeline.index("return status", archive)
@@ -949,6 +951,10 @@ def test_ci_plan_execution_only_writes_redacted_plan_json():
         "dev",
     )
 
+    assert (
+        argv[argv.index("--save-plan-summary-json") + 1]
+        == ".stacksmith-ci/dev/plan-summary.json"
+    )
     assert "--save-redacted-plan-json" in argv
     assert "--save-plan-json" not in argv
     assert argv[argv.index("--save-redacted-plan-json") + 1] == (
@@ -972,6 +978,10 @@ def test_ci_destroy_plan_uses_a_distinct_redacted_artifact_path():
         "plan",
     )
 
+    assert (
+        argv[argv.index("--save-plan-summary-json") + 1]
+        == ".stacksmith-ci/dev/plan-summary.json"
+    )
     assert "--save-redacted-plan-json" in argv
     assert "--save-plan-json" not in argv
     assert argv[argv.index("--save-redacted-plan-json") + 1] == (
@@ -1183,3 +1193,31 @@ def test_prepare_ci_execution_accepts_colon_delimited_config_refs(tmp_path: Path
     assert manifest.config_ref == f"{base_config}:{overlay_config}"
     argv = build_ci_execution_argv(manifest, "dev")
     assert "--config" in argv
+
+
+@pytest.mark.parametrize("phase", ["apply", "destroy"])
+def test_ci_execution_requests_applied_change_report(phase):
+    argv = build_ci_execution_argv(
+        CiExecutionManifest(
+            command=phase,
+            config_ref="config.yaml",
+            matrix=[CiExecutionRow(environment="dev", runfile="stacksmith.yaml")],
+        ),
+        "dev",
+        phase,
+    )
+    assert (
+        argv[argv.index("--save-apply-summary-json") + 1]
+        == ".stacksmith-ci/dev/apply-summary.json"
+    )
+
+
+def test_managed_ci_archives_applied_change_reports():
+    root = Path(__file__).parents[1]
+    assert (
+        "Upload applied-change report"
+        in (root / ".github/workflows/stacksmith-gitops-reusable.yml").read_text()
+    )
+    jenkins_pipeline = (root / "jenkins/vars/stacksmith.groovy").read_text()
+    assert 'artifacts << "${archiveArtifactDir}/apply-summary.json"' in jenkins_pipeline
+    assert "archiveArtifacts(artifacts: artifacts.join(','))" in jenkins_pipeline

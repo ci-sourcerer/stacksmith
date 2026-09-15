@@ -13,7 +13,9 @@ import yaml
 from jsonschema import exceptions as jsonschema_exceptions
 from loguru import logger as LOGGER
 
+from .apply_summary import apply_summary_session
 from .backends import resolve_backend, with_resolved_backend
+from .change_reports import current_validation_report_path
 from .ci.service import (
     inspect_environments,
     prepare_ci_execution,
@@ -75,6 +77,7 @@ from .models import (
     render_file_reference,
 )
 from .plan_redaction import redact_plan, redact_plan_file
+from .plan_summary import plan_summary_session
 from .remote import is_remote_url, parse_git_url, resolve_if_remote, resolve_references
 from .runner import run_terragrunt, run_terragrunt_all_ordered
 from .targeting import (
@@ -521,6 +524,7 @@ def _build_plan_validation_report(
     results: Sequence[PlanValidationResult],
     stack_name: str | None = None,
     stack_count: int | None = None,
+    plan_report: Any | None = None,
 ) -> dict[str, Any]:
     summary = _summarize_plan_validation_results(results)
 
@@ -539,6 +543,25 @@ def _build_plan_validation_report(
         "summary": summary,
         "results": [result.to_dict() for result in results],
     }
+    if plan_report is not None:
+        plan_payload = plan_report.payload()
+        payload.update(
+            run_id=plan_report.run_id,
+            plan_summary_path=str(plan_report.path),
+            plan_complete=plan_payload["complete"],
+            change_totals={
+                key: plan_payload["totals"][key]
+                for key in (
+                    "create",
+                    "update",
+                    "replace",
+                    "destroy",
+                    "resources",
+                    "outputs",
+                )
+            },
+        )
+        plan_report.attach_validation(payload)
     if stack_name is not None:
         payload["stack_name"] = stack_name
     if stack_count is not None:
@@ -1987,6 +2010,10 @@ def run_stack_action(
     offline: bool = False,
     runfiles: Sequence[str | Path | FileReference] | None = None,
     skip_after_apply: bool = False,
+    save_plan_summary_json: Path | None = None,
+    plan_summary: str = "table",
+    save_apply_summary_json: Path | None = None,
+    apply_summary: str = "table",
 ) -> int:
     """Generate files for a stack and run a Terragrunt action.
 
@@ -2024,10 +2051,27 @@ def run_stack_action(
         runfiles: Optional runfile references used for lock verification.
         skip_after_apply: When `True`, skip any after-apply operations that would normally
             be executed after a successful apply.
+        save_plan_summary_json: Optional aggregate report destination.
+        plan_summary: Console report format: `table`, `detailed`, or `none`.
+        save_apply_summary_json: Optional artifact path for confirmed applied changes.
+        apply_summary: Applied-change console format: `table`, `detailed`, or `none`.
 
     Returns:
         Process-style exit code from the Terragrunt action.
     """
+    if apply_summary not in {"table", "detailed", "none"}:
+        raise ValueError("Unsupported apply summary format.")
+    if save_apply_summary_json is not None and action not in {
+        TerragruntAction.APPLY,
+        TerragruntAction.DESTROY,
+    }:
+        raise ValueError(
+            "--save-apply-summary-json is only supported for apply and destroy."
+        )
+    if plan_summary not in {"table", "detailed", "none"}:
+        raise ValueError("Unsupported plan summary format.")
+    if save_plan_summary_json is not None and action != TerragruntAction.PLAN:
+        raise ValueError("--save-plan-summary-json is only supported for plan.")
     cache_dir, config_paths, loaded_config = load_runtime_config(
         config,
         build_dir,
@@ -2093,18 +2137,53 @@ def run_stack_action(
                 "No components in stack '{stack_name}' matched tag selectors",
                 stack_name=stack.name,
             )
-            if action_enum == TerragruntAction.PLAN:
-                _emit_validation_report(
-                    _build_plan_validation_report(
+            with plan_summary_session(
+                action_enum == TerragruntAction.PLAN,
+                save_plan_summary_json
+                or (
+                    build_dir
+                    or (stack.source_path.parent if stack.source_path else Path.cwd())
+                    / STACKSMITH_DIR_NAME
+                )
+                / "plan-summary.json",
+                {},
+                "plan",
+                "destroy" if destroy else "normal",
+                plan_summary,
+                {"tags": tags or [], "tag_expr": tag_expr},
+                current_validation_report_path(),
+                ValidationReportFormat(validation_report_format).value,
+            ) as summary:
+                summary.exit_code = 1
+                if action_enum == TerragruntAction.PLAN:
+                    validation_report = _build_plan_validation_report(
                         command=TerragruntAction.PLAN.value,
                         exit_code=1,
                         strict_validation_warnings=strict_validation_warnings,
                         results=plan_validation_results,
                         stack_name=stack.name,
                         stack_count=1,
-                    ),
-                    report_format=validation_report_format,
+                        plan_report=summary,
+                    )
+                    _emit_validation_report(
+                        validation_report,
+                        report_format=validation_report_format,
+                    )
+            with apply_summary_session(
+                action_enum in {TerragruntAction.APPLY, TerragruntAction.DESTROY},
+                save_apply_summary_json
+                or (
+                    build_dir
+                    or (stack.source_path.parent if stack.source_path else Path.cwd())
+                    / STACKSMITH_DIR_NAME
                 )
+                / "apply-summary.json",
+                {},
+                action_enum.value,
+                apply_summary,
+                {"tags": tags or [], "tag_expr": tag_expr},
+            ) as applied:
+                applied.exit_code = 1
             return 1
 
     output_dir = _generate_single_stack(
@@ -2117,35 +2196,61 @@ def run_stack_action(
         use_local_modules=use_local_modules,
         merge_mode=merge_mode,
     )
-    terragrunt_exit_code = run_terragrunt(
-        build_terragrunt_args(action_enum, destroy, targets=targets, plan_file=plan),
-        output_dir,
-        auto_approve=auto_approve,
-        config=loaded_config,
-        stack_name=stack.name,
-        cache_dir=cache_dir,
-        auth_config=loaded_config.remote_auth or None,
-        save_plan_json=save_plan_json,
-        save_redacted_plan_json=save_redacted_plan_json,
-        save_plan_binary=out,
-        strict_validation_warnings=strict_validation_warnings,
-        fail_on_changes=fail_on_changes,
-        plan_validation_results=plan_validation_results,
-        no_cas=effective_no_cas,
-    )
-
-    if action_enum == TerragruntAction.PLAN:
-        _emit_validation_report(
-            _build_plan_validation_report(
-                command=TerragruntAction.PLAN.value,
-                exit_code=terragrunt_exit_code,
-                strict_validation_warnings=strict_validation_warnings,
-                results=plan_validation_results,
-                stack_name=stack.name,
-                stack_count=1,
+    with (
+        plan_summary_session(
+            action_enum == TerragruntAction.PLAN,
+            save_plan_summary_json or output_dir / "plan-summary.json",
+            {stack.name: list(stack.components)},
+            "plan",
+            "destroy" if destroy else "normal",
+            plan_summary,
+            {"tags": tags or [], "tag_expr": tag_expr, "targets": targets or []},
+            current_validation_report_path(),
+            ValidationReportFormat(validation_report_format).value,
+        ) as summary,
+        apply_summary_session(
+            action_enum in {TerragruntAction.APPLY, TerragruntAction.DESTROY},
+            save_apply_summary_json or output_dir / "apply-summary.json",
+            {stack.name: list(stack.components)},
+            action_enum.value,
+            apply_summary,
+            {"tags": tags or [], "tag_expr": tag_expr, "targets": targets or []},
+        ) as applied,
+    ):
+        terragrunt_exit_code = run_terragrunt(
+            build_terragrunt_args(
+                action_enum, destroy, targets=targets, plan_file=plan
             ),
-            report_format=validation_report_format,
+            output_dir,
+            auto_approve=auto_approve,
+            config=loaded_config,
+            stack_name=stack.name,
+            cache_dir=cache_dir,
+            auth_config=loaded_config.remote_auth or None,
+            save_plan_json=save_plan_json,
+            save_redacted_plan_json=save_redacted_plan_json,
+            save_plan_binary=out,
+            strict_validation_warnings=strict_validation_warnings,
+            fail_on_changes=fail_on_changes,
+            plan_validation_results=plan_validation_results,
+            no_cas=effective_no_cas,
         )
+        summary.exit_code = terragrunt_exit_code
+        applied.exit_code = terragrunt_exit_code
+
+        if action_enum == TerragruntAction.PLAN:
+            _emit_validation_report(
+                _build_plan_validation_report(
+                    command=TerragruntAction.PLAN.value,
+                    exit_code=terragrunt_exit_code,
+                    strict_validation_warnings=strict_validation_warnings,
+                    results=plan_validation_results,
+                    stack_name=stack.name,
+                    stack_count=1,
+                    plan_report=summary,
+                ),
+                report_format=validation_report_format,
+            )
 
     if (
         terragrunt_exit_code == 0
@@ -2320,6 +2425,10 @@ def run_all_stacks(
     ) = ValidationReportFormat.JSON,
     save_redacted_plan_json: Path | None = None,
     dry_run: bool = False,
+    save_plan_summary_json: Path | None = None,
+    plan_summary: str = "table",
+    save_apply_summary_json: Path | None = None,
+    apply_summary: str = "table",
 ) -> int | ExecutionPreview:
     """Generate all discovered stacks and run a Terragrunt action in order.
 
@@ -2359,10 +2468,31 @@ def run_all_stacks(
             redacted plan JSON output for each stack during plan actions.
         dry_run: When `True`, return an execution preview without writing generated
             files, cleaning build output, or invoking Terragrunt.
+        save_plan_summary_json: Optional aggregate report destination.
+        plan_summary: Console report format: `table`, `detailed`, or `none`.
+        save_apply_summary_json: Optional artifact path for confirmed applied changes.
+        apply_summary: Applied-change console format: `table`, `detailed`, or `none`.
 
     Returns:
         Structured preview for a dry run, otherwise the process-style exit code.
     """
+    if apply_summary not in {"table", "detailed", "none"}:
+        raise ValueError("Unsupported apply summary format.")
+    if save_apply_summary_json is not None and action not in {
+        TerragruntAction.APPLY,
+        TerragruntAction.DESTROY,
+    }:
+        raise ValueError(
+            "--save-apply-summary-json is only supported for apply and destroy."
+        )
+    if dry_run and save_apply_summary_json is not None:
+        raise ValueError("--save-apply-summary-json cannot be used with --dry-run.")
+    if plan_summary not in {"table", "detailed", "none"}:
+        raise ValueError("Unsupported plan summary format.")
+    if save_plan_summary_json is not None and action != TerragruntAction.PLAN:
+        raise ValueError("--save-plan-summary-json is only supported for plan.")
+    if dry_run and save_plan_summary_json is not None:
+        raise ValueError("--save-plan-summary-json cannot be used with --dry-run.")
     _validate_dry_run_options(
         dry_run,
         save_plan_json=save_plan_json,
@@ -2482,48 +2612,75 @@ def run_all_stacks(
 
         if not filtered_stack_dirs:
             LOGGER.info("No stacks matched tag selectors; nothing to run.")
-            if action_enum == TerragruntAction.PLAN:
-                _emit_validation_report(
-                    _build_plan_validation_report(
-                        command=f"run-all {TerragruntAction.PLAN.value}",
-                        exit_code=0,
-                        strict_validation_warnings=strict_validation_warnings,
-                        results=plan_validation_results,
-                        stack_count=0,
-                    ),
-                    report_format=validation_report_format,
-                )
-            return 0
 
         stack_build_dirs = filtered_stack_dirs
 
-    terragrunt_exit_code = run_terragrunt_all_ordered(
-        build_terragrunt_args(action_enum, destroy),
-        stack_build_dirs,
-        auto_approve=auto_approve,
-        config=loaded_config,
-        cache_dir=cache_dir,
-        auth_config=loaded_config.remote_auth or None,
-        stack_args_by_name=stack_args_by_name,
-        save_plan_json=save_plan_json,
-        save_redacted_plan_json=save_redacted_plan_json,
-        strict_validation_warnings=strict_validation_warnings,
-        fail_on_changes=fail_on_changes,
-        plan_validation_results=plan_validation_results,
-        no_cas=effective_no_cas,
-    )
-
-    if action_enum == TerragruntAction.PLAN:
-        _emit_validation_report(
-            _build_plan_validation_report(
-                command=f"run-all {TerragruntAction.PLAN.value}",
-                exit_code=terragrunt_exit_code,
-                strict_validation_warnings=strict_validation_warnings,
-                results=plan_validation_results,
-                stack_count=len(stack_build_dirs),
-            ),
-            report_format=validation_report_format,
+    with (
+        plan_summary_session(
+            action_enum == TerragruntAction.PLAN,
+            save_plan_summary_json
+            or (build_dir or root / STACKSMITH_DIR_NAME) / "plan-summary.json",
+            {name: list(stacks[name].components) for name in stack_build_dirs},
+            "run-all plan",
+            "destroy" if destroy else "normal",
+            plan_summary,
+            {
+                "tags": tags or [],
+                "tag_expr": tag_expr,
+                "include_tags": include_tags or [],
+                "exclude_tags": exclude_tags or [],
+                "stack_args": stack_args_by_name or {},
+                "excluded_stacks": sorted(set(stacks) - set(stack_build_dirs)),
+            },
+            current_validation_report_path(),
+            ValidationReportFormat(validation_report_format).value,
+        ) as summary,
+        apply_summary_session(
+            action_enum in {TerragruntAction.APPLY, TerragruntAction.DESTROY},
+            save_apply_summary_json
+            or (build_dir or root / STACKSMITH_DIR_NAME) / "apply-summary.json",
+            {name: list(stacks[name].components) for name in stack_build_dirs},
+            f"run-all {action_enum.value}",
+            apply_summary,
+            {
+                "tags": tags or [],
+                "tag_expr": tag_expr,
+                "include_tags": include_tags or [],
+                "exclude_tags": exclude_tags or [],
+                "stack_args": stack_args_by_name or {},
+            },
+        ) as applied,
+    ):
+        terragrunt_exit_code = run_terragrunt_all_ordered(
+            build_terragrunt_args(action_enum, destroy),
+            stack_build_dirs,
+            auto_approve=auto_approve,
+            config=loaded_config,
+            cache_dir=cache_dir,
+            auth_config=loaded_config.remote_auth or None,
+            stack_args_by_name=stack_args_by_name,
+            save_plan_json=save_plan_json,
+            save_redacted_plan_json=save_redacted_plan_json,
+            strict_validation_warnings=strict_validation_warnings,
+            fail_on_changes=fail_on_changes,
+            plan_validation_results=plan_validation_results,
+            no_cas=effective_no_cas,
         )
+        summary.exit_code = terragrunt_exit_code
+        applied.exit_code = terragrunt_exit_code
+
+        if action_enum == TerragruntAction.PLAN:
+            _emit_validation_report(
+                _build_plan_validation_report(
+                    command=f"run-all {TerragruntAction.PLAN.value}",
+                    exit_code=terragrunt_exit_code,
+                    strict_validation_warnings=strict_validation_warnings,
+                    results=plan_validation_results,
+                    stack_count=len(stack_build_dirs),
+                    plan_report=summary,
+                ),
+                report_format=validation_report_format,
+            )
 
     if (
         terragrunt_exit_code == 0

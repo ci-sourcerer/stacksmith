@@ -352,6 +352,8 @@ def build_ci_execution_argv(
         return [
             "plan",
             *common_args,
+            "--save-plan-summary-json",
+            f".stacksmith-ci/{row.environment}/plan-summary.json",
             "--save-redacted-plan-json",
             (
                 f".stacksmith-ci/{row.environment}/"
@@ -372,9 +374,22 @@ def build_ci_execution_argv(
             ),
         ]
     if execution_phase == "apply":
-        return ["apply", *common_args, "--auto-approve", "--no-after-apply"]
+        return [
+            "apply",
+            *common_args,
+            "--auto-approve",
+            "--no-after-apply",
+            "--save-apply-summary-json",
+            f".stacksmith-ci/{row.environment}/apply-summary.json",
+        ]
     if execution_phase == "destroy":
-        return ["destroy", *common_args, "--auto-approve"]
+        return [
+            "destroy",
+            *common_args,
+            "--auto-approve",
+            "--save-apply-summary-json",
+            f".stacksmith-ci/{row.environment}/apply-summary.json",
+        ]
     if execution_phase == "plan-operation":
         return [
             "operation",

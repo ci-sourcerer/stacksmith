@@ -267,6 +267,30 @@ void executeStacksmithMatrix(
                         artifacts << "${archiveArtifactDir}/validation-report.${env.STACKSMITH_VALIDATION_REPORT_FORMAT ?: 'json'}"
                     }
 
+                    if (fileExists("${artifactDir}/plan-summary.json")) {
+                        artifacts << "${archiveArtifactDir}/plan-summary.json"
+                    }
+
+                    if (fileExists("${artifactDir}/stacksmith-report.json")) {
+                        artifacts << "${archiveArtifactDir}/stacksmith-report.json"
+                    }
+
+                    if (artifacts) {
+                        archiveArtifacts(artifacts: artifacts.join(','))
+                    }
+                }
+
+                if (command in ['apply', 'destroy'] && parseBoolean(env.STACKSMITH_UPLOAD_ARTIFACTS ?: 'true')) {
+                    List<String> artifacts = []
+
+                    if (fileExists("${artifactDir}/apply-summary.json")) {
+                        artifacts << "${archiveArtifactDir}/apply-summary.json"
+                    }
+
+                    if (fileExists("${artifactDir}/stacksmith-report.json")) {
+                        artifacts << "${archiveArtifactDir}/stacksmith-report.json"
+                    }
+
                     if (artifacts) {
                         archiveArtifacts(artifacts: artifacts.join(','))
                     }
