@@ -640,9 +640,10 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
                              [--changed-path CHANGED_PATH] [--base-ref BASE_REF] [--before BEFORE]
                              [--after AFTER]
                              --command {test,plan,apply,destroy,plan-operation,apply-operation}
-                             [--operation-names OPERATION_NAMES] --config-ref CONFIG_REF [--workdir WORKDIR]
-                             [--env-file ENV_FILE] [--stacksmith-args-json STACKSMITH_ARGS_JSON] [--debug]
-                             [--no-cas] [--locked] [--offline] [--lockfile LOCKFILE] [--force-rerun]
+                             [--operation-names OPERATION_NAMES] [--tags TAGS] --config-ref CONFIG_REF
+                             [--workdir WORKDIR] [--env-file ENV_FILE]
+                             [--stacksmith-args-json STACKSMITH_ARGS_JSON] [--debug] [--no-cas] [--locked]
+                             [--offline] [--lockfile LOCKFILE] [--force-rerun]
                              [--validation-report-format {json}] [--fail-on-changes]
                              [--strict-validation-warnings] [--ref-name REF_NAME]
                              [--default-branch DEFAULT_BRANCH] [--is-primary-branch {true,false}]
@@ -661,6 +662,7 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
 | `--after` | Current commit SHA used for push diff selection. |
 | `--command` | Stacksmith command to execute for each selected environment. Choices: `test`, `plan`, `apply`, `destroy`, `plan-operation`, `apply-operation`. |
 | `--operation-names` | Comma-delimited stack-local operation names. Empty selects all for plan-operation and apply-operation commands. |
+| `--tags` | Comma-delimited component tags to target. Empty selects all components for plan, apply, and destroy commands. |
 | `--config-ref` | Platform-managed Stacksmith config reference. |
 | `--workdir` | Working directory relative to the checked-out repository. |
 | `--env-file` | Environment file path, or /dev/null to disable implicit loading. |
