@@ -101,7 +101,7 @@ class CiExecutionManifest(BaseModel):
         seen: set[str] = set()
         for tag in tags:
             if not isinstance(tag, str):
-                raise ValueError("tags must be strings")
+                raise TypeError("tags must be strings")
             normalized = tag.strip()
             if not normalized or normalized in seen:
                 continue
