@@ -46,6 +46,7 @@ class CiExecutionManifest(BaseModel):
         version: Manifest schema version.
         command: Stacksmith command to execute.
         operation_names: Stack-local operation names for native operation plans or runs.
+        tags: Component tags used to restrict lifecycle targeting.
         config_ref: Platform-managed Stacksmith config reference.
         workdir: Working directory relative to the checked-out repository.
         env_file: Optional environment file, with `/dev/null` disabling implicit loading.
@@ -66,6 +67,7 @@ class CiExecutionManifest(BaseModel):
     version: Literal[2] = 2
     command: CiCommand
     operation_names: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     config_ref: str
     workdir: str = "."
     env_file: str = "/dev/null"
@@ -91,6 +93,21 @@ class CiExecutionManifest(BaseModel):
         if len(set(normalized_names)) != len(normalized_names):
             raise ValueError("operation names must be unique")
         return normalized_names
+
+    @field_validator("tags")
+    @classmethod
+    def _normalize_tags(cls, tags: list[str]) -> list[str]:
+        normalized_tags: list[str] = []
+        seen: set[str] = set()
+        for tag in tags:
+            if not isinstance(tag, str):
+                raise ValueError("tags must be strings")
+            normalized = tag.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            normalized_tags.append(normalized)
+        return normalized_tags
 
     @model_validator(mode="after")
     def _validate_manifest(self) -> CiExecutionManifest:
@@ -165,6 +182,14 @@ def parse_ci_stacksmith_args(value: str) -> list[str]:
     ):
         raise StacksmithConfigError(
             "stacksmith_args_json cannot override the platform-managed lock policy"
+        )
+    if any(
+        argument in {"--tag", "--tag-expr"}
+        or argument.startswith(("--tag=", "--tag-expr="))
+        for argument in arguments
+    ):
+        raise StacksmithConfigError(
+            "stacksmith_args_json cannot override the CI-managed tag selector"
         )
     return arguments
 
@@ -325,10 +350,15 @@ def build_ci_execution_argv(
         if manifest.no_cas:
             test_args.append("--no-cas")
         return ["test", *test_args, *manifest.stacksmith_args]
+    tag_args: list[str] = []
+    if execution_phase in {"plan", "apply", "destroy"} and manifest.tags:
+        for tag_name in manifest.tags:
+            tag_args.extend(["--tag", tag_name])
     common_args = [
         "--config",
         manifest.config_ref,
         *manifest.stacksmith_args,
+        *tag_args,
         "--var",
         f"environment={row.environment}",
         "--env-file",

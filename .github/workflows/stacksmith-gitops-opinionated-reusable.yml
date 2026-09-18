@@ -12,6 +12,11 @@ on:
         required: false
         type: string
         default: ""
+      tags:
+        description: Comma-delimited component tags to target. Empty selects all components.
+        required: false
+        type: string
+        default: ""
       environments:
         description: Comma-separated environment names. Leave empty for automatic selection.
         required: false
@@ -70,6 +75,7 @@ jobs:
           INPUT_GITOPS_ROOT: ${{ inputs.gitops_root }}
           INPUT_COMMAND: ${{ inputs.command }}
           INPUT_OPERATION_NAMES: ${{ inputs.operation_names }}
+          INPUT_TAGS: ${{ inputs.tags || fromJson(toJson(vars)).STACKSMITH_TAGS || '' }}
           STACKSMITH_MAX_PARALLEL_OPERATIONS: ${{ fromJson(toJson(vars)).STACKSMITH_MAX_PARALLEL_OPERATIONS || '10' }}
           INPUT_CONFIG_REF: ${{ fromJson(toJson(vars)).STACKSMITH_CONFIG_REF || '' }}
           INPUT_WORKDIR: ${{ inputs.workdir }}

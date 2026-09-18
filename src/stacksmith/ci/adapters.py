@@ -36,6 +36,7 @@ def prepare_ci_manifest_from_env() -> CiExecutionManifest:
     return prepare_ci_execution(
         command=os.getenv("INPUT_COMMAND", ""),
         operation_names=os.getenv("INPUT_OPERATION_NAMES", ""),
+        tags=os.getenv("INPUT_TAGS", ""),
         config_ref=os.getenv("INPUT_CONFIG_REF", ""),
         workdir=os.getenv("INPUT_WORKDIR", "."),
         env_file=os.getenv("INPUT_ENV_FILE", "/dev/null"),

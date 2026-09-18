@@ -165,6 +165,7 @@ def test_prepare_ci_execution_returns_provider_neutral_manifest(tmp_path: Path):
 
     manifest = prepare_ci_execution(
         command="plan",
+        tags="web",
         config_ref=str(_REMOTE_BACKEND_CONFIG),
         gitops_root=str(tmp_path),
         discovery_mode="env-files",
@@ -172,7 +173,6 @@ def test_prepare_ci_execution_returns_provider_neutral_manifest(tmp_path: Path):
         changed_paths=["environments/dev.yaml"],
         ref_name="main",
         default_branch="main",
-        stacksmith_args_json='["--tag", "web"]',
         debug=True,
         no_cas=True,
         locked=True,
@@ -182,7 +182,8 @@ def test_prepare_ci_execution_returns_provider_neutral_manifest(tmp_path: Path):
     )
 
     assert manifest.version == 2
-    assert manifest.stacksmith_args == ["--tag", "web"]
+    assert manifest.tags == ["web"]
+    assert manifest.stacksmith_args == []
     assert manifest.debug is True
     assert manifest.no_cas is True
     assert manifest.locked is True
@@ -195,6 +196,62 @@ def test_prepare_ci_execution_returns_provider_neutral_manifest(tmp_path: Path):
             "environment_runfile": f"{tmp_path.as_posix()}/environments/dev.yaml",
         }
     ]
+
+
+def test_prepare_ci_execution_supports_comma_delimited_tags(tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+
+    manifest = prepare_ci_execution(
+        command="plan",
+        config_ref=str(_REMOTE_BACKEND_CONFIG),
+        gitops_root=str(tmp_path),
+        discovery_mode="env-files",
+        environments="dev",
+        skip_branch_validation=True,
+        tags="web, api, backend, , web",
+    )
+
+    assert manifest.tags == ["web", "api", "backend"]
+    argv = build_ci_execution_argv(manifest, "dev")
+    assert argv.count("--tag") == 3
+    assert argv[argv.index("--tag") + 1] == "web"
+    assert argv[argv.index("--tag") + 3] == "api"
+    assert argv[argv.index("--tag") + 5] == "backend"
+
+
+def test_prepare_ci_execution_default_tags_are_empty_and_not_emitted(
+    tmp_path: Path,
+):
+    _create_env_files_layout(tmp_path)
+
+    manifest = prepare_ci_execution(
+        command="plan",
+        config_ref=str(_REMOTE_BACKEND_CONFIG),
+        gitops_root=str(tmp_path),
+        discovery_mode="env-files",
+        environments="dev",
+        skip_branch_validation=True,
+    )
+
+    assert manifest.tags == []
+    assert "--tag" not in build_ci_execution_argv(manifest, "dev")
+
+
+def test_prepare_ci_execution_rejects_tag_override_in_stacksmith_args(
+    tmp_path: Path,
+):
+    _create_env_files_layout(tmp_path)
+
+    with pytest.raises(StacksmithConfigError, match="tag selector"):
+        prepare_ci_execution(
+            command="plan",
+            config_ref=str(_REMOTE_BACKEND_CONFIG),
+            gitops_root=str(tmp_path),
+            discovery_mode="env-files",
+            environments="dev",
+            skip_branch_validation=True,
+            stacksmith_args_json='["--tag", "other"]',
+        )
 
 
 def test_prepare_ci_execution_builds_version_two_operation_batch(

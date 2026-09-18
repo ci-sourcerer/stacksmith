@@ -26,6 +26,26 @@ def parse_operation_names(value: str) -> list[str]:
     return operation_names
 
 
+def parse_tag_names(value: str) -> list[str]:
+    """Parse comma-delimited component tag names.
+
+    Args:
+        value: Comma-delimited tag names.
+
+    Returns:
+        Tag names in input order without blanks or duplicates.
+    """
+    tags: list[str] = []
+    seen: set[str] = set()
+    for tag_name in value.split(","):
+        normalized = tag_name.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        tags.append(normalized)
+    return tags
+
+
 def coerce_input_value(raw: str) -> Any:
     """Parse a JSON-compatible input value, falling back to its original string.
 

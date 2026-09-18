@@ -791,6 +791,14 @@ def configure_ci_prepare_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
+        "--tags",
+        default="",
+        help=(
+            "Comma-delimited component tags to target. Empty selects all "
+            "components for plan, apply, and destroy commands."
+        ),
+    )
+    parser.add_argument(
         "--config-ref",
         required=True,
         help="Platform-managed Stacksmith config reference.",

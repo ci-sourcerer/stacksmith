@@ -13,7 +13,7 @@ from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME
 from ..enums import MergeMode, ValidationReportFormat
 from ..exceptions import StacksmithConfigError
 from ..gitops import evaluate_environment_selection
-from ..input_parsing import parse_operation_names
+from ..input_parsing import parse_operation_names, parse_tag_names
 from ..loading import load_config, load_runfiles, load_stack_metadata
 from ..models import MergeConfig, MergePolicy, RunFile, StackDefinition, ToolConfig
 from ..remote import is_remote_url, resolve_references
@@ -300,6 +300,7 @@ def prepare_ci_execution(
     *,
     command: str,
     operation_names: str = "",
+    tags: str = "",
     config_ref: str,
     workdir: str = ".",
     env_file: str = "/dev/null",
@@ -331,6 +332,7 @@ def prepare_ci_execution(
     Args:
         command: Stacksmith command to execute.
         operation_names: Comma-delimited stack-local operation names.
+        tags: Comma-delimited component tags used to target CI execution.
         config_ref: Platform-managed Stacksmith config reference.
         workdir: Working directory relative to the checked-out repository.
         env_file: Environment file path, or `/dev/null` to disable implicit loading.
@@ -366,6 +368,7 @@ def prepare_ci_execution(
     selected_operation_names = (
         parse_operation_names(operation_names) if operation_names.strip() else []
     )
+    selected_tags = parse_tag_names(tags) if tags.strip() else []
     validate_ci_policy(
         command=command,
         operation_names=selected_operation_names,
@@ -389,6 +392,7 @@ def prepare_ci_execution(
     manifest = CiExecutionManifest(
         command=command,
         operation_names=selected_operation_names,
+        tags=selected_tags,
         config_ref=config_ref,
         workdir=workdir,
         env_file=env_file,

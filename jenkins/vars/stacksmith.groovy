@@ -208,6 +208,7 @@ List<Object> buildPipelineParameters(boolean testPipeline) {
         string(name: 'WORKDIR', defaultValue: '.', description: 'working directory for stacksmith commands'),
         choice(name: 'COMMAND', choices: ['plan', 'apply', 'destroy', 'plan-operation', 'apply-operation'], description: 'Stacksmith command'),
         string(name: 'OPERATION_NAMES', description: 'comma-delimited stack-local operation names; empty selects all'),
+        string(name: 'TAGS', description: 'comma-delimited component tags to target; empty selects all components'),
     ] + sharedParameters + [
         booleanParam(name: 'FAIL_ON_CHANGES', defaultValue: false, description: 'fail if plan contains changes'),
         booleanParam(name: 'STRICT_VALIDATION_WARNINGS', defaultValue: false, description: 'treat validation warnings as failures'),
@@ -324,12 +325,14 @@ def call() {
 
                 env.COMMAND = testPipeline ? 'test' : (params.COMMAND ?: 'plan').toString().trim().toLowerCase()
                 env.OPERATION_NAMES = testPipeline ? '' : (params.OPERATION_NAMES ?: '').toString().trim()
+                env.TAGS = testPipeline ? '' : ((params.TAGS ?: env.STACKSMITH_TAGS ?: '').toString().trim())
                 String workdir = (params.WORKDIR ?: '.').toString()
 
                 def manifestFile = '.stacksmith-ci/ci-execution-manifest.json'
                 def manifestOutput = withEnv([
                     "INPUT_COMMAND=${env.COMMAND}",
                     "INPUT_OPERATION_NAMES=${env.OPERATION_NAMES}",
+                    "INPUT_TAGS=${env.TAGS}",
                     "STACKSMITH_MAX_PARALLEL_OPERATIONS=${env.STACKSMITH_MAX_PARALLEL_OPERATIONS ?: '10'}",
                     "INPUT_CONFIG_REF=${env.STACKSMITH_CONFIG_REF}",
                     "INPUT_WORKDIR=${workdir}",

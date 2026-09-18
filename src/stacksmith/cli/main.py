@@ -1079,6 +1079,7 @@ def _cmd_ci_prepare(args: argparse.Namespace) -> int:
     manifest = prepare_ci_execution(
         command=args.ci_execution_command,
         operation_names=args.operation_names,
+        tags=args.tags,
         config_ref=args.config_ref,
         workdir=args.workdir,
         env_file=args.env_file,

@@ -71,7 +71,8 @@ The wrappers pass reusable workflow inputs from repository variables when availa
 - `STACKSMITH_REQUIRE_LOCKFILE` (default `false`; passes `--locked` to plan, apply, and destroy)
 - `STACKSMITH_OFFLINE` (default `false`; passes `--offline` to plan, apply, and destroy and requires locked mode)
 - `STACKSMITH_LOCKFILE` (default empty; optional explicit lockfile path)
-- `STACKSMITH_ARGS_JSON` (default `[]`; ordered JSON array of additional CLI arguments; the workflow rejects managed config and lock-policy overrides)
+- `STACKSMITH_TAGS` (default empty; comma-delimited component tags to target, or empty to select all components)
+- `STACKSMITH_ARGS_JSON` (default `[]`; ordered JSON array of additional CLI arguments; the workflow rejects managed config, lock-policy, and tag-selector overrides)
 - `STACKSMITH_CONFIG_REF` (required for the workflow entrypoints; points to the platform-managed Stacksmith config)
 - `NO_VALIDATE_BRANCH_AND_OPERATION` (default `false`; bypasses the default-branch/PR operation guard)
 - `TG_AUTH_PROVIDER_CMD` (default empty)
@@ -240,7 +241,7 @@ Configure these values as Jenkins folder properties or job environment variables
 - `STACKSMITH_CONFIG_REF`: Required platform-managed Stacksmith config reference.
 - `STACKSMITH_DEBUG`: Environment equivalent for the `DEBUG` parameter. A truthy value enables debug mode even when the build parameter is false.
 - `STACKSMITH_REQUIRE_LOCKFILE`, `STACKSMITH_OFFLINE`, and `STACKSMITH_LOCKFILE`: Job- or folder-managed source-locking policy. These settings are intentionally not exposed as build parameters.
-- `STACKSMITH_NO_CAS`, `STACKSMITH_FORCE_RERUN`, `STACKSMITH_VALIDATION_REPORT_FORMAT`, `STACKSMITH_UPLOAD_ARTIFACTS`, and `STACKSMITH_ARGS_JSON`: Shared execution settings with the same behavior described above. `STACKSMITH_ARGS_JSON` must be an ordered JSON array and cannot override the managed config or lock policy. In test-only mode, it can include explicit `tests.yaml` paths and pytest arguments after `--`.
+- `STACKSMITH_NO_CAS`, `STACKSMITH_FORCE_RERUN`, `STACKSMITH_VALIDATION_REPORT_FORMAT`, `STACKSMITH_UPLOAD_ARTIFACTS`, `STACKSMITH_TAGS`, and `STACKSMITH_ARGS_JSON`: Shared execution settings with the same behavior described above. `STACKSMITH_TAGS` is a comma-delimited selector that defaults to empty and therefore runs all components unless restricted. `STACKSMITH_ARGS_JSON` must be an ordered JSON array and cannot override the managed config, lock policy, or tag selector. In test-only mode, it can include explicit `tests.yaml` paths and pytest arguments after `--`.
 - `NO_VALIDATE_BRANCH_AND_OPERATION`: Set to `true` to bypass the shared default-branch and pull-request operation guard.
 - `STACKSMITH_DEFAULT_BRANCH` or `BRANCH_IS_PRIMARY`: Branch-policy context when Jenkins does not provide it.
 - `TG_AUTH_PROVIDER_CMD` and `TG_IAM_ASSUME_ROLE`: Optional Terragrunt authentication settings.
