@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   docs:
-    uses: ci-sourcerer/common-python-tasks/.github/workflows/docs.yml@v0.11.0
+    uses: ci-sourcerer/common-python-tasks/.github/workflows/docs.yml@v0.12.1
     with:
       python_version: '3.14'
       dependency_group: dev
