@@ -224,6 +224,24 @@ class TestProviderValidation:
             config.provider_mappings["aws"].instances["secondary"].alias == "secondary"
         )
 
+    def test_provider_family_may_omit_instances(self):
+        payload = _base_tool_config_payload()
+        del payload["provider_mappings"]["aws"]["instances"]
+
+        config = ToolConfig.model_validate(payload)
+
+        assert config.provider_mappings["aws"].instances == {}
+
+    def test_provider_instance_may_omit_config(self):
+        payload = _base_tool_config_payload()
+        payload["provider_mappings"]["aws"]["instances"] = {
+            "secondary": {"alias": "secondary"}
+        }
+
+        config = ToolConfig.model_validate(payload)
+
+        assert config.provider_mappings["aws"].instances["secondary"].config is None
+
     def test_provider_instance_config_must_not_be_empty(self):
         payload = _base_tool_config_payload()
         payload["provider_mappings"]["aws"]["instances"]["default"] = {"config": {}}
@@ -322,6 +340,19 @@ class TestModuleProviderMappingValidation:
         assert (
             config.module_mappings["aws_s3_bucket"].providers["aws"] == "aws.secondary"
         )
+
+    def test_implicit_default_provider_reference_is_accepted(self):
+        payload = _base_tool_config_payload()
+        del payload["provider_mappings"]["aws"]["instances"]
+        payload["module_mappings"]["aws_s3_bucket"]["providers"] = {
+            "aws": "aws.default"
+        }
+
+        config = ToolConfig.model_validate(payload)
+
+        assert config.module_mappings["aws_s3_bucket"].providers == {
+            "aws": "aws.default"
+        }
 
     def test_provider_instance_config_can_use_provider_config_spec(self):
         payload = _base_tool_config_payload()

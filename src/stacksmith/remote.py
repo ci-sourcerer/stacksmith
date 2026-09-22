@@ -3,7 +3,7 @@ import re
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -297,7 +297,7 @@ def _resolve_terragrunt_ssh_command(
 @contextmanager
 def terragrunt_auth_env(
     env: dict[str, str], auth_config: RemoteAuthConfig | None
-) -> Iterator[dict[str, str]]:
+) -> Generator[dict[str, str]]:
     """Temporarily apply Git auth to a Terragrunt subprocess environment.
 
     This preserves Stacksmith-managed Git auth when Terragrunt performs source

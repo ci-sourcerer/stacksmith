@@ -1273,9 +1273,9 @@ class TestLoadConfig:
         with pytest.raises(StacksmithConfigError):
             load_config(bad_file)
 
-    def test_old_provider_shape_is_rejected(self, tmp_path: Path):
-        bad_file = tmp_path / "stacksmith-config.yaml"
-        bad_file.write_text(
+    def test_provider_instances_may_be_omitted(self, tmp_path: Path):
+        config_file = tmp_path / "stacksmith-config.yaml"
+        config_file.write_text(
             _s3_config_yaml(
                 backend_bucket="test-bucket",
                 include_instances=False,
@@ -1283,8 +1283,9 @@ class TestLoadConfig:
             encoding="utf-8",
         )
 
-        with pytest.raises(StacksmithConfigError):
-            load_config(bad_file)
+        config = load_config(config_file)
+
+        assert config.provider_mappings["aws"].instances == {}
 
     def test_load_config_deep_merges_multiple_files(self, tmp_path: Path):
         base = tmp_path / "base.yaml"

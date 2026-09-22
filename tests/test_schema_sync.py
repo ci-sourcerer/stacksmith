@@ -202,6 +202,12 @@ def test_tool_config_fields_match_config_schema():
         "alias",
         "config",
     }
+    assert set(schema["$defs"]["providerFamily"]["required"]) == {"source"}
+    assert "required" not in schema["$defs"]["providerInstance"]
+    assert (
+        "minProperties"
+        not in schema["$defs"]["providerFamily"]["properties"]["instances"]
+    )
 
     assert _field_names(ModuleMapping) == {
         "description",

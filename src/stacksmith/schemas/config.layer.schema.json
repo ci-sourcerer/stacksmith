@@ -850,7 +850,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/providerInstance"
           },
-          "description": "Named provider instances. A default instance is optional; non-default instances must be explicitly aliased."
+          "description": "Optional named provider instances. An omitted default instance is treated as an empty unaliased provider; non-default instances must be explicitly aliased."
         }
       }
     },

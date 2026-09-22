@@ -1,6 +1,6 @@
 import json
 from collections import Counter
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
@@ -544,7 +544,7 @@ def apply_summary_session(
     command: str,
     detail: str = "table",
     selection: Mapping[str, Any] | None = None,
-) -> Iterator[ApplySummary]:
+) -> Generator[ApplySummary]:
     """Publish an apply report on success, failure, or interruption.
 
     Args:

@@ -686,15 +686,15 @@ class ProviderInstance(BaseModel):
 
     description: str | None = None
     alias: str | None = None
-    config: ProviderConfigSpec
+    config: ProviderConfigSpec | None = None
 
 
 class ProviderFamily(BaseModel):
-    """Provider source/version with one or more named instances."""
+    """Provider source/version with optional named instances."""
 
     description: str | None = None
     source: ProviderSourceReference
-    instances: dict[str, ProviderInstance]
+    instances: dict[str, ProviderInstance] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_instances(self) -> ProviderFamily:
@@ -1048,7 +1048,10 @@ class ToolConfig(BaseModel):
                         f"Module '{module_name}' provider '{child_provider_name}' "
                         f"references unknown provider family '{provider_name}'"
                     )
-                if instance_name not in provider_family.instances:
+                if (
+                    instance_name != "default"
+                    and instance_name not in provider_family.instances
+                ):
                     raise ValueError(
                         f"Module '{module_name}' provider '{child_provider_name}' "
                         f"references unknown provider instance '{provider_reference}'"

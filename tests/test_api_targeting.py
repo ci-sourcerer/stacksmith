@@ -84,7 +84,9 @@ def test_generate_stack_logs_paths_as_strings(
         "load_runtime_config",
         lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
     )
-    monkeypatch.setattr(api, "_enforce_lock_policy_for_inputs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        api, "_enforce_lock_policy_for_inputs", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(
         api,
         "_prepare_stack_definition",
@@ -696,7 +698,7 @@ def test_validate_stack_emits_single_json_report_block(
     output = capsys.readouterr().out
     payload = json.loads(output)
     assert payload == report
-    assert output == (f"{json.dumps(report, separators=(',', ':'), sort_keys=True)}\n")
+    assert output == (f"{json.dumps(report, indent=2, sort_keys=True)}\n")
     assert report["command"] == "validate"
     assert report["status"] == "pass"
     assert report["summary"] == {"pass": 1, "warn": 0, "fail": 0}
@@ -1200,6 +1202,20 @@ def test_plan_writes_default_aggregate_report(
     }
     assert "Validation: pass" in captured.err
     assert "Validation report: stdout" in captured.err
+
+
+def test_emit_validation_report_pretty_prints_json(capsys):
+    api._emit_validation_report(
+        {
+            "command": "plan",
+            "status": "pass",
+            "summary": {"pass": 1, "warn": 0, "fail": 0},
+        }
+    )
+
+    output = capsys.readouterr().out
+    assert output.startswith('{\n  "command": "plan"')
+    assert '\n  "status": "pass"' in output
 
 
 def _aggregate_plan_result(*args, **kwargs):

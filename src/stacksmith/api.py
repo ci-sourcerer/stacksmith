@@ -35,7 +35,6 @@ from .discovery import (
 from .enums import MergeMode, TerragruntAction, ValidationReportFormat
 from .exceptions import StacksmithConfigError, StacksmithError
 from .execution import build_execution_preview
-from .formatters import compact_json
 from .generation import (
     generate_operations_terragrunt_json,
     generate_operations_tf_json,
@@ -505,7 +504,7 @@ def _emit_validation_report(
     report_format: str | ValidationReportFormat = ValidationReportFormat.JSON,
 ) -> None:
     ValidationReportFormat(report_format)
-    print(compact_json(report, sort_keys=True))
+    print(json.dumps(report, indent=2, sort_keys=True))
 
 
 def _summarize_plan_validation_results(

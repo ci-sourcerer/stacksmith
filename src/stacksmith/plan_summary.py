@@ -1,5 +1,5 @@
 from collections import Counter
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
@@ -482,7 +482,7 @@ def plan_summary_session(
     selection: Mapping[str, Any] | None = None,
     validation_report_path: Path | None = None,
     validation_report_format: str = "json",
-) -> Iterator[PlanSummary]:
+) -> Generator[PlanSummary]:
     """Publish an invocation report even when execution fails or is interrupted.
 
     Args:

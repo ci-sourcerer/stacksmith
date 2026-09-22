@@ -4,7 +4,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from functools import cache
 from pathlib import Path
@@ -77,7 +77,7 @@ def _should_run_plan_validation_flow(
 @contextmanager
 def _build_env(
     auth_config: RemoteAuthConfig | None = None,
-) -> Iterator[dict[str, str]]:
+) -> Generator[dict[str, str]]:
     env = os.environ.copy()
     env["TG_TF_PATH"] = _RESOLVED_TOOLCHAIN.tofu
     with terragrunt_auth_env(env, auth_config):

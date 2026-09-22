@@ -2,7 +2,7 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -88,7 +88,7 @@ def current_validation_report_path() -> Path | None:
 
 
 @contextmanager
-def validation_report_path_context(path: Path | None) -> Iterator[None]:
+def validation_report_path_context(path: Path | None) -> Generator[None]:
     """Expose a validation artifact path while a CI command runs.
 
     Args:

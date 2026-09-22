@@ -58,6 +58,8 @@ def _evaluate_provider_config(
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
 ) -> dict[str, Any]:
+    if config is None:
+        return {}
     if getattr(config, "data", None) is not None:
         return config.data
 
@@ -171,9 +173,9 @@ def render_provider_reference(config: ToolConfig, provider_reference: str) -> st
         StacksmithConfigError: If a non-default provider instance has no alias.
     """
     provider_name, instance_name = parse_provider_instance_reference(provider_reference)
-    instance = config.provider_mappings[provider_name].instances[instance_name]
     if instance_name == "default":
         return provider_name
+    instance = config.provider_mappings[provider_name].instances[instance_name]
     if instance.alias is None:
         raise StacksmithConfigError(
             f"Provider instance '{provider_reference}' is missing alias for module routing"

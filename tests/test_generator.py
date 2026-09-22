@@ -355,6 +355,105 @@ class TestGenerateTfJson:
         ]
         assert result["module"]["my-bucket"]["providers"]["aws"] == "aws.secondary"
 
+    def test_provider_block_supports_implicit_default_instance(
+        self, sample_stack_yaml: Path, tmp_path: Path
+    ):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            textwrap.dedent("""
+                                backend:
+                                    data:
+                                        type: local
+                                        path: .state
+
+                                provider_mappings:
+                                    aws:
+                                        source:
+                                            source: registry
+                                            data:
+                                                address: "hashicorp/aws"
+                                                version: "~> 5.0"
+
+                                module_mappings:
+                                    aws_s3_bucket:
+                                        source:
+                                            source: git
+                                            data:
+                                                repo: "https://github.com/org/terraform-aws-s3.git"
+                                                ref: "1.0.0"
+                                        providers:
+                                            aws: aws.default
+                                    aws_ec2_instance:
+                                        source:
+                                            source: git
+                                            data:
+                                                repo: "https://github.com/org/terraform-aws-ec2.git"
+                                                ref: "2.0.0"
+                                """).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+
+        result = generate_tf_json(
+            load_stack(sample_stack_yaml),
+            load_config(config_path),
+            {"bucket_name": "my-bucket-test"},
+        )
+
+        assert result["provider"]["aws"] == [{}]
+        assert result["module"]["my-bucket"]["providers"]["aws"] == "aws"
+
+    def test_provider_block_supports_configless_alias(
+        self, sample_stack_yaml: Path, tmp_path: Path
+    ):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            textwrap.dedent("""
+                                backend:
+                                    data:
+                                        type: local
+                                        path: .state
+
+                                provider_mappings:
+                                    aws:
+                                        source:
+                                            source: registry
+                                            data:
+                                                address: "hashicorp/aws"
+                                                version: "~> 5.0"
+                                        instances:
+                                            secondary:
+                                                alias: secondary
+
+                                module_mappings:
+                                    aws_s3_bucket:
+                                        source:
+                                            source: git
+                                            data:
+                                                repo: "https://github.com/org/terraform-aws-s3.git"
+                                                ref: "1.0.0"
+                                        providers:
+                                            aws: aws.secondary
+                                    aws_ec2_instance:
+                                        source:
+                                            source: git
+                                            data:
+                                                repo: "https://github.com/org/terraform-aws-ec2.git"
+                                                ref: "2.0.0"
+                                """).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+
+        result = generate_tf_json(
+            load_stack(sample_stack_yaml),
+            load_config(config_path),
+            {"bucket_name": "my-bucket-test"},
+        )
+
+        assert result["provider"]["aws"] == [{}, {"alias": "secondary"}]
+        assert result["module"]["my-bucket"]["providers"]["aws"] == "aws.secondary"
+
     def test_provider_config_inline_generates_provider_block(
         self, sample_stack_yaml: Path, tmp_path: Path
     ):
