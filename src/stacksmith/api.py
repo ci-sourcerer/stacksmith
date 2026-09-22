@@ -1351,8 +1351,8 @@ def generate_stack(
     )
     LOGGER.debug(
         "Generating stack {stack_file} with config paths: {config_paths}",
-        stack_file=stack_file,
-        config_paths=config_paths,
+        stack_file=[str(path) for path in _normalize_stack_refs(stack_file)],
+        config_paths=[str(path) for path in config_paths],
     )
     stack, resolved_inputs = _prepare_stack_definition(
         stack_file,
@@ -2112,8 +2112,8 @@ def run_stack_action(
     LOGGER.debug(
         "Running terragrunt action {action} for stack {stack_file} with config paths: {config_paths}",
         action=action_enum.value,
-        stack_file=stack_file,
-        config_paths=config_paths,
+        stack_file=[str(path) for path in _normalize_stack_refs(stack_file)],
+        config_paths=[str(path) for path in config_paths],
     )
     stack, resolved_inputs = _prepare_stack_definition(
         stack_file,

@@ -1,7 +1,9 @@
+from io import StringIO
 from pathlib import Path
 
 import pytest
 import yaml
+from loguru import logger as LOGGER
 
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.loading import (
@@ -521,6 +523,36 @@ class TestLoadStack:
 
 
 class TestLoadRunFile:
+    def test_load_runfiles_logs_paths_as_strings(self, tmp_path: Path):
+        base_run_file = tmp_path / "base.yaml"
+        base_run_file.write_text(
+            "merge_mode: deep\n"
+            "stacks:\n"
+            "  - source: local\n"
+            "    data:\n"
+            "      path: ./base-stack.yaml\n"
+            "configs:\n"
+            "  - source: local\n"
+            "    data:\n"
+            "      path: ./base-config.yaml\n"
+            "vars:\n"
+            "  - source: inline\n"
+            "    data:\n"
+            "      region: us-east-1\n",
+            encoding="utf-8",
+        )
+
+        buffer = StringIO()
+        sink_id = LOGGER.add(buffer, level="DEBUG")
+
+        try:
+            load_runfiles([base_run_file])
+            log_text = buffer.getvalue()
+            assert "PosixPath(" not in log_text
+            assert str(base_run_file) in log_text
+        finally:
+            LOGGER.remove(sink_id)
+
     def test_load_runfiles_merges_layers_in_order(self, tmp_path: Path):
         base_run_file = tmp_path / "base.yaml"
         base_run_file.write_text(

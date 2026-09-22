@@ -70,6 +70,44 @@ def _setup_run_stack_action_mocks(
     return calls
 
 
+def test_generate_stack_logs_paths_as_strings(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    stack_file = tmp_path / "stack.yaml"
+    config = load_config(sample_config_yaml)
+    stack = _build_stack("sample", "bucket", "aws_s3_bucket", set())
+
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(api, "_enforce_lock_policy_for_inputs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        api,
+        "_prepare_stack_definition",
+        lambda *args, **kwargs: (stack, {}),
+    )
+    monkeypatch.setattr(
+        api,
+        "_generate_single_stack",
+        lambda *args, **kwargs: tmp_path / ".stacksmith",
+    )
+
+    buffer = StringIO()
+    sink_id = LOGGER.add(buffer, level="DEBUG")
+    try:
+        api.generate_stack([stack_file], config=[sample_config_yaml])
+        log_text = buffer.getvalue()
+        assert "PosixPath(" not in log_text
+        assert str(stack_file) in log_text
+        assert str(sample_config_yaml) in log_text
+    finally:
+        LOGGER.remove(sink_id)
+
+
 def _setup_run_all_stacks_mocks(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

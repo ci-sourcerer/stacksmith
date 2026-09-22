@@ -246,7 +246,10 @@ def _build_config(data: dict[str, Any], config_paths: list[Path]) -> ToolConfig:
         config_paths,
     )
     config.source_path = config_paths[-1].resolve()
-    LOGGER.debug("Loaded Stacksmith config from layers: {paths}", paths=config_paths)
+    LOGGER.debug(
+        "Loaded Stacksmith config from layers: {paths}",
+        paths=[str(path) for path in config_paths],
+    )
     return config
 
 
@@ -577,5 +580,8 @@ def load_runfiles(
         "runfile",
         runfile_paths,
     )
-    LOGGER.debug("Loaded runfile from layers: {paths}", paths=runfile_paths)
+    LOGGER.debug(
+        "Loaded runfile from layers: {paths}",
+        paths=[str(path) for path in runfile_paths],
+    )
     return runfile
