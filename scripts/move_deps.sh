@@ -46,7 +46,11 @@ _link_cached_tool() {
   fi
 
   if [ -z "$_selected" ] && [ -e "$src/$_tool_name" ]; then
-    _fallback_dir="$_tool_dir/image-baked/bin"
+    _version_file="$src/$_tool_name.version"
+    [ -s "$_version_file" ] || return 1
+    _version=$(sed -n '1p' "$_version_file")
+    [ -n "$_version" ] || return 1
+    _fallback_dir="$_tool_dir/$_version/bin"
     mkdir -p "$_fallback_dir"
     mv "$src/$_tool_name" "$_fallback_dir/$_tool_name"
     chown "$owner" "$_fallback_dir/$_tool_name"

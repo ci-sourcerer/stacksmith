@@ -27,7 +27,8 @@ RUN --mount=type=cache,target=/tmp/deps/downloads,id=tool-downloads-${TARGETOS}-
         fi; \
     done && \
     selected_tofu_version="$(printf '%s' "$TOFU_VERSIONS" | awk '{print $1}')" && \
-    cp "$TOOL_CACHE_ROOT/tofu/$selected_tofu_version/bin/tofu" /tmp/deps/tofu
+    cp "$TOOL_CACHE_ROOT/tofu/$selected_tofu_version/bin/tofu" /tmp/deps/tofu && \
+    printf '%s\n' "$selected_tofu_version" >/tmp/deps/tofu.version
 RUN --mount=type=cache,target=/tmp/deps/downloads,id=tool-downloads-${TARGETOS}-${TARGETARCH},sharing=locked \
     --mount=type=cache,target="$TOOL_CACHE_ROOT",id=tool-cache-${TARGETOS}-${TARGETARCH},sharing=locked \
     for version in $TERRAGRUNT_VERSIONS; do \
@@ -41,7 +42,8 @@ RUN --mount=type=cache,target=/tmp/deps/downloads,id=tool-downloads-${TARGETOS}-
         fi; \
     done && \
     selected_terragrunt_version="$(printf '%s' "$TERRAGRUNT_VERSIONS" | awk '{print $1}')" && \
-    cp "$TOOL_CACHE_ROOT/terragrunt/$selected_terragrunt_version/bin/terragrunt" /tmp/deps/terragrunt
+    cp "$TOOL_CACHE_ROOT/terragrunt/$selected_terragrunt_version/bin/terragrunt" /tmp/deps/terragrunt && \
+    printf '%s\n' "$selected_terragrunt_version" >/tmp/deps/terragrunt.version
 
 # Provider pre-caching
 # TOFU_PROVIDER_SPEC is a colon-separated list of source=version pairs.
