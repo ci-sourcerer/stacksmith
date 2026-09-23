@@ -2,6 +2,8 @@
 
 This directory is a platform-owned Stacksmith managed configuration. It defines reusable validation policies, property transforms, provider configuration, and module mappings for the example stacks.
 
+The `web-instance-production-bucket-writer` association demonstrates platform-owned wiring. It automatically supplies the role exposed by a `web` EC2 component to the policy property of each `prod` S3 bucket, while leaving other buckets unchanged.
+
 ## Testing policies and transforms
 
 This example uses a declarative `tests.yaml` manifest. `stacksmith test` compiles it into an ephemeral pytest module and executes it with Stacksmith's pytest plugin.

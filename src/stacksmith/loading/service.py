@@ -146,7 +146,8 @@ def _dedupe_unique_stack_fields(data: Any) -> Any:
         return {
             key: (
                 _dedupe_unique_ordered_list(value)
-                if key in {"tags", "depends_on"} and isinstance(value, list)
+                if key in {"tags", "depends_on", "disabled_associations"}
+                and isinstance(value, list)
                 else _dedupe_unique_stack_fields(value)
             )
             for key, value in data.items()

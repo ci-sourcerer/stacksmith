@@ -1,13 +1,15 @@
 from pathlib import Path
 from typing import Any
 
-import jmespath
-from jmespath import exceptions as jmespath_exceptions
-
+from .component_selection import (
+    build_component_selection_contexts,
+    compile_component_expression,
+    extract_component_tag_references,
+    select_component_names,
+)
 from .enums import TerragruntAction
 from .exceptions import StacksmithConfigError
 from .models import StackDefinition, ToolConfig
-from .module_mapping import resolve_module_mapping
 
 
 def compile_tag_expression(tag_expr: str):
@@ -22,34 +24,7 @@ def compile_tag_expression(tag_expr: str):
     Raises:
         StacksmithConfigError: If the expression is invalid.
     """
-    try:
-        return jmespath.compile(tag_expr)
-    except jmespath_exceptions.JMESPathError as exc:
-        raise StacksmithConfigError(f"Invalid --tag-expr: {exc}") from exc
-
-
-def _collect_tag_references(node: Any, references: set[str]) -> None:
-    if not isinstance(node, dict):
-        return
-
-    children = node.get("children", []) or []
-    if (
-        node.get("type") == "subexpression"
-        and len(children) == 2
-        and children[0].get("type") == "field"
-        and children[0].get("value") == "tag"
-        and isinstance(children[1].get("value"), str)
-    ):
-        references.add(children[1]["value"])
-
-    for child in children:
-        _collect_tag_references(child, references)
-    for value in node.values():
-        if isinstance(value, dict):
-            _collect_tag_references(value, references)
-        elif isinstance(value, list):
-            for item in value:
-                _collect_tag_references(item, references)
+    return compile_component_expression(tag_expr, "--tag-expr")
 
 
 def extract_tag_references(tag_expr: str) -> set[str]:
@@ -61,43 +36,7 @@ def extract_tag_references(tag_expr: str) -> set[str]:
     Returns:
         Referenced tag names, or an empty set for an invalid expression.
     """
-    try:
-        parsed = jmespath.parser.Parser().parse(tag_expr).parsed
-    except jmespath_exceptions.JMESPathError:
-        return set()
-
-    references: set[str] = set()
-    _collect_tag_references(parsed, references)
-    return references
-
-
-def _build_component_tag_context(
-    stack: StackDefinition,
-    component_name: str,
-    component_effective_tags: set[str],
-    all_stack_tags: set[str],
-) -> dict[str, Any]:
-    return {
-        "tags": sorted(component_effective_tags),
-        "tag": {tag: tag in component_effective_tags for tag in all_stack_tags},
-        "component_name": component_name,
-        "component_type": stack.components[component_name].type,
-        "stack_name": stack.name,
-        "stack_tags": sorted(stack.tags),
-    }
-
-
-def _evaluate_tag_expression(
-    expression: Any, context: dict[str, Any], component_name: str
-) -> bool:
-    result = expression.search(context)
-    if not isinstance(result, bool):
-        raise StacksmithConfigError(
-            "Tag expression must evaluate to a boolean value for every component. "
-            f"Component '{component_name}' produced type "
-            f"'{type(result).__name__}' with value {result!r}."
-        )
-    return result
+    return extract_component_tag_references(tag_expr)
 
 
 def compute_stack_target_modules(
@@ -119,43 +58,14 @@ def compute_stack_target_modules(
     Returns:
         Selected Terraform module addresses.
     """
-    effective_tags_by_component: dict[str, set[str]] = {}
-    all_stack_tags: set[str] = set()
-    for component_name, component in stack.components.items():
-        mapping = resolve_module_mapping(
-            config,
-            component.type,
-            component_name,
-            repository_path=(
-                stack.source_path.parent if stack.source_path is not None else None
-            ),
-        )
-        effective_tags_by_component[component_name] = {
-            *component.tags,
-            *mapping.tags,
-        }
-        all_stack_tags.update(effective_tags_by_component[component_name])
-
-    all_stack_tags.update(referenced_tags or set())
-    required_tags = required_tags or set()
-
-    targets: list[str] = []
-    for component_name in stack.components:
-        effective_tags = effective_tags_by_component[component_name]
-        if required_tags and not required_tags.issubset(effective_tags):
-            continue
-        if expression is None or _evaluate_tag_expression(
+    return [
+        f"module.{component_name}"
+        for component_name in select_component_names(
             expression,
-            _build_component_tag_context(
-                stack,
-                component_name,
-                effective_tags,
-                all_stack_tags,
-            ),
-            component_name,
-        ):
-            targets.append(f"module.{component_name}")
-    return targets
+            build_component_selection_contexts(stack, config, referenced_tags),
+            required_tags=required_tags,
+        )
+    ]
 
 
 def resolve_tag_targets(

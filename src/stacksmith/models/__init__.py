@@ -1,4 +1,8 @@
 from .configuration import (
+    AssociationBindingSpec,
+    AssociationEndpointSpec,
+    AssociationProducerSpec,
+    AssociationRule,
     BackendConfig,
     BackendSpec,
     DefaultModuleMapping,
@@ -84,6 +88,10 @@ from .testing import (
 )
 
 __all__ = [
+    "AssociationBindingSpec",
+    "AssociationEndpointSpec",
+    "AssociationProducerSpec",
+    "AssociationRule",
     "BackendConfig",
     "BackendSpec",
     "ComponentDefinition",

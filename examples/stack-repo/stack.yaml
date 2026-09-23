@@ -35,7 +35,6 @@ components:
           status: Enabled
           abort_incomplete_multipart_upload_days: 7
       attach_policy: true
-      writer_principal_arn: "{{ components.app_ec2_instance.role_arn }}"
       block_public_acls: false
       block_public_policy: true
       ignore_public_acls: true

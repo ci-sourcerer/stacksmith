@@ -76,6 +76,64 @@ Set `auto_expose_outputs: true` to introspect the underlying module and make its
 
 Output transforms execute during Stacksmith generation, before OpenTofu knows the actual output value. They can wrap a reference in a string or produce a structured list or object for a direct component reference. A structured transformed output cannot be embedded inside a larger string.
 
+## Managed associations
+
+Managed associations wire components that already exist in the final merged stack. A rule selects producer components, reads a managed public output from each producer, and contributes the resulting references to a managed property on every selected consumer. Associations do not create components or root stack outputs, and the generated references retain native OpenTofu dependency semantics.
+
+```yaml
+associations:
+  standard-instance-security-groups:
+    description: Attach standard security groups to application instances.
+    producers:
+      select: >-
+        component_type == 'aws_security_group' &&
+        tag.standard
+      cardinality: one_or_more
+    consumers:
+      select: component_type == 'aws_ec2_instance'
+    bindings:
+      - output: id
+        property: security_group_ids
+        merge: append
+
+  application-secret-access:
+    description: Supply application secret ARNs to application roles.
+    producers:
+      select: >-
+        component_type == 'aws_secretsmanager_secret' &&
+        tag.application
+      cardinality: zero_or_more
+    consumers:
+      select: >-
+        component_type == 'aws_iam_role' &&
+        tag.application
+    bindings:
+      - output: arn
+        property: readable_secret_arns
+        merge: append
+```
+
+Selectors use the same JMESPath component context as tag targeting. They can inspect `component_name`, `component_type`, `tags`, `tag.<name>`, `stack_name`, and `stack_tags`. Component tags include both tags declared on the component and tags supplied by its managed module mapping.
+
+Producer cardinality controls validation and value shape. `exactly_one` requires one producer, `zero_or_one` permits at most one, `one_or_more` requires at least one, and `zero_or_more` accepts any count. With `set_if_absent`, singular cardinalities contribute a scalar and plural cardinalities contribute a list. With `append`, producers always contribute a list.
+
+The `set_if_absent` merge mode preserves an explicitly authored property. The `append` mode adds references to an existing list, removes exact duplicates, and rejects non-list existing values. Multiple `append` rules may contribute to the same property, while multiple rules cannot implicitly set the same absent property.
+
+A stack can disable a rule everywhere, or exclude one component from either side of a rule.
+
+```yaml
+disabled_associations:
+  - application-secret-access
+
+components:
+  legacy_instance:
+    type: aws_ec2_instance
+    disabled_associations:
+      - standard-instance-security-groups
+```
+
+Disabled association names are validated against the managed configuration so a misspelled opt-out cannot silently pass. Association rules are same-stack only. Continue using explicit root outputs and stack dependencies for cross-stack contracts.
+
 Use `default_module_mapping` to resolve component types that do not have an explicit entry in `module_mappings`. The default supports `source`, `auto_inject_inputs`, `auto_expose_outputs`, `tags`, `providers`, `properties`, and `outputs`.
 
 ```yaml

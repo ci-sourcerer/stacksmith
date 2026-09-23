@@ -14,6 +14,10 @@ The managed configuration is the platform-owned contract. It defines backend set
 
 A component is an instance of an abstract type inside a stack. Stacksmith resolves that type to an approved OpenTofu module, maps the component properties to module inputs, and exposes the module outputs through a managed public contract.
 
+## Association
+
+An association is an organization-managed same-stack connection between existing components. It selects producers and consumers from the final merged stack, then contributes managed public producer outputs to managed consumer properties while preserving native OpenTofu dependency semantics. Stack and component authors can disable named associations without removing explicit component or root outputs.
+
 ## Input
 
 Inputs are resolved values available to stack templates, component properties, policies, backend resolvers, and operations. They can come from defaults, environment variables, files, CLI overrides, scripts, or remote resources. See [Advanced authoring](guides/advanced-authoring.md#inputs).

@@ -109,6 +109,21 @@ plan_validations:
         source: local
         data:
           path: scripts/validations/validate_s3_write_policy_scope.py
+
+# Automatically grant the web instance role write access to production buckets.
+associations:
+  web-instance-production-bucket-writer:
+    description: Supply the web EC2 role to production S3 bucket policies.
+    producers:
+      select: component_type == 'aws_ec2_instance' && tag.web
+      cardinality: exactly_one
+    consumers:
+      select: component_type == 'aws_s3_bucket' && tag.prod
+    bindings:
+      - output: role_arn
+        property: writer_principal_arn
+        merge: set_if_absent
+
 # Use the convention-based repository for component types without an explicit mapping.
 
 default_module_mapping:

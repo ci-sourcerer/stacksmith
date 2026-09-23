@@ -21,6 +21,7 @@ class ComponentDefinition(BaseModel):
     type: str
     description: str | None = None
     tags: set[str] = Field(default_factory=set)
+    disabled_associations: set[str] = Field(default_factory=set)
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -61,6 +62,7 @@ class StackDefinition(BaseModel):
     description: str | None = None
     tags: set[str] = Field(default_factory=set)
     depends_on: list[str] = Field(default_factory=list)
+    disabled_associations: set[str] = Field(default_factory=set)
     components: dict[str, ComponentDefinition] = Field(default_factory=dict)
     outputs: dict[str, StackOutputDefinition] = Field(default_factory=dict)
     operations: dict[str, OperationInvocation] = Field(default_factory=dict)

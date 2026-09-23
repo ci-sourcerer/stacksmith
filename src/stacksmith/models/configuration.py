@@ -537,6 +537,84 @@ class ModuleOutputSpec(BaseModel):
         return self
 
 
+class AssociationEndpointSpec(BaseModel):
+    """Component selector used by a managed association rule."""
+
+    select: str
+
+    @field_validator("select")
+    @classmethod
+    def _validate_select(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Association selectors must be non-empty")
+        try:
+            jmespath.compile(value)
+        except jmespath_exceptions.JMESPathError as exc:
+            raise ValueError(f"Invalid association selector: {exc}") from exc
+        return value
+
+
+class AssociationProducerSpec(AssociationEndpointSpec):
+    """Producer selector and required match cardinality."""
+
+    cardinality: Literal[
+        "exactly_one",
+        "zero_or_one",
+        "one_or_more",
+        "zero_or_more",
+    ] = "exactly_one"
+
+
+class AssociationBindingSpec(BaseModel):
+    """Mapping from a producer output to a consumer property."""
+
+    output: str
+    property: str
+    merge: Literal["append", "set_if_absent"] = "set_if_absent"
+
+    @field_validator("output")
+    @classmethod
+    def _validate_output(cls, value: str) -> str:
+        normalized_value = value.strip()
+        if not _COMPONENT_OUTPUT_NAME_RE.fullmatch(normalized_value):
+            raise ValueError(
+                "Association binding outputs must contain only letters, numbers, "
+                "and underscores"
+            )
+        return normalized_value
+
+    @field_validator("property")
+    @classmethod
+    def _validate_property(cls, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise ValueError("Association binding properties must be non-empty")
+        return normalized_value
+
+
+class AssociationRule(BaseModel):
+    """Organization-managed wiring between existing stack components."""
+
+    description: str | None = None
+    producers: AssociationProducerSpec
+    consumers: AssociationEndpointSpec
+    bindings: list[AssociationBindingSpec]
+
+    @field_validator("bindings")
+    @classmethod
+    def _validate_bindings(
+        cls, values: list[AssociationBindingSpec]
+    ) -> list[AssociationBindingSpec]:
+        if not values:
+            raise ValueError("Association rules must include at least one binding")
+        properties = [value.property for value in values]
+        if len(set(properties)) != len(properties):
+            raise ValueError(
+                "Association rules cannot bind the same consumer property more than once"
+            )
+        return values
+
+
 class BackendConfig(BaseModel):
     """Backend configuration with explicit backend type and freeform settings."""
 
@@ -1008,6 +1086,7 @@ class ToolConfig(BaseModel):
     required_module_input_sets: list[str] = Field(default_factory=list)
     module_mappings: dict[str, ModuleMapping] = Field(default_factory=dict)
     default_module_mapping: DefaultModuleMapping | None = None
+    associations: dict[str, AssociationRule] = Field(default_factory=dict)
     operations: dict[str, OperationDefinition] = Field(default_factory=dict)
     var_validations: dict[str, ValidationSpec] = Field(default_factory=dict)
     plan_validations: dict[str, PlanValidation] = Field(default_factory=dict)

@@ -9,6 +9,10 @@ from pydantic import BaseModel
 
 from stacksmith.loading.validation import load_fragment_schema
 from stacksmith.models import (
+    AssociationBindingSpec,
+    AssociationEndpointSpec,
+    AssociationProducerSpec,
+    AssociationRule,
     BackendConfig,
     BackendSpec,
     ComponentDefinition,
@@ -68,6 +72,7 @@ def test_stack_definition_fields_match_stack_schema():
         "description",
         "tags",
         "depends_on",
+        "disabled_associations",
         "components",
         "outputs",
         "operations",
@@ -77,6 +82,7 @@ def test_stack_definition_fields_match_stack_schema():
         "description",
         "tags",
         "depends_on",
+        "disabled_associations",
         "components",
         "outputs",
         "operations",
@@ -89,6 +95,7 @@ def test_stack_definition_fields_match_stack_schema():
         "type",
         "description",
         "tags",
+        "disabled_associations",
         "properties",
     }
     assert set(
@@ -97,6 +104,7 @@ def test_stack_definition_fields_match_stack_schema():
         "type",
         "description",
         "tags",
+        "disabled_associations",
         "properties",
     }
     assert _field_names(OperationInvocation) == {
@@ -151,6 +159,7 @@ def test_tool_config_fields_match_config_schema():
         "required_module_input_sets",
         "module_mappings",
         "default_module_mapping",
+        "associations",
         "operations",
         "var_validations",
         "plan_validations",
@@ -165,6 +174,7 @@ def test_tool_config_fields_match_config_schema():
         "required_module_input_sets",
         "module_mappings",
         "default_module_mapping",
+        "associations",
         "operations",
         "var_validations",
         "plan_validations",
@@ -303,6 +313,31 @@ def test_tool_config_fields_match_config_schema():
         "description",
         "mapped_from",
         "transform",
+    }
+    assert _field_names(AssociationEndpointSpec) == {"select"}
+    assert _field_names(AssociationProducerSpec) == {"select", "cardinality"}
+    assert _field_names(AssociationBindingSpec) == {"output", "property", "merge"}
+    assert _field_names(AssociationRule) == {
+        "description",
+        "producers",
+        "consumers",
+        "bindings",
+    }
+    assert set(schema["$defs"]["associationEndpointSpec"]["properties"]) == {"select"}
+    assert set(schema["$defs"]["associationProducerSpec"]["properties"]) == {
+        "select",
+        "cardinality",
+    }
+    assert set(schema["$defs"]["associationBindingSpec"]["properties"]) == {
+        "output",
+        "property",
+        "merge",
+    }
+    assert set(schema["$defs"]["associationRule"]["properties"]) == {
+        "description",
+        "producers",
+        "consumers",
+        "bindings",
     }
     assert _field_names(OperationInputSpec) == {
         "description",
@@ -535,6 +570,7 @@ def test_vscode_associates_mergeable_documents_with_layer_schemas():
                 "required_module_input_sets",
                 "module_mappings",
                 "default_module_mapping",
+                "associations",
                 "operations",
                 "var_validations",
                 "plan_validations",
@@ -549,6 +585,7 @@ def test_vscode_associates_mergeable_documents_with_layer_schemas():
                 "description",
                 "tags",
                 "depends_on",
+                "disabled_associations",
                 "components",
                 "outputs",
                 "operations",

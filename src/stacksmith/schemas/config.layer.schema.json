@@ -503,6 +503,89 @@
         }
       }
     },
+    "associationEndpointSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "select": {
+          "type": "string",
+          "minLength": 1,
+          "description": "JMESPath expression selecting components from component_name, component_type, tags, tag, stack_name, and stack_tags."
+        }
+      }
+    },
+    "associationProducerSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "select": {
+          "type": "string",
+          "minLength": 1,
+          "description": "JMESPath expression selecting producer components."
+        },
+        "cardinality": {
+          "type": "string",
+          "enum": [
+            "exactly_one",
+            "zero_or_one",
+            "one_or_more",
+            "zero_or_more"
+          ],
+          "default": "exactly_one",
+          "description": "Required number of producer matches. Singular cardinalities inject scalars with set_if_absent; plural cardinalities inject lists."
+        }
+      }
+    },
+    "associationBindingSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "output": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "Managed public component output read from every selected producer."
+        },
+        "property": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Managed property contributed to every selected consumer."
+        },
+        "merge": {
+          "type": "string",
+          "enum": [
+            "append",
+            "set_if_absent"
+          ],
+          "default": "set_if_absent",
+          "description": "Whether references append to a list or supply a property only when the stack did not set it."
+        }
+      }
+    },
+    "associationRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional human-readable description of the managed association."
+        },
+        "producers": {
+          "$ref": "#/$defs/associationProducerSpec"
+        },
+        "consumers": {
+          "$ref": "#/$defs/associationEndpointSpec"
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/associationBindingSpec"
+          },
+          "description": "Producer-output to consumer-property contributions."
+        }
+      }
+    },
     "defaultModuleMapping": {
       "type": "object",
       "additionalProperties": false,
@@ -1064,6 +1147,13 @@
     "default_module_mapping": {
       "$ref": "#/$defs/defaultModuleMapping",
       "description": "Fallback mapping used when no explicit mapping exists for a component type."
+    },
+    "associations": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/associationRule"
+      },
+      "description": "Organization-managed same-stack wiring rules keyed by stable association name."
     },
     "operations": {
       "type": "object",

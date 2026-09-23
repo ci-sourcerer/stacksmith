@@ -81,6 +81,8 @@ The stack has the following tags.
 
 The `app` component is tagged with `web`, so you can combine stack-level and component-level targeting with expressions like `contains(stack_tags, 'prod') && tag.web`.
 
+The shared managed config also defines `web-instance-production-bucket-writer`. It selects the `web` EC2 component as a producer and each `prod` S3 bucket as a consumer, then supplies the EC2 role's public `role_arn` output to the bucket's `writer_principal_arn` property. The stack therefore receives its scoped bucket policy without declaring that component reference itself. The untagged logs bucket is not associated.
+
 ## Shared config repo
 
 The effective managed config combines [`shared-config-repo/stacksmith-base-config.yaml`](shared-config-repo/stacksmith-base-config.yaml) and [`shared-config-repo/stacksmith-config.yaml`](shared-config-repo/stacksmith-config.yaml), in that order.

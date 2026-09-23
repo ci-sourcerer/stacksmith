@@ -33,6 +33,14 @@
       },
       "description": "List of stack names that must be applied before this stack. Terragrunt reads their declared root outputs while resolving the dependency graph."
     },
+    "disabled_associations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Managed association rules disabled for the entire stack. Unknown names are rejected."
+    },
     "outputs": {
       "type": "object",
       "propertyNames": {
@@ -102,6 +110,14 @@
               "minLength": 1
             },
             "description": "Optional tags used for tag-expression targeting."
+          },
+          "disabled_associations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Managed association rules in which this component must not participate. Unknown names are rejected."
           },
           "properties": {
             "type": "object",

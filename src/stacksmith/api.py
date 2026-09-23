@@ -14,6 +14,7 @@ from jsonschema import exceptions as jsonschema_exceptions
 from loguru import logger as LOGGER
 
 from .apply_summary import apply_summary_session
+from .associations import resolve_associations
 from .backends import resolve_backend, with_resolved_backend
 from .change_reports import current_validation_report_path
 from .ci.service import (
@@ -455,6 +456,8 @@ def _prepare_stack_definition(
         merge_mode=merge_mode,
         template_context=template_context,
     )
+    if isinstance(config, ToolConfig) or getattr(config, "associations", None):
+        stack = resolve_associations(stack, config).stack
     return stack, resolved_inputs
 
 
