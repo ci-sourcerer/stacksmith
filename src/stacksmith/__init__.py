@@ -1,6 +1,7 @@
 from .api import (
     destroy_stack_operations,
     generate_stack,
+    inspect_associations,
     inspect_dependency_graph,
     lock_stack,
     plan_stack_operations,
@@ -55,6 +56,7 @@ __all__ = [
     "commit_and_push",
     "destroy_stack_operations",
     "generate_stack",
+    "inspect_associations",
     "inspect_dependency_graph",
     "lock_stack",
     "plan_stack_operations",

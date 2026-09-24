@@ -19,6 +19,7 @@ def test_cli_reference_contains_nested_commands():
 
     assert "### `stacksmith plan`" in reference
     assert "### `stacksmith info graph`" in reference
+    assert "### `stacksmith info associations`" in reference
     assert "### `stacksmith info modules-and-policies`" in reference
     assert "### `stacksmith ci environments`" in reference
     assert "### `stacksmith ci validate`" in reference

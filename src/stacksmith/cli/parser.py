@@ -15,6 +15,7 @@ from .args import (
     add_stack_arg,
     add_target_selection_args,
     add_validation_report_format_arg,
+    configure_associations_parser,
     configure_ci_environments_parser,
     configure_ci_execute_from_env_parser,
     configure_ci_execute_parser,
@@ -273,6 +274,12 @@ def build_parser() -> argparse.ArgumentParser:
         info_subparsers.add_parser(
             "modules-and-policies",
             help="Inspect configured modules and plan policies",
+        )
+    )
+    configure_associations_parser(
+        info_subparsers.add_parser(
+            "associations",
+            help="Inspect managed associations resolved for a stack",
         )
     )
     configure_diagnose_parser(

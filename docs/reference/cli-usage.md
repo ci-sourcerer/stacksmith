@@ -77,6 +77,14 @@ stacksmith plan stack.yaml --config ./stacksmith-config.yaml --validation-report
 
 ## Info commands
 
+Use `info associations` to see how organization-managed association rules resolve for a stack. The report includes matching producers and consumers, excluded components, applied bindings, and reasons that disabled or inactive rules did not apply.
+
+`info associations --format json` writes the same details as machine-readable output to stdout.
+
+```shell
+stacksmith info associations examples/stack-repo/stack.yaml --config examples/shared-config-repo/stacksmith-base-config.yaml --config examples/shared-config-repo/stacksmith-config.yaml --vars examples/stack-repo/vars.dev.yaml
+```
+
 Use `info modules-and-policies` to review configured modules, mappings, metadata, and plan validations.
 
 `info modules-and-policies --format json` writes machine-readable output to stdout.

@@ -403,6 +403,15 @@ def test_info_modules_and_policies_has_basic_flag(parser):
     assert args.basic is True
 
 
+def test_info_associations_has_stack_and_format(parser):
+    args = parser.parse_args(["info", "associations", "stack.yaml", "--format", "json"])
+
+    assert args.command == "info"
+    assert args.info_command == "associations"
+    assert args.stack_file == Path("stack.yaml")
+    assert args.format == "json"
+
+
 def test_info_diagnose_has_stack_file(parser):
     args = parser.parse_args(["info", "diagnose", "stack.yaml"])
 
@@ -2723,3 +2732,78 @@ def test_cmd_info_modules_and_policies_table_emits_stderr(monkeypatch, parser, c
     assert exit_code == 0
     assert captured.out == ""
     assert "AWS S3 bucket" in captured.err
+
+
+def _association_info_payload():
+    return {
+        "schema_version": 1,
+        "stack": "web-service",
+        "disabled_associations": [],
+        "rules": [
+            {
+                "name": "standard-security-groups",
+                "status": "applied",
+                "reason": None,
+                "producers": {
+                    "select": "component_type == 'security_group'",
+                    "cardinality": "one_or_more",
+                    "matched": ["standard_security_group"],
+                },
+                "consumers": {
+                    "select": "component_type == 'instance'",
+                    "matched": ["web_instance"],
+                },
+                "disabled_components": [],
+                "bindings": [
+                    {
+                        "output": "id",
+                        "property": "security_group_ids",
+                        "merge": "append",
+                    }
+                ],
+            }
+        ],
+        "applications": [
+            {
+                "rule": "standard-security-groups",
+                "producers": ["standard_security_group"],
+                "consumer": "web_instance",
+                "property": "security_group_ids",
+                "merge": "append",
+            }
+        ],
+    }
+
+
+def test_cmd_info_associations_json_emits_stdout(monkeypatch, parser, capsys):
+    monkeypatch.setattr(
+        cli_main,
+        "inspect_associations",
+        lambda *args, **kwargs: _association_info_payload(),
+    )
+
+    args = parser.parse_args(["info", "associations", "stack.yaml", "--format", "json"])
+    exit_code = cli_main._cmd_info_associations(args)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert json.loads(captured.out) == _association_info_payload()
+    assert captured.err == ""
+
+
+def test_cmd_info_associations_table_emits_stderr(monkeypatch, parser, capsys):
+    monkeypatch.setattr(
+        cli_main,
+        "inspect_associations",
+        lambda *args, **kwargs: _association_info_payload(),
+    )
+
+    args = parser.parse_args(["info", "associations", "stack.yaml"])
+    exit_code = cli_main._cmd_info_associations(args)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert "standard" in captured.err
+    assert "security" in captured.err
+    assert "web_instance" in captured.err

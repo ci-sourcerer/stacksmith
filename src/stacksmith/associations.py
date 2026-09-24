@@ -29,11 +29,24 @@ class AssociationApplication:
 
 
 @dataclass(frozen=True)
+class AssociationRuleEvaluation:
+    """Resolved match and status information for one association rule."""
+
+    rule: str
+    status: str
+    producers: tuple[str, ...] = ()
+    consumers: tuple[str, ...] = ()
+    disabled_components: tuple[str, ...] = ()
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
 class AssociationResolution:
     """Effective stack and provenance from managed association resolution."""
 
     stack: StackDefinition
     applications: tuple[AssociationApplication, ...]
+    evaluations: tuple[AssociationRuleEvaluation, ...] = ()
 
 
 def _component_reference(component_name: str, output_name: str) -> str:
@@ -220,10 +233,24 @@ def resolve_associations(
         referenced_tags,
     )
     applications = []
+    evaluations = []
     generated_properties: dict[tuple[str, str], str] = {}
     dependencies: dict[str, set[str]] = {}
     for rule_name, rule in config.associations.items():
+        disabled_components = tuple(
+            component_name
+            for component_name, component in effective_stack.components.items()
+            if rule_name in component.disabled_associations
+        )
         if rule_name in effective_stack.disabled_associations:
+            evaluations.append(
+                AssociationRuleEvaluation(
+                    rule=rule_name,
+                    status="disabled",
+                    disabled_components=disabled_components,
+                    reason="disabled for the stack",
+                )
+            )
             continue
         consumers = _enabled_matches(
             rule_name,
@@ -231,14 +258,23 @@ def resolve_associations(
             contexts,
             effective_stack,
         )
-        if not consumers:
-            continue
         producers = _enabled_matches(
             rule_name,
             rule.producers.select,
             contexts,
             effective_stack,
         )
+        if not consumers:
+            evaluations.append(
+                AssociationRuleEvaluation(
+                    rule=rule_name,
+                    status="inactive",
+                    producers=tuple(producers),
+                    disabled_components=disabled_components,
+                    reason="no matching enabled consumers",
+                )
+            )
+            continue
         _validate_cardinality(rule_name, rule, producers)
         for binding in rule.bindings:
             _validate_binding_outputs(
@@ -249,6 +285,7 @@ def resolve_associations(
                 config,
             )
 
+        previous_application_count = len(applications)
         for consumer_name in consumers:
             for binding in rule.bindings:
                 if not _apply_binding(
@@ -271,6 +308,28 @@ def resolve_associations(
                         merge=binding.merge,
                     )
                 )
+        evaluations.append(
+            AssociationRuleEvaluation(
+                rule=rule_name,
+                status=(
+                    "applied"
+                    if len(applications) > previous_application_count
+                    else "inactive"
+                ),
+                producers=tuple(producers),
+                consumers=tuple(consumers),
+                disabled_components=disabled_components,
+                reason=(
+                    None
+                    if len(applications) > previous_application_count
+                    else (
+                        "no matching enabled producers"
+                        if not producers
+                        else "consumer properties already provided"
+                    )
+                ),
+            )
+        )
 
     _validate_acyclic_dependencies(effective_stack, dependencies)
     for application in applications:
@@ -286,4 +345,56 @@ def resolve_associations(
     return AssociationResolution(
         stack=effective_stack,
         applications=tuple(applications),
+        evaluations=tuple(evaluations),
     )
+
+
+def association_resolution_payload(
+    resolution: AssociationResolution,
+    config: ToolConfig,
+) -> dict[str, Any]:
+    """Serialize association resolution as a stable inspection payload.
+
+    Args:
+        resolution: Resolved effective stack and association provenance.
+        config: Managed configuration containing the rule definitions.
+
+    Returns:
+        JSON-serializable association inspection payload.
+    """
+    evaluations = {evaluation.rule: evaluation for evaluation in resolution.evaluations}
+    return {
+        "schema_version": 1,
+        "stack": resolution.stack.name,
+        "disabled_associations": sorted(resolution.stack.disabled_associations),
+        "rules": [
+            {
+                "name": rule_name,
+                **({"description": rule.description} if rule.description else {}),
+                "status": evaluations[rule_name].status,
+                "reason": evaluations[rule_name].reason,
+                "producers": {
+                    "select": rule.producers.select,
+                    "cardinality": rule.producers.cardinality,
+                    "matched": list(evaluations[rule_name].producers),
+                },
+                "consumers": {
+                    "select": rule.consumers.select,
+                    "matched": list(evaluations[rule_name].consumers),
+                },
+                "disabled_components": list(evaluations[rule_name].disabled_components),
+                "bindings": [binding.model_dump() for binding in rule.bindings],
+            }
+            for rule_name, rule in config.associations.items()
+        ],
+        "applications": [
+            {
+                "rule": application.rule,
+                "producers": list(application.producers),
+                "consumer": application.consumer,
+                "property": application.property,
+                "merge": application.merge,
+            }
+            for application in resolution.applications
+        ],
+    }

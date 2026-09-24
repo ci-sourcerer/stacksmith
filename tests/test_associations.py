@@ -1,6 +1,7 @@
 import pytest
 
-from stacksmith.associations import resolve_associations
+from stacksmith.api import inspect_associations
+from stacksmith.associations import association_resolution_payload, resolve_associations
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.generation import generate_tf_json
 from stacksmith.loading import load_config, load_stack
@@ -129,6 +130,9 @@ components:
     assert stack.components["application"].disabled_associations == {
         "standard-security-groups"
     }
+    payload = inspect_associations(stack_path, config=[str(config_path)])
+    assert payload["rules"][0]["status"] == "disabled"
+    assert payload["rules"][0]["disabled_components"] == ["application"]
 
 
 def test_append_association_uses_effective_mapping_tags_and_native_reference():
@@ -197,6 +201,53 @@ def test_set_if_absent_preserves_an_explicit_property():
     assert resolution.applications == ()
 
 
+def test_resolution_payload_explains_inactive_association():
+    config = _config(
+        {
+            "standard-security-group": _security_group_rule(
+                cardinality="exactly_one",
+                merge="set_if_absent",
+            )
+        }
+    )
+
+    payload = association_resolution_payload(
+        resolve_associations(_stack(), config),
+        config,
+    )
+
+    assert payload == {
+        "schema_version": 1,
+        "stack": "association-test",
+        "disabled_associations": [],
+        "rules": [
+            {
+                "name": "standard-security-group",
+                "status": "inactive",
+                "reason": "consumer properties already provided",
+                "producers": {
+                    "select": "component_type == 'security_group' && tag.managed",
+                    "cardinality": "exactly_one",
+                    "matched": ["standard"],
+                },
+                "consumers": {
+                    "select": "component_type == 'instance'",
+                    "matched": ["application"],
+                },
+                "disabled_components": [],
+                "bindings": [
+                    {
+                        "output": "id",
+                        "property": "security_group_ids",
+                        "merge": "set_if_absent",
+                    }
+                ],
+            }
+        ],
+        "applications": [],
+    }
+
+
 @pytest.mark.parametrize("scope", ["stack", "component"])
 def test_association_can_be_disabled(scope: str):
     stack = _stack(
@@ -218,6 +269,12 @@ def test_association_can_be_disabled(scope: str):
         "security_group_ids": ["sg-explicit"]
     }
     assert resolution.applications == ()
+    assert resolution.evaluations[0].status == (
+        "disabled" if scope == "stack" else "inactive"
+    )
+    assert resolution.evaluations[0].disabled_components == (
+        () if scope == "stack" else ("application",)
+    )
 
 
 def test_unknown_disabled_association_is_rejected():

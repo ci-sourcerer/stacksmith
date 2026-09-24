@@ -36,6 +36,7 @@ from stacksmith.utils import parse_bool
 from ..api import (
     destroy_stack_operations,
     generate_stack,
+    inspect_associations,
     inspect_cache_diagnostics,
     inspect_dependency_graph,
     inspect_environments,
@@ -625,6 +626,25 @@ def _cmd_info_modules_and_policies(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_info_associations(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    payload = inspect_associations(
+        _stack_arg(args),
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        merge_mode=_merge_mode_arg(args),
+    )
+    _emit_info_ci_output(
+        InspectOutputFormat(args.format),
+        json_text_factory=lambda: _format_info_ci_json(payload),
+        table_renderer=lambda: _render_associations_table(payload),
+    )
+    return 0
+
+
 def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
     _apply_runfile(args)
     if action == TerragruntAction.INIT.value and not (args.locked or args.offline):
@@ -1012,6 +1032,58 @@ def _emit_info_ci_output(
 
 def _format_info_ci_json(payload: Any) -> str:
     return compact_json(payload, sort_keys=True)
+
+
+def _render_associations_table(payload: dict[str, Any]) -> None:
+    console = Console(stderr=True)
+    console.print(f"[bold]Managed associations for {payload['stack']}[/bold]")
+
+    rules_table = Table(show_header=True, show_lines=True, header_style="bold cyan")
+    rules_table.add_column("Rule", overflow="fold")
+    rules_table.add_column("Status")
+    rules_table.add_column("Producers", overflow="fold")
+    rules_table.add_column("Consumers", overflow="fold")
+    rules_table.add_column("Excluded", overflow="fold")
+    rules_table.add_column("Bindings", overflow="fold")
+    rules_table.add_column("Reason", overflow="fold")
+    for rule in payload["rules"]:
+        rules_table.add_row(
+            rule["name"],
+            rule["status"],
+            ", ".join(rule["producers"]["matched"]) or "—",
+            ", ".join(rule["consumers"]["matched"]) or "—",
+            ", ".join(rule["disabled_components"]) or "—",
+            "\n".join(
+                f"{binding['output']} → {binding['property']} ({binding['merge']})"
+                for binding in rule["bindings"]
+            ),
+            rule["reason"] or "",
+        )
+    console.print(rules_table)
+
+    if not payload["applications"]:
+        console.print("[dim]No association bindings were applied.[/dim]")
+        return
+
+    applications_table = Table(
+        title="Applied bindings",
+        show_lines=True,
+        header_style="bold green",
+    )
+    applications_table.add_column("Rule", overflow="fold")
+    applications_table.add_column("Producers", overflow="fold")
+    applications_table.add_column("Consumer", overflow="fold")
+    applications_table.add_column("Property", overflow="fold")
+    applications_table.add_column("Merge")
+    for application in payload["applications"]:
+        applications_table.add_row(
+            application["rule"],
+            ", ".join(application["producers"]),
+            application["consumer"],
+            application["property"],
+            application["merge"],
+        )
+    console.print(applications_table)
 
 
 def _cmd_ci_environments(args: argparse.Namespace) -> int:
@@ -1429,6 +1501,8 @@ def main() -> None:
                 match args.info_command:
                     case "modules-and-policies":
                         exit_code = _cmd_info_modules_and_policies(args)
+                    case "associations":
+                        exit_code = _cmd_info_associations(args)
                     case "diagnose":
                         exit_code = _cmd_diagnose(args)
                     case "graph":

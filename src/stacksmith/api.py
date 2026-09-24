@@ -14,7 +14,7 @@ from jsonschema import exceptions as jsonschema_exceptions
 from loguru import logger as LOGGER
 
 from .apply_summary import apply_summary_session
-from .associations import resolve_associations
+from .associations import association_resolution_payload, resolve_associations
 from .backends import resolve_backend, with_resolved_backend
 from .change_reports import current_validation_report_path
 from .ci.service import (
@@ -99,6 +99,7 @@ from .vendor import get_vendor_dir, load_vendor_manifest
 __all__ = [
     "destroy_stack_operations",
     "generate_stack",
+    "inspect_associations",
     "inspect_cache_diagnostics",
     "inspect_dependency_graph",
     "inspect_environments",
@@ -431,6 +432,7 @@ def _prepare_stack_definition(
     input_layers: Sequence[InputLayer] | None,
     cache_dir: Path | None = None,
     merge_mode: MergeConfig = MergeMode.DEEP,
+    resolve_managed_associations: bool = True,
 ) -> tuple[StackDefinition, dict[str, Any]]:
     """Resolve stack inputs and render a stack template before validation."""
     metadata = _load_stack_definition(stack_file, cache_dir, merge_mode=merge_mode)
@@ -456,7 +458,9 @@ def _prepare_stack_definition(
         merge_mode=merge_mode,
         template_context=template_context,
     )
-    if isinstance(config, ToolConfig) or getattr(config, "associations", None):
+    if resolve_managed_associations and (
+        isinstance(config, ToolConfig) or getattr(config, "associations", None)
+    ):
         stack = resolve_associations(stack, config).stack
     return stack, resolved_inputs
 
@@ -2755,3 +2759,47 @@ def inspect_modules(
     )
     plan_policy_results = inspect_plan_validations(loaded_config, config_locations)
     return component_results, plan_policy_results
+
+
+def inspect_associations(
+    stack_file: Path | str | Sequence[Path | str],
+    config: list[str] | None = None,
+    vars_file: str | Sequence[str] | None = None,
+    input_layers: Sequence[InputLayer] | None = None,
+    build_dir: Path | None = None,
+    no_cache: bool = False,
+    merge_mode: MergeConfig = MergeMode.DEEP,
+) -> dict[str, Any]:
+    """Inspect managed associations resolved for one stack.
+
+    Args:
+        stack_file: Stack file path or ordered stack layer sequence.
+        config: Optional managed configuration paths.
+        vars_file: Optional vars file path or ordered vars layers.
+        input_layers: Optional ordered CLI input layers.
+        build_dir: Optional build directory used to derive the cache directory.
+        no_cache: When `True`, clear remote caches before resolution.
+        merge_mode: Merge strategy used for stack, config, and variable layers.
+
+    Returns:
+        JSON-serializable association rule and application details.
+    """
+    cache_dir, _, loaded_config = load_runtime_config(
+        config,
+        build_dir,
+        no_cache=no_cache,
+        merge_mode=merge_mode,
+    )
+    stack, _ = _prepare_stack_definition(
+        stack_file,
+        loaded_config,
+        vars_file,
+        input_layers,
+        cache_dir,
+        merge_mode,
+        resolve_managed_associations=False,
+    )
+    return association_resolution_payload(
+        resolve_associations(stack, loaded_config),
+        loaded_config,
+    )

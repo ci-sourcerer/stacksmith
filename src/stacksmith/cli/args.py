@@ -600,6 +600,29 @@ def configure_modules_and_policies_parser(parser: argparse.ArgumentParser) -> No
     add_common_args(parser)
 
 
+def configure_associations_parser(parser: argparse.ArgumentParser) -> None:
+    """Configure arguments for resolved association inspection.
+
+    Args:
+        parser: Parser for the association inspection command.
+
+    Returns:
+        None.
+    """
+    add_stack_arg(parser)
+    parser.add_argument(
+        "--format",
+        choices=[format_name.value for format_name in InspectOutputFormat],
+        default=InspectOutputFormat.TABLE.value,
+        help="Output format for resolved managed associations.",
+    )
+    add_common_args(
+        parser,
+        include_local_modules=False,
+        include_strict_validation=False,
+    )
+
+
 def configure_diagnose_parser(parser: argparse.ArgumentParser) -> None:
     """Configure arguments for the cache diagnostics command.
 
