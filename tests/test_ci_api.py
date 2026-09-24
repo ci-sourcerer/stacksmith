@@ -1269,7 +1269,30 @@ def test_prepare_ci_execution_accepts_colon_delimited_config_refs(tmp_path: Path
 
     assert manifest.config_ref == f"{base_config}:{overlay_config}"
     argv = build_ci_execution_argv(manifest, "dev")
-    assert "--config" in argv
+    assert [
+        argv[index + 1] for index, argument in enumerate(argv) if argument == "--config"
+    ] == [str(base_config), str(overlay_config)]
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["test", "plan", "apply", "destroy", "plan-operation", "apply-operation"],
+)
+def test_build_ci_execution_argv_splits_versioned_config_layers(command):
+    base_config = "git+https://github.com/org/base.git//config.yaml@2.0.0"
+    overlay_config = "git+ssh://git@github.com:org/overlay.git//config.yaml@2.1.0"
+    argv = build_ci_execution_argv(
+        CiExecutionManifest(
+            command=command,
+            config_ref=f"{base_config}:{overlay_config}",
+            matrix=[CiExecutionRow(environment="dev", runfile="stacksmith.yaml")],
+        ),
+        "dev",
+    )
+
+    assert [
+        argv[index + 1] for index, argument in enumerate(argv) if argument == "--config"
+    ] == [base_config, overlay_config]
 
 
 @pytest.mark.parametrize("phase", ["apply", "destroy"])

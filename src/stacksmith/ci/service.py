@@ -21,6 +21,7 @@ from ..variables import resolve_inputs
 from .contracts import (
     CiExecutionManifest,
     CiExecutionRow,
+    _ci_config_split,
     parse_ci_stacksmith_args,
     validate_ci_policy,
 )
@@ -65,55 +66,6 @@ def _ci_config_ref_key(config_ref: str | Path) -> str:
     if isinstance(config_ref, Path):
         return str(config_ref.resolve())
     return config_ref
-
-
-def _is_ssh_path_separator(reference_prefix: str) -> bool:
-    if reference_prefix.lower().startswith("git+ssh://"):
-        authority = reference_prefix.split("://", 1)[1]
-        return "@" in authority and "/" not in authority
-    return (
-        "://" not in reference_prefix
-        and "/" not in reference_prefix
-        and "\\" not in reference_prefix
-        and "@" in reference_prefix
-    )
-
-
-def _ci_config_split(config_ref: str) -> list[str]:
-    raw_segments = config_ref.split(":")
-    merged_segments = []
-    for segment in raw_segments:
-        if not segment:
-            continue
-        if not merged_segments:
-            merged_segments.append(segment)
-            continue
-        last = merged_segments[-1]
-
-        is_scheme_match = last.lower() in (
-            "http",
-            "https",
-            "git+https",
-            "git+ssh",
-        ) and segment.startswith("//")
-        is_ssh_user_host = _is_ssh_path_separator(last)
-        is_windows_drive = (
-            len(last) == 1 and last.isalpha() and segment.startswith(("/", "\\"))
-        )
-        is_port_number = (
-            any(
-                prefix in last
-                for prefix in ("http://", "https://", "git+https://", "git+ssh://")
-            )
-            and "/" not in last.split("://", 1)[1]
-            and segment.split("/", 1)[0].isdigit()
-        )
-
-        if is_scheme_match or is_ssh_user_host or is_windows_drive or is_port_number:
-            merged_segments[-1] = f"{last}:{segment}"
-        else:
-            merged_segments.append(segment)
-    return [ref.strip() for ref in merged_segments if ref.strip()]
 
 
 def _ci_config_references(config_ref: str, workdir: str) -> list[str | Path]:

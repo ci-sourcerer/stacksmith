@@ -25,6 +25,63 @@ CiExecutionPhase = Literal[
 ]
 
 
+def _is_ssh_path_separator(reference_prefix: str) -> bool:
+    if reference_prefix.lower().startswith("git+ssh://"):
+        authority = reference_prefix.split("://", 1)[1]
+        return "@" in authority and "/" not in authority
+    return (
+        "://" not in reference_prefix
+        and "/" not in reference_prefix
+        and "\\" not in reference_prefix
+        and "@" in reference_prefix
+    )
+
+
+def _ci_config_split(config_ref: str) -> list[str]:
+    raw_segments = config_ref.split(":")
+    merged_segments = []
+    for segment in raw_segments:
+        if not segment:
+            continue
+        if not merged_segments:
+            merged_segments.append(segment)
+            continue
+        last = merged_segments[-1]
+
+        is_scheme_match = last.lower() in (
+            "http",
+            "https",
+            "git+https",
+            "git+ssh",
+        ) and segment.startswith("//")
+        is_ssh_user_host = _is_ssh_path_separator(last)
+        is_windows_drive = (
+            len(last) == 1 and last.isalpha() and segment.startswith(("/", "\\"))
+        )
+        is_port_number = (
+            any(
+                prefix in last
+                for prefix in ("http://", "https://", "git+https://", "git+ssh://")
+            )
+            and "/" not in last.split("://", 1)[1]
+            and segment.split("/", 1)[0].isdigit()
+        )
+
+        if is_scheme_match or is_ssh_user_host or is_windows_drive or is_port_number:
+            merged_segments[-1] = f"{last}:{segment}"
+        else:
+            merged_segments.append(segment)
+    return [ref.strip() for ref in merged_segments if ref.strip()]
+
+
+def _ci_config_args(config_ref: str) -> list[str]:
+    return [
+        argument
+        for reference in _ci_config_split(config_ref)
+        for argument in ("--config", reference)
+    ]
+
+
 class CiExecutionRow(BaseModel):
     """One environment-specific Stacksmith execution from a CI manifest.
 
@@ -330,13 +387,13 @@ def build_ci_execution_argv(
         raise StacksmithError(
             f"CI execution manifest does not contain environment '{environment}'."
         )
+    config_args = _ci_config_args(manifest.config_ref)
     runfiles = ["--runfile", row.runfile]
     if row.environment_runfile:
         runfiles.extend(["--runfile", row.environment_runfile])
     if execution_phase == "test":
         test_args = [
-            "--config",
-            manifest.config_ref,
+            *config_args,
             "--var",
             f"environment={row.environment}",
             "--env-file",
@@ -355,8 +412,7 @@ def build_ci_execution_argv(
         for tag_name in manifest.tags:
             tag_args.extend(["--tag", tag_name])
     common_args = [
-        "--config",
-        manifest.config_ref,
+        *config_args,
         *manifest.stacksmith_args,
         *tag_args,
         "--var",

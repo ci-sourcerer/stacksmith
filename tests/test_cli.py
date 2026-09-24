@@ -2390,11 +2390,13 @@ def test_cmd_ci_prepare_from_env_serializes_destroy_for_both_providers(
 def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path):
     from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
 
+    base_config = "git+https://github.com/org/base.git//config.yaml@2.0.0"
+    overlay_config = "git+ssh://git@github.com:org/overlay.git//config.yaml@2.1.0"
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(
         CiExecutionManifest(
             command="plan",
-            config_ref="platform/stacksmith-config.yaml",
+            config_ref=f"{base_config}:{overlay_config}",
             workdir=str(tmp_path),
             matrix=[
                 CiExecutionRow(environment="dev", runfile="common/stacksmith.yaml")
@@ -2418,7 +2420,7 @@ def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path)
 
     assert cli_main._cmd_ci_execute(args) == 0
     assert calls["command"] == "plan"
-    assert calls["args"].config == ["platform/stacksmith-config.yaml"]
+    assert calls["args"].config == [base_config, overlay_config]
     assert calls["args"].no_cas is True
     assert calls["args"].fail_on_changes is True
 
