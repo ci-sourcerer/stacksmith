@@ -60,7 +60,7 @@ void withStacksmithDockerAgent(Closure body) {
 }
 
 void withStacksmithKubernetesAgent(Closure body) {
-    String stacksmithContainerName = 'stacksmith'
+    def stacksmithContainerName = 'stacksmith'
     podTemplate(
         containers: [
             containerTemplate(
@@ -104,7 +104,7 @@ String credentialVariable(Map<String, Object> entry, String credentialType, Stri
 List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> credentials) {
     List<Map<String, Object>> bindings = []
 
-    for (Map<String, Object> entry : credentials) {
+    for (def entry : credentials) {
         if (!(entry instanceof Map)) {
             continue
         }
@@ -116,11 +116,10 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
 
         String type = entry.type?.toString()?.trim() ?: 'string'
 
-        Object binding
         switch (type) {
             case 'username_and_password':
             case 'http_basic':
-                binding = usernamePassword(
+                def binding = usernamePassword(
                     credentialsId: id,
                     usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME'),
                     passwordVariable: entry.passwordVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_PASSWORD')
@@ -130,7 +129,7 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
                 break
             case 'ssh_user_private_key':
             case 'git_ssh_key':
-                binding = sshUserPrivateKey(
+                def binding = sshUserPrivateKey(
                     credentialsId: id,
                     keyFileVariable: entry.keyFileVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_KEY'),
                     usernameVariable: entry.usernameVariable?.toString()?.trim() ?: credentialVariable(entry, type, '_USERNAME')
@@ -142,7 +141,7 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
             case 'secret_text':
             case 'git_token':
             case 'http_token':
-                binding = string(
+                def binding = string(
                     credentialsId: id,
                     variable: credentialVariable(entry, type)
                 )
@@ -150,7 +149,7 @@ List<Map<String, Object>> buildCredentialBindings(List<Map<String, Object>> cred
                 bindings << binding
                 break
             default:
-                binding = string(
+                def binding = string(
                     credentialsId: id,
                     variable: credentialVariable(entry, type)
                 )
@@ -168,7 +167,7 @@ Object withStacksmithCredentials(String credentialsJson, String context, Closure
     String parsedCredentialsJson = credentialsJson.toString().trim()
     if (parsedCredentialsJson) {
         try {
-            Object parsed = readJSON(text: parsedCredentialsJson, returnPojo: true)
+            def parsed = readJSON(text: parsedCredentialsJson, returnPojo: true)
             if (parsed instanceof List) {
                 credentials = parsed
                 echo("Loaded ${credentials.size()} credential(s) for ${context}")
@@ -241,13 +240,13 @@ void executeStacksmithMatrix(
     String command,
     String credentialsJson = ''
 ) {
-    List<Map<String, Object>> matrix = readJSON(text: matrixJson, returnPojo: true) as List<Map<String, Object>>
+    def matrix = readJSON(text: matrixJson, returnPojo: true)
     Map<String, Closure> branches = [:]
 
-    for (Map<String, Object> row : matrix) {
-        String environment = row.environment?.toString()
-        String artifactDir = "${workdir}/.stacksmith-ci/${environment}"
-        String archiveArtifactDir = artifactDir.replaceFirst('^\\./', '')
+    for (row in matrix) {
+        def environment = row.environment
+        def artifactDir = "${workdir}/.stacksmith-ci/${environment}"
+        def archiveArtifactDir = artifactDir.replaceFirst('^\\./', '')
 
         branches[environment] = {
             withEnv([
@@ -309,15 +308,15 @@ void executeStacksmithMatrix(
         }
     }
 
-    Map<String, Integer> results = parallel(branches)
-    Set<String> failedEnvironments = results.findAll { environment, status -> status != 0 }.keySet()
+    def results = parallel(branches)
+    def failedEnvironments = results.findAll { environment, status -> status != 0 }.keySet()
 
     if (failedEnvironments) {
         error("Stacksmith ${command} failed in: ${failedEnvironments.join(', ')}")
     }
 }
 
-void call() {
+def call() {
     Closure runPipeline = {
         ansiColor('xterm') {
             boolean testPipeline = parseBoolean(env.STACKSMITH_TEST_PIPELINE)
@@ -333,8 +332,8 @@ void call() {
             env.TAGS = testPipeline ? '' : ((params.TAGS ?: env.STACKSMITH_TAGS ?: '').toString().trim())
             String workdir = (params.WORKDIR ?: '.').toString()
 
-            String manifestFile = '.stacksmith-ci/ci-execution-manifest.json'
-            String manifestOutput = withEnv([
+            def manifestFile = '.stacksmith-ci/ci-execution-manifest.json'
+            def manifestOutput = withEnv([
                 "INPUT_COMMAND=${env.COMMAND}",
                 "INPUT_OPERATION_NAMES=${env.OPERATION_NAMES}",
                 "INPUT_TAGS=${env.TAGS}",
@@ -382,8 +381,8 @@ void call() {
                 }
             }
 
-            Map<String, Object> manifest = readJSON(text: manifestOutput, returnPojo: true) as Map<String, Object>
-            List<Map<String, Object>> matrix = manifest.matrix as List<Map<String, Object>>
+            def manifest = readJSON(text: manifestOutput, returnPojo: true)
+            def matrix = manifest.matrix
             env.SELECTED_ENVIRONMENTS = matrix.collect { it.environment }.join(',')
             env.SELECTION_MATRIX = writeJSON(json: matrix, returnText: true)
             env.CI_MANIFEST_FILE = "${env.WORKSPACE}/${manifestFile}"
