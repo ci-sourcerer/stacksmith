@@ -67,6 +67,18 @@ def _ci_config_ref_key(config_ref: str | Path) -> str:
     return config_ref
 
 
+def _is_ssh_path_separator(reference_prefix: str) -> bool:
+    if reference_prefix.lower().startswith("git+ssh://"):
+        authority = reference_prefix.split("://", 1)[1]
+        return "@" in authority and "/" not in authority
+    return (
+        "://" not in reference_prefix
+        and "/" not in reference_prefix
+        and "\\" not in reference_prefix
+        and "@" in reference_prefix
+    )
+
+
 def _ci_config_split(config_ref: str) -> list[str]:
     raw_segments = config_ref.split(":")
     merged_segments = []
@@ -84,7 +96,7 @@ def _ci_config_split(config_ref: str) -> list[str]:
             "git+https",
             "git+ssh",
         ) and segment.startswith("//")
-        is_ssh_user_host = "@" in last and "/" not in last.partition("@")[2]
+        is_ssh_user_host = _is_ssh_path_separator(last)
         is_windows_drive = (
             len(last) == 1 and last.isalpha() and segment.startswith(("/", "\\"))
         )

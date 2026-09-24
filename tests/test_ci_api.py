@@ -530,6 +530,18 @@ def test_ci_config_split_with_complex_urls():
     assert _ci_config_split("git@github.com:org/repo.git//path.yaml") == [
         "git@github.com:org/repo.git//path.yaml"
     ]
+    assert _ci_config_split(
+        "git+https://github.com/org/repo.git//path.yaml@2.0.0:config.yaml"
+    ) == [
+        "git+https://github.com/org/repo.git//path.yaml@2.0.0",
+        "config.yaml",
+    ]
+    assert _ci_config_split(
+        "git+ssh://git@github.com:org/repo.git//path.yaml@2.0.0:config.yaml"
+    ) == [
+        "git+ssh://git@github.com:org/repo.git//path.yaml@2.0.0",
+        "config.yaml",
+    ]
 
     # Test complex mixed references
     combined = "https://github.com/org/repo//path.yaml:git@github.com:org/repo.git//path.yaml:config.yaml"
