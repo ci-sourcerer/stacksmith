@@ -241,10 +241,10 @@ void executeStacksmithMatrix(
     String command,
     String credentialsJson = ''
 ) {
-    List matrix = readJSON(text: matrixJson, returnPojo: true) as List
+    List<Map<String, Object>> matrix = readJSON(text: matrixJson, returnPojo: true) as List<Map<String, Object>>
     Map<String, Closure> branches = [:]
 
-    for (Map row : matrix) {
+    for (Map<String, Object> row : matrix) {
         String environment = row.environment?.toString()
         String artifactDir = "${workdir}/.stacksmith-ci/${environment}"
         String archiveArtifactDir = artifactDir.replaceFirst('^\\./', '')
