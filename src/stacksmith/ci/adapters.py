@@ -9,7 +9,7 @@ from ..utils import parse_bool
 from .contracts import CiExecutionManifest, resolve_ci_execution_phase
 from .service import prepare_ci_execution
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("stacksmith.ci")
 
 
 def optional_env_bool(name: str) -> bool | None:

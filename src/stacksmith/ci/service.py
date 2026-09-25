@@ -26,7 +26,7 @@ from .contracts import (
     validate_ci_policy,
 )
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("stacksmith.ci")
 
 
 @dataclass(frozen=True)

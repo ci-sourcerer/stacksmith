@@ -1,9 +1,9 @@
 import json
-import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+from loguru import logger as LOGGER
 
 from .exceptions import StacksmithConfigError
 from .formatters import compact_json
@@ -23,8 +23,6 @@ from .models import (
 from .module_mapping import auto_exposed_output_names, resolve_module_mapping
 from .remote import is_remote_url
 from .vendor import get_vendor_dir
-
-LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
