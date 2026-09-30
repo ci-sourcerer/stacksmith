@@ -7,7 +7,11 @@ from loguru import logger as LOGGER
 
 from .exceptions import StacksmithConfigError
 from .formatters import compact_json
-from .introspection import discover_module_outputs, discover_module_variables
+from .introspection import (
+    discover_module_outputs,
+    discover_module_variable_types,
+    discover_module_variables,
+)
 from .models import (
     FileReference,
     ModuleMapping,
@@ -31,6 +35,7 @@ class InputInfo:
 
     name: str
     module_variable: str
+    type_constraint: str | None = None
     description: str | None = None
     mapped_to: str | None = None
     auto_inject_inputs: bool = False
@@ -194,6 +199,7 @@ def _build_property_input_info(
     config: ToolConfig | None,
     config_locations: dict[tuple[str, ...], str] | None,
     mapping_location: tuple[str, ...],
+    type_constraint: str | None,
 ) -> InputInfo:
     validation_spec = property_spec.validation
     if validation_spec is None:
@@ -215,6 +221,7 @@ def _build_property_input_info(
     return _build_input_info(
         property_name,
         property_spec,
+        type_constraint=type_constraint,
         description=property_spec.description,
         validation_location=validation_location,
         validation_description=(
@@ -316,6 +323,13 @@ def inspect_component_type(
             auth_config=auth_config,
             vendor_dir=vendor_dir or get_vendor_dir(),
         )
+        discovered_types = discover_module_variable_types(
+            mapping_source,
+            mapping_version,
+            cache_dir=cache_dir,
+            auth_config=auth_config,
+            vendor_dir=vendor_dir or get_vendor_dir(),
+        )
         discovered_outputs = (
             discover_module_outputs(
                 mapping_source,
@@ -347,6 +361,7 @@ def inspect_component_type(
                 config,
                 config_locations,
                 mapping_location or ("modules", component_type),
+                discovered_types.get(module_var),
             )
         )
 
@@ -364,6 +379,7 @@ def inspect_component_type(
             InputInfo(
                 name=var_name,
                 module_variable=var_name,
+                type_constraint=discovered_types.get(var_name),
                 auto_inject_inputs=mapping.auto_inject_inputs,
                 validation=validation_location,
                 validation_description=(
@@ -410,6 +426,7 @@ def inspect_component_type(
 def _build_input_info(
     var_name: str,
     property_spec: ModulePropertySpec | None,
+    type_constraint: str | None = None,
     description: str | None = None,
     validation_location: str | None = None,
     validation_description: str | None = None,
@@ -423,6 +440,7 @@ def _build_input_info(
     return InputInfo(
         name=var_name,
         module_variable=mapped_to or var_name,
+        type_constraint=type_constraint,
         description=description,
         mapped_to=mapped_to,
         auto_inject_inputs=is_auto_inject_inputsed
@@ -534,6 +552,8 @@ def format_json(results: list[ComponentTypeInfo], details: bool = True) -> str:
                 "name": inp.name,
                 "module_variable": inp.module_variable,
             }
+            if inp.type_constraint:
+                entry["type"] = inp.type_constraint
             if inp.description:
                 entry["description"] = inp.description
             if inp.mapped_to:

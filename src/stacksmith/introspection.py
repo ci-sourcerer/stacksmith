@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import hcl2
+from lark.exceptions import LarkError
 from loguru import logger as LOGGER
 
 from .exceptions import StacksmithConfigError
@@ -172,6 +173,36 @@ def discover_module_variables(
     )
 
 
+def discover_module_variable_types(
+    source: str,
+    version: str,
+    cache_dir: Path | None = None,
+    auth_config: RemoteAuthConfig | None = None,
+    vendor_dir: Path | None = None,
+) -> dict[str, str]:
+    """Discover declared Terraform type constraints for module variables.
+
+    Args:
+        source: Module source URL.
+        version: Module version string.
+        cache_dir: Cache directory for cloning remote modules.
+        auth_config: Optional host-keyed auth configuration.
+        vendor_dir: Vendored module root directory.
+
+    Returns:
+        Variable names mapped to their declared Terraform type constraints.
+    """
+    return parse_module_variable_types(
+        resolve_module_dir(
+            source,
+            version,
+            cache_dir=cache_dir,
+            auth_config=auth_config,
+            vendor_dir=vendor_dir,
+        )
+    )
+
+
 def discover_module_outputs(
     source: str,
     version: str,
@@ -228,6 +259,79 @@ def parse_module_variables(module_dir: Path) -> set[str]:
             vars=sorted(variables),
         )
     return variables
+
+
+def parse_module_variable_types(module_dir: Path) -> dict[str, str]:
+    """Parse explicit variable type constraints from `.tf` files.
+
+    Args:
+        module_dir: Directory containing OpenTofu files.
+
+    Returns:
+        Variable names mapped to their declared Terraform type constraints.
+    """
+    types = _parse_hcl_variable_types(module_dir)
+    types.update(_parse_json_variable_types(module_dir))
+    return types
+
+
+def _parse_hcl_variable_types(module_dir: Path) -> dict[str, str]:
+    types = {}
+    for tf_file in sorted(module_dir.glob("*.tf")):
+        try:
+            with tf_file.open(encoding="utf-8") as file:
+                parsed = hcl2.load(file)
+        except (OSError, LarkError) as exc:
+            LOGGER.warning(
+                "Failed to parse {file} during type introspection: {exc}",
+                file=tf_file,
+                exc=exc,
+            )
+            continue
+
+        for block in parsed.get("variable", []):
+            for name, specification in block.items():
+                if isinstance(specification, dict):
+                    _add_variable_type(types, name, specification.get("type"))
+    return types
+
+
+def _parse_json_variable_types(module_dir: Path) -> dict[str, str]:
+    types = {}
+    for tf_json_file in sorted(module_dir.glob("*.tf.json")):
+        try:
+            data = json.loads(tf_json_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            LOGGER.warning(
+                "Failed to parse {file} during type introspection: {exc}",
+                file=tf_json_file,
+                exc=exc,
+            )
+            continue
+
+        variables = data.get("variable", {})
+        if isinstance(variables, dict):
+            for name, specification in variables.items():
+                if isinstance(specification, dict):
+                    _add_variable_type(types, name, specification.get("type"))
+        elif isinstance(variables, list):
+            for block in variables:
+                if isinstance(block, dict):
+                    for name, specification in block.items():
+                        if isinstance(specification, dict):
+                            _add_variable_type(
+                                types, name, specification.get("type")
+                            )
+    return types
+
+
+def _add_variable_type(types: dict[str, str], name: str, constraint: object) -> None:
+    if not isinstance(constraint, str) or not constraint.strip():
+        return
+    normalized = constraint.strip()
+    if normalized.startswith("${") and normalized.endswith("}"):
+        normalized = normalized[2:-1].strip()
+    types[name.strip('"')] = normalized
 
 
 def parse_module_outputs(module_dir: Path) -> set[str]:
