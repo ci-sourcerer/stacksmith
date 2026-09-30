@@ -48,6 +48,11 @@
       "uniqueItems": true,
       "description": "Managed association rules disabled for the entire stack. Unknown names are rejected."
     },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Tool-specific metadata that does not affect infrastructure generation."
+    },
     "outputs": {
       "type": "object",
       "propertyNames": {

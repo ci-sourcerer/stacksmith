@@ -63,6 +63,7 @@ class StackDefinition(BaseModel):
     tags: set[str] = Field(default_factory=set)
     depends_on: list[str] = Field(default_factory=list)
     disabled_associations: set[str] = Field(default_factory=set)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     components: dict[str, ComponentDefinition] = Field(default_factory=dict)
     outputs: dict[str, StackOutputDefinition] = Field(default_factory=dict)
     operations: dict[str, OperationInvocation] = Field(default_factory=dict)
