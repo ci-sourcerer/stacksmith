@@ -364,7 +364,7 @@ def render_module_source_identity(
 def render_module_source_fields(
     source: ModuleSourceReference, options: Mapping[str, Any] | None = None
 ) -> dict[str, str]:
-    """Render Terraform module source fields from structured source data.
+    """Render OpenTofu module source fields from structured source data.
 
     Args:
         source: Structured module source reference.
@@ -374,7 +374,7 @@ def render_module_source_fields(
         ValueError: If the module source type is unsupported.
 
     Returns:
-        Dictionary of Terraform module source fields.
+        Dictionary of OpenTofu module source fields.
     """
     match source:
         case RegistrySourceReference(data=data):

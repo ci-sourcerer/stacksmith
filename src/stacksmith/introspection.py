@@ -180,7 +180,7 @@ def discover_module_variable_types(
     auth_config: RemoteAuthConfig | None = None,
     vendor_dir: Path | None = None,
 ) -> dict[str, str]:
-    """Discover declared Terraform type constraints for module variables.
+    """Discover declared OpenTofu type constraints for module variables.
 
     Args:
         source: Module source URL.
@@ -190,7 +190,7 @@ def discover_module_variable_types(
         vendor_dir: Vendored module root directory.
 
     Returns:
-        Variable names mapped to their declared Terraform type constraints.
+        Variable names mapped to their declared OpenTofu type constraints.
     """
     return parse_module_variable_types(
         resolve_module_dir(
@@ -268,7 +268,7 @@ def parse_module_variable_types(module_dir: Path) -> dict[str, str]:
         module_dir: Directory containing OpenTofu files.
 
     Returns:
-        Variable names mapped to their declared Terraform type constraints.
+        Variable names mapped to their declared OpenTofu type constraints.
     """
     types = _parse_hcl_variable_types(module_dir)
     types.update(_parse_json_variable_types(module_dir))

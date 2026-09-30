@@ -46,7 +46,7 @@ def compute_stack_target_modules(
     referenced_tags: set[str] | None = None,
     required_tags: set[str] | None = None,
 ) -> list[str]:
-    """Compute selected Terraform module addresses for one stack.
+    """Compute selected OpenTofu module addresses for one stack.
 
     Args:
         stack: Stack whose components are candidates.
@@ -56,7 +56,7 @@ def compute_stack_target_modules(
         required_tags: Tags every selected component must have.
 
     Returns:
-        Selected Terraform module addresses.
+        Selected OpenTofu module addresses.
     """
     return [
         f"module.{component_name}"
@@ -173,7 +173,7 @@ def build_terragrunt_args(
     Args:
         action: Requested Terragrunt action.
         destroy: Whether a plan is a destroy plan.
-        targets: Optional Terraform module addresses.
+        targets: Optional OpenTofu module addresses.
         plan_file: Optional path to an exact plan file.
 
     Returns:

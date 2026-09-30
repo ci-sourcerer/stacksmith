@@ -535,7 +535,7 @@
         "type": {
           "type": "string",
           "minLength": 1,
-          "description": "Documented Terraform/OpenTofu type constraint for the shared input."
+          "description": "Documented OpenTofu/OpenTofu type constraint for the shared input."
         },
         "description": {
           "type": "string",
@@ -549,7 +549,7 @@
         },
         "nullable": {
           "type": "boolean",
-          "description": "Optional Terraform nullable setting for the generated module variable."
+          "description": "Optional OpenTofu nullable setting for the generated module variable."
         },
         "default": {
           "description": "Optional default value for the generated module variable."

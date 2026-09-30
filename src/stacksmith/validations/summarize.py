@@ -147,10 +147,10 @@ def _summarize_plan_module(module: Any) -> list[str]:
 
 
 def summarize_plan_validation_value(value: Any) -> str | None:
-    """Summarize Terraform planned values for validation output.
+    """Summarize OpenTofu planned values for validation output.
 
     Args:
-        value: Full Terraform plan or planned-values payload.
+        value: Full OpenTofu plan or planned-values payload.
 
     Returns:
         Redacted planned-value summary, or `None` for a non-plan value.
@@ -178,10 +178,10 @@ def summarize_plan_validation_value(value: Any) -> str | None:
 
 
 def summarize_plan_resources(plan_data: dict[str, Any]) -> str:
-    """Summarize resource actions from a Terraform plan.
+    """Summarize resource actions from a OpenTofu plan.
 
     Args:
-        plan_data: Terraform plan JSON payload.
+        plan_data: OpenTofu plan JSON payload.
 
     Returns:
         Human-readable summary of resource changes.

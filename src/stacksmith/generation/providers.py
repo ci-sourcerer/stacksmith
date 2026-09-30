@@ -91,7 +91,7 @@ def _evaluate_provider_config(
 def build_required_providers(
     config: ToolConfig, formatter_options: Mapping[str, Any] | None = None
 ) -> dict[str, dict[str, str]]:
-    """Build Terraform required-provider declarations.
+    """Build OpenTofu required-provider declarations.
 
     Args:
         config: Stacksmith configuration containing provider mappings.
@@ -117,7 +117,7 @@ def build_provider_blocks(
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Build evaluated Terraform provider blocks.
+    """Build evaluated OpenTofu provider blocks.
 
     Args:
         config: Stacksmith configuration containing provider mappings.
@@ -160,14 +160,14 @@ def build_provider_blocks(
 
 
 def render_provider_reference(config: ToolConfig, provider_reference: str) -> str:
-    """Render a configured provider instance as a Terraform reference.
+    """Render a configured provider instance as a OpenTofu reference.
 
     Args:
         config: Stacksmith configuration containing provider mappings.
         provider_reference: Provider instance reference to render.
 
     Returns:
-        Terraform provider reference, including an alias when configured.
+        OpenTofu provider reference, including an alias when configured.
 
     Raises:
         StacksmithConfigError: If a non-default provider instance has no alias.

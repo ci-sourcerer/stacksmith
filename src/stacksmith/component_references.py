@@ -334,7 +334,7 @@ def validate_component_reference_locations(
                 ) from exc
         if _RAW_MODULE_REFERENCE in value:
             raise StacksmithConfigError(
-                "Raw Terraform module references are not supported in stack "
+                "Raw OpenTofu module references are not supported in stack "
                 "definitions. Declare a managed component output and reference "
                 "it with `{{ components.<component>.<output> }}`."
             )
@@ -610,7 +610,7 @@ def bind_component_references(
     auth_config: RemoteAuthConfig | None = None,
     vendor_dir: Path | None = None,
 ) -> Any:
-    """Bind deferred Jinja component outputs to native Terraform references.
+    """Bind deferred Jinja component outputs to native OpenTofu references.
 
     Args:
         value: Component property or operation input value.
@@ -634,7 +634,7 @@ def bind_component_references(
     if isinstance(value, str):
         if _RAW_MODULE_REFERENCE in value:
             raise StacksmithConfigError(
-                "Raw Terraform module references are not supported. Use "
+                "Raw OpenTofu module references are not supported. Use "
                 "`{{ components.<component>.<output> }}`."
             )
         deferred = _defer_component_references(value)

@@ -53,13 +53,13 @@ _OPERATION_BRIDGE_OUTPUT_PATH = (
 
 
 def operation_module_name(name: str) -> str:
-    """Generate a valid Terraform module name for an operation.
+    """Generate a valid OpenTofu module name for an operation.
 
     Args:
         name: The name of the operation.
 
     Returns:
-        A valid Terraform module name for the operation.
+        A valid OpenTofu module name for the operation.
     """
     return f"stacksmith_operation_{re.sub(r'[^A-Za-z0-9_]', '_', name)}"
 
@@ -655,7 +655,7 @@ def generate_operations_tf_json(
     vendor_dir: Path | None = None,
     root: Path | None = None,
 ) -> dict[str, Any]:
-    """Generate an isolated Terraform document for stack operations.
+    """Generate an isolated OpenTofu document for stack operations.
 
     Args:
         stack: Parsed stack definition.
@@ -667,7 +667,7 @@ def generate_operations_tf_json(
         root: Optional monorepo root used for state key derivation.
 
     Returns:
-        Terraform JSON containing only operation runner modules and read-only
+        OpenTofu JSON containing only operation runner modules and read-only
         infrastructure state access.
     """
     modules = _generate_operation_blocks(
@@ -749,7 +749,7 @@ def write_operations_tf_json(
     vendor_dir: Path | None = None,
     root: Path | None = None,
 ) -> Path:
-    """Generate and write an isolated operation Terraform document.
+    """Generate and write an isolated operation OpenTofu document.
 
     Args:
         stack: Parsed stack definition.
