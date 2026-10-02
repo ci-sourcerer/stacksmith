@@ -1,3 +1,5 @@
+import com.cloudbees.groovy.cps.NonCPS
+import jenkins.model.Jenkins
 import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
 import org.jenkinsci.plugins.workflow.steps.StepDescriptor
 
@@ -21,6 +23,14 @@ String getStacksmithImage() {
         "docker.io/cisourcerer/stacksmith:${env.STACKSMITH_IMAGE_VERSION ?: 'latest'}"
 }
 
+@NonCPS
+boolean _isTemplateAgent(String nodeName) {
+    return Jenkins.get().getNode(nodeName)?.class?.name in [
+        'com.nirima.jenkins.plugins.docker.DockerTransientNode',
+        'org.csanchez.jenkins.plugins.kubernetes.KubernetesSlave',
+    ]
+}
+
 void withStacksmithAgent(Closure body) {
     if (parseBoolean(env.STACKSMITH_USE_K8S)) {
         withStacksmithKubernetesAgent {
@@ -34,8 +44,13 @@ void withStacksmithAgent(Closure body) {
             try {
                 body()
             } finally {
-                // TODO: Don't do this if the node label maps to a Kubernetes/Docker template agent
-                cleanWs()
+                try {
+                    if (!_isTemplateAgent(env.NODE_NAME)) {
+                        cleanWs()
+                    }
+                } catch (Exception e) {
+                    // Ignore cleanup errors, whether _isTemplateAgent or cleanWs itself fails
+                }
             }
         }
         return
