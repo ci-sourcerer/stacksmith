@@ -12,7 +12,8 @@ Stacksmith is a YAML/JSON-driven orchestration layer for [OpenTofu](https://open
 - Runs validation and transformation policies before infrastructure changes.
 - Orchestrates dependency-aware stacks across monorepos.
 - Provides guarded GitHub Actions and Jenkins workflows.
-- Supports native operations alongside infrastructure lifecycle commands.
+- Supports native operations alongside infrastructure lifecycle commands; the
+  backend is expected to move to OpenTofu actions when support is available.
 
 ## Quick start
 

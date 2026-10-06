@@ -36,7 +36,7 @@ Managed validations and transforms enforce platform rules without putting truste
 
 ## Native operation
 
-A native operation is an approved action modeled separately from infrastructure resources while retaining plan, state, dependency, and lifecycle controls. Operations can run directly or after infrastructure apply. See [Native operations](guides/advanced-authoring.md#native-operations).
+A native operation is an approved action modeled separately from infrastructure resources while retaining plan, state, dependency, and lifecycle controls. Operations can run directly or after infrastructure apply. Stacksmith currently implements them with an isolated runner state; its backend is expected to change to OpenTofu actions as that support becomes available. See [Native operations](guides/advanced-authoring.md#native-operations).
 
 ## Generated configuration
 

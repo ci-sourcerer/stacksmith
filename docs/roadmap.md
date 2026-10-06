@@ -4,6 +4,10 @@ These are likely future directions rather than committed release promises.
 
 The roadmap is ordered roughly by expected impact. Reproducibility and deployment safety come first, followed by operability and developer-experience improvements.
 
+## Move native operations to OpenTofu actions
+
+Native operations currently use a separate runner-only Terraform root and isolated state. When OpenTofu supports action blocks and lifecycle triggers, move or adapt the backend to use them, reducing the need to model imperative work as provisioner-backed resources. Terraform's [plugin framework actions](https://developer.hashicorp.com/terraform/plugin/framework/actions) provide the reference model. OpenTofu support is still an open, pending discussion in [issue #3309](https://github.com/opentofu/opentofu/issues/3309), so the timing and exact behavior depend on that project's implementation.
+
 ## Resolution provenance and effective configuration inspection
 
 Add an `info explain` command that shows how a final input or component property was produced. Its output should identify each contributing vars file, environment variable, runfile value, and command-line override in precedence order, along with deep-merge decisions, templates, transforms, managed defaults, property renames, and automatic injection.
