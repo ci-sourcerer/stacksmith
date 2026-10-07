@@ -319,9 +319,7 @@ def _parse_json_variable_types(module_dir: Path) -> dict[str, str]:
                 if isinstance(block, dict):
                     for name, specification in block.items():
                         if isinstance(specification, dict):
-                            _add_variable_type(
-                                types, name, specification.get("type")
-                            )
+                            _add_variable_type(types, name, specification.get("type"))
     return types
 
 

@@ -276,6 +276,29 @@ def build_parser() -> argparse.ArgumentParser:
             help="Inspect configured modules and plan policies",
         )
     )
+    for name in ("explain", "effective"):
+        inspection_parser = info_subparsers.add_parser(
+            name,
+            help="Inspect effective configuration and resolution provenance",
+        )
+        if name == "explain":
+            inspection_parser.add_argument(
+                "query", nargs="?", help="Dotted address, such as inputs.region"
+            )
+        add_stack_arg(inspection_parser, include_positional=False)
+        add_common_args(
+            inspection_parser,
+            include_local_modules=False,
+            include_strict_validation=False,
+        )
+        inspection_parser.add_argument(
+            "--format", choices=["table", "json"], default="table"
+        )
+        inspection_parser.add_argument(
+            "--show-values",
+            action="store_true",
+            help="Reveal values and templates; default output redacts all values",
+        )
     configure_associations_parser(
         info_subparsers.add_parser(
             "associations",

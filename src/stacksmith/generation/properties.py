@@ -21,6 +21,7 @@ from ..models import (
     StackDefinition,
     ToolConfig,
 )
+from ..provenance import ACTIVE_TRACE
 from ..templating import (
     create_sandboxed_jinja_environment,
     render_jinja_template_values,
@@ -251,6 +252,8 @@ class PropertyRenderer:
         value: Any,
         property_spec: ModulePropertySpec | None,
         kind: str = "component_property",
+        *,
+        provenance_kind: str | None = None,
     ) -> tuple[str, Any]:
         """Render one property into its mapped module input.
 
@@ -259,6 +262,7 @@ class PropertyRenderer:
             value: Property value before processing.
             property_spec: Optional managed property specification.
             kind: Property context kind.
+            provenance_kind: Optional inspection label for injected inputs.
 
         Returns:
             Mapped output name and rendered value.
@@ -273,7 +277,7 @@ class PropertyRenderer:
                 output_name=output_name,
             )
 
-        return output_name, _normalize_module_input_value(
+        rendered = _normalize_module_input_value(
             output_name,
             apply_property_spec(
                 bind_component_references(
@@ -302,6 +306,54 @@ class PropertyRenderer:
             ),
             self.base_paths,
         )
+        if trace := ACTIVE_TRACE.get():
+            path = f"components.{self.component_name}.properties.{name}"
+            trace.record(
+                path,
+                provenance_kind or kind,
+                value,
+                output_name=output_name,
+                component_type=self.component_type,
+                source="resolved inputs"
+                if provenance_kind is not None
+                else self._managed_source(name, "default")
+                if kind == "module_property_default"
+                else "stack property resolution",
+                input_name=name if provenance_kind is not None else None,
+            )
+            if kind == "module_property_default" and property_spec is not None:
+                trace.record(
+                    path, "default template", value, template=property_spec.default
+                )
+            if property_spec is not None and property_spec.transform is not None:
+                trace.record(
+                    path,
+                    "transform",
+                    rendered,
+                    transform=property_spec.transform.model_dump(mode="json"),
+                    source=self._managed_source(name, "transform"),
+                )
+            if output_name != name:
+                trace.record(
+                    path,
+                    "rename",
+                    rendered,
+                    output_name=output_name,
+                    source=self._managed_source(name, "mapped_to"),
+                )
+            trace.record(path, "resolved", rendered, output_name=output_name)
+        return output_name, rendered
+
+    def _managed_source(self, name: str, field: str) -> str:
+        if trace := ACTIVE_TRACE.get():
+            paths = {
+                f"config.module_mappings.{self.component_type}.properties.{name}.{field}",
+                f"config.default_module_mapping.properties.{name}.{field}",
+            }
+            for event in reversed(trace.events):
+                if event["action"] == "source" and event["path"] in paths:
+                    return event["source"]
+        return str(self.config.source_path)
 
     def render_default(
         self,
@@ -322,6 +374,13 @@ class PropertyRenderer:
                 rendered.
         """
         output_name = self.output_name(name, property_spec)
+        if trace := ACTIVE_TRACE.get():
+            trace.record(
+                f"components.{self.component_name}.properties.{name}",
+                "managed default",
+                property_spec.default,
+                source=self._managed_source(name, "default"),
+            )
         try:
             return self.render(
                 name,

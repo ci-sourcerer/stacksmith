@@ -38,6 +38,7 @@ from ..api import (
     generate_stack,
     inspect_associations,
     inspect_cache_diagnostics,
+    inspect_configuration,
     inspect_dependency_graph,
     inspect_environments,
     inspect_modules,
@@ -81,6 +82,7 @@ from ..formatters import compact_json
 from ..graph import render_execution_preview_dot, render_execution_preview_mermaid
 from ..input_parsing import parse_operation_names
 from ..inspector import format_json, format_table
+from ..provenance import ACTIVE_TRACE, ResolutionTrace
 from ..utils import load_env_files
 from .args import (
     get_env_file_paths,
@@ -1501,6 +1503,8 @@ def main() -> None:
                 match args.info_command:
                     case "modules-and-policies":
                         exit_code = _cmd_info_modules_and_policies(args)
+                    case "explain" | "effective":
+                        exit_code = _cmd_info_configuration(args)
                     case "associations":
                         exit_code = _cmd_info_associations(args)
                     case "diagnose":
@@ -1565,3 +1569,48 @@ def main() -> None:
         exit_code = 130
 
     sys.exit(exit_code)
+
+
+def _cmd_info_configuration(args: argparse.Namespace) -> int:
+    with ACTIVE_TRACE.set(ResolutionTrace()):
+        return _inspect_configuration_args(args)
+
+
+def _inspect_configuration_args(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    payload = inspect_configuration(
+        _stack_arg(args),
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        merge_mode=_merge_mode_arg(args),
+        query=getattr(args, "query", None),
+        show_values=args.show_values,
+    )
+    if args.info_command == "effective":
+        payload = payload["effective"]
+    _emit_info_ci_output(
+        InspectOutputFormat(args.format),
+        json_text_factory=lambda: _format_info_ci_json(payload),
+        table_renderer=lambda: _render_configuration_table(payload),
+    )
+    return 0
+
+
+def _render_configuration_table(payload: dict[str, Any]) -> None:
+    table = Table("Address", "Action", "Source", "Output name", "Value / decision")
+    if "events" in payload:
+        for event in payload["events"]:
+            table.add_row(
+                event["path"],
+                event["action"],
+                event["source"],
+                event.get("output_name", ""),
+                json.dumps(event.get("value")) + " " + event.get("decision", ""),
+            )
+    else:
+        for name, value in payload.items():
+            table.add_row(name, "effective", "", "", json.dumps(value, indent=2))
+    Console().print(table)

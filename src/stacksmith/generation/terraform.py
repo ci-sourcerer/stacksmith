@@ -481,6 +481,7 @@ def _generate_module_blocks(
                 input_name,
                 resolved_inputs[input_name],
                 property_spec,
+                provenance_kind="required input injection",
             )
             required_injected_keys.append(input_name)
             reserved_output_names.add(output_name)
@@ -520,6 +521,7 @@ def _generate_module_blocks(
                     input_name,
                     input_value,
                     property_spec,
+                    provenance_kind="automatic injection",
                 )
                 injected_keys.append(input_name)
                 reserved_output_names.add(output_name)

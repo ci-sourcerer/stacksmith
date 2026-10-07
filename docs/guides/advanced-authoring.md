@@ -473,3 +473,21 @@ component_properties:
 
 - Local paths in `stacksmith.yaml` runfile `stacks`, `configs`, and local `vars` sources resolve relative to the runfile that declares them.
 - Local script paths and local module source paths in `stacksmith-config.yaml` resolve relative to the config file that declares them.
+
+## Inspect resolution and effective configuration
+
+`info explain` reports source contributions in resolution order and records merge decisions, templates, managed defaults, property transforms, renames, and required or automatic input injection. It accepts the same ordered `--stack`, `--config`, `--vars`, `--var`, and `--runfile` layers as generation, including runfile merge policies.
+
+```sh
+stacksmith info explain inputs.region --stack stack.yaml --config config.yaml --vars values.yaml
+stacksmith info explain components.api.properties.instance_type --stack stack.yaml --config config.yaml --format json
+stacksmith info effective --stack stack.yaml --config config.yaml --vars values.yaml --format json
+```
+
+Queries use dotted addresses under `inputs`, `components`, `stack`, or `config`. Component property queries accept either the original property name or the mapped module input name. Omitting the query returns the effective documents and the complete event history. JSON events contain an address (`path`), `action`, `source`, and `value`, with additional merge or mapping metadata when applicable. Events preserve overridden contributions so reviewers can see precedence decisions.
+
+`info effective` renders the merged stack, managed configuration, resolved inputs, final component properties, and module blocks. Both commands resolve configuration without writing generated infrastructure files or invoking OpenTofu or Terragrunt. Configured Python validations and transforms still execute, and automatic injection may fetch module sources for variable discovery.
+
+All values, including overridden values, templates, and transform definitions, are redacted by default in both table and JSON output. `--show-values` explicitly reveals them, including sensitive values. Source labels, addresses, and merge decisions remain visible when values are redacted. Stack templates are traced at document granularity because they can generate arbitrary YAML or JSON structures; a component query includes the document template and its referenced input history.
+
+Python callers can use `stacksmith.inspect_configuration(...)` with `query="inputs.region"` or omit `query` to inspect the entire effective configuration. Values remain redacted unless `show_values=True` is passed.

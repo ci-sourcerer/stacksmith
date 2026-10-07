@@ -20,6 +20,7 @@ from .models import (
     ValidationSpec,
     VariableReference,
 )
+from .provenance import ACTIVE_TRACE
 from .remote import resolve_if_remote
 from .templating import (
     create_sandboxed_jinja_environment,
@@ -99,11 +100,18 @@ def _apply_vars_source(
     cache_dir: Path | None = None,
     auth_config: RemoteAuthConfig | None = None,
 ) -> None:
-    for name, value in _load_vars_source(
+    values = _load_vars_source(
         source,
         cache_dir=cache_dir,
         auth_config=auth_config,
-    ).items():
+    )
+    if trace := ACTIVE_TRACE.get():
+        trace.layer(
+            "inputs",
+            trace.input_source(source),
+            values,
+        )
+    for name, value in values.items():
         _merge_resolved_value(resolved, name, value, merger)
 
 
@@ -121,6 +129,12 @@ def _apply_cli_var_item(
     resolved: dict[str, Any], raw_item: str, merger: AddressAwareMerger
 ) -> None:
     name, raw_value = parse_var_assignment(raw_item)
+    if trace := ACTIVE_TRACE.get():
+        trace.layer(
+            "inputs",
+            f"command line --var {name}",
+            {name: coerce_input_value(raw_value)},
+        )
     _merge_resolved_value(
         resolved,
         name,
@@ -197,6 +211,8 @@ def resolve_inputs(
 
         name = env_key.removeprefix(_ENV_PREFIX).lower()
         coerced = coerce_input_value(env_val)
+        if trace := ACTIVE_TRACE.get():
+            trace.layer("inputs", env_key, {name: coerced})
         _merge_resolved_value(resolved, name, coerced, merger)
 
     # Layer 3: Explicit ordered CLI inputs.
@@ -216,6 +232,7 @@ def resolve_inputs(
                 raise StacksmithConfigError(f"Unsupported input layer kind: {kind}")
 
     context = _with_git_repository_context(context or {})
+    unrendered_inputs = deepcopy(resolved) if ACTIVE_TRACE.get() else {}
     rendered_inputs = deepcopy(resolved)
     render_context = {"inputs": rendered_inputs, **context}
     resolved = render_jinja_template_values(
@@ -223,6 +240,17 @@ def resolve_inputs(
         render_context,
         jinja_env=_JINJA_ENV,
     )
+
+    if trace := ACTIVE_TRACE.get():
+        for name, value in resolved.items():
+            if value != unrendered_inputs[name]:
+                trace.record(
+                    f"inputs.{name}",
+                    "template",
+                    value,
+                    template=unrendered_inputs[name],
+                    source="input template resolution",
+                )
 
     # Config-level validations run after input resolution.
     if config_validations:

@@ -15,6 +15,7 @@ from .component_selection import (
 from .exceptions import StacksmithConfigError
 from .models import AssociationBindingSpec, AssociationRule, StackDefinition, ToolConfig
 from .module_mapping import resolve_module_mapping
+from .provenance import ACTIVE_TRACE
 
 
 @dataclass(frozen=True)
@@ -299,6 +300,17 @@ def resolve_associations(
                 ):
                     continue
                 dependencies.setdefault(consumer_name, set()).update(producers)
+                if trace := ACTIVE_TRACE.get():
+                    trace.record(
+                        f"components.{consumer_name}.properties.{binding.property}",
+                        "managed association",
+                        effective_stack.components[consumer_name].properties[
+                            binding.property
+                        ],
+                        source=str(config.source_path),
+                        rule=rule_name,
+                        decision=binding.merge,
+                    )
                 applications.append(
                     AssociationApplication(
                         rule=rule_name,

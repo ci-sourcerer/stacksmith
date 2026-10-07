@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -78,6 +79,7 @@ from .models import (
 )
 from .plan_redaction import redact_plan, redact_plan_file
 from .plan_summary import plan_summary_session
+from .provenance import ACTIVE_TRACE, ResolutionTrace, redact_values
 from .remote import is_remote_url, parse_git_url, resolve_if_remote, resolve_references
 from .runner import run_terragrunt, run_terragrunt_all_ordered
 from .targeting import (
@@ -101,6 +103,7 @@ __all__ = [
     "generate_stack",
     "inspect_associations",
     "inspect_cache_diagnostics",
+    "inspect_configuration",
     "inspect_dependency_graph",
     "inspect_environments",
     "inspect_modules",
@@ -2803,3 +2806,221 @@ def inspect_associations(
         resolve_associations(stack, loaded_config),
         loaded_config,
     )
+
+
+def inspect_configuration(
+    stack_file: Path | str | Sequence[Path | str],
+    config: list[str] | None = None,
+    vars_file: str | Sequence[str] | None = None,
+    input_layers: Sequence[InputLayer] | None = None,
+    build_dir: Path | None = None,
+    no_cache: bool = False,
+    merge_mode: MergeConfig = MergeMode.DEEP,
+    query: str | None = None,
+    show_values: bool = False,
+) -> dict[str, Any]:
+    """Inspect effective configuration and ordered resolution provenance.
+
+    Args:
+        stack_file: Stack file or ordered stack layers.
+        config: Managed configuration layers.
+        vars_file: Default variable layers.
+        input_layers: Ordered runfile and command-line input layers.
+        build_dir: Directory used for remote resource caches.
+        no_cache: Whether to clear remote caches.
+        merge_mode: Address-aware merge policy.
+        query: Optional dotted input, component property, stack, or config address.
+        show_values: Reveal values; otherwise redact every value and template.
+
+    Returns:
+        Effective documents and ordered provenance, or a queried value and events.
+
+    Raises:
+        StacksmithConfigError: If the query or configuration is invalid.
+    """
+    from .generation.terraform import _generate_module_blocks
+
+    trace = ACTIVE_TRACE.get() or ResolutionTrace()
+    with ACTIVE_TRACE.set(trace):
+        cache_dir, _, loaded_config = load_runtime_config(
+            config,
+            build_dir,
+            no_cache=no_cache,
+            merge_mode=merge_mode,
+        )
+        stack, inputs = _prepare_stack_definition(
+            stack_file,
+            loaded_config,
+            vars_file,
+            input_layers,
+            cache_dir,
+            merge_mode,
+        )
+        modules = _generate_module_blocks(
+            stack,
+            loaded_config,
+            inputs,
+            cache_dir=cache_dir,
+            auth_config=loaded_config.remote_auth,
+        )
+    effective = {
+        "stack": stack.model_dump(mode="json", exclude={"source_path"}),
+        "config": loaded_config.model_dump(mode="json", exclude={"source_path"}),
+        "inputs": inputs,
+        "modules": modules,
+        "components": {
+            name: {
+                "type": component.type,
+                "properties": {
+                    event["output_name"]: event["value"]
+                    for event in trace.events
+                    if event["action"] == "resolved"
+                    and event["path"].startswith(f"components.{name}.properties.")
+                },
+            }
+            for name, component in stack.components.items()
+        },
+    }
+    events = trace.events
+    if query:
+        value = effective
+        for segment in query.split("."):
+            if (
+                query.startswith("components.")
+                and isinstance(value, dict)
+                and segment not in value
+            ):
+                for event in reversed(events):
+                    if event["path"] == query and event["action"] == "resolved":
+                        value = {segment: event["value"]}
+                        break
+            if not isinstance(value, dict) or segment not in value:
+                raise StacksmithConfigError(f"Unknown configuration address: {query}")
+            value = value[segment]
+        # Source property queries remain available even when the module input is renamed.
+        events = _configuration_query_events(events, query)
+        return {
+            "query": query,
+            "value": redact_values(value, show_values),
+            "events": _configuration_events(events, show_values),
+        }
+    return {
+        "effective": redact_values(effective, show_values),
+        "events": _configuration_events(events, show_values),
+    }
+
+
+def _configuration_event_matches(event: dict[str, Any], query: str) -> bool:
+    path = event["path"]
+    if query.startswith("components.") and event["action"] == "stack template":
+        return True
+    if query.startswith("components.") and (
+        path.startswith("stack.") or path == "stack"
+    ):
+        path = path.removeprefix("stack.")
+    if query.startswith("components.") and event.get("output_name"):
+        mapped_path = path.rsplit(".", 1)[0] + "." + event["output_name"]
+        if mapped_path == query:
+            return True
+    return (
+        path == query
+        or path.startswith(query + ".")
+        or (event["action"] != "source" and query.startswith(path + "."))
+    )
+
+
+def _configuration_query_events(
+    events: list[dict[str, Any]], query: str
+) -> list[dict[str, Any]]:
+    selected_paths = {query}
+    config_paths: set[str] = set()
+    input_names: set[str] = set()
+    environment_names: set[str] = set()
+    for event in events:
+        if not _configuration_event_matches(event, query):
+            continue
+        if event["action"] == "resolved":
+            selected_paths.add(event["path"])
+        if component_type := event.get("component_type"):
+            property_name = event["path"].rsplit(".", 1)[-1]
+            config_paths.add(
+                f"config.module_mappings.{component_type}.properties.{property_name}"
+            )
+            config_paths.add(
+                f"config.default_module_mapping.properties.{property_name}"
+            )
+        if input_name := event.get("input_name"):
+            input_names.add(input_name)
+        environment_names.update(
+            _configuration_template_environment(event.get("template"))
+        )
+        input_names.update(_configuration_template_inputs(event.get("template")))
+        input_names.update(_configuration_template_inputs(event.get("transform")))
+    # Follow input templates transitively while retaining the original event order.
+    previous_names: set[str] = set()
+    while previous_names != input_names:
+        previous_names = set(input_names)
+        for event in events:
+            if any(
+                _configuration_event_matches(event, f"inputs.{name}")
+                for name in input_names
+            ):
+                input_names.update(
+                    _configuration_template_inputs(event.get("template"))
+                )
+                environment_names.update(
+                    _configuration_template_environment(event.get("template"))
+                )
+    return [
+        event
+        for event in events
+        if any(
+            _configuration_event_matches(event, path)
+            for path in selected_paths
+            | config_paths
+            | {f"inputs.{name}" for name in input_names}
+            | {f"environment.{name}" for name in environment_names}
+        )
+    ]
+
+
+def _configuration_template_inputs(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return set(re.findall(r"inputs\.([A-Za-z_][A-Za-z0-9_]*)", value)) | set(
+            re.findall(r"inputs\[\s*['\"]([^'\"]+)['\"]\s*\]", value)
+        )
+    if isinstance(value, dict):
+        return set().union(
+            *(_configuration_template_inputs(item) for item in value.values())
+        )
+    if isinstance(value, list):
+        return set().union(*(_configuration_template_inputs(item) for item in value))
+    return set()
+
+
+def _configuration_template_environment(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return set(re.findall(r"env\(\s*['\"]([^'\"]+)['\"]", value))
+    if isinstance(value, dict):
+        return set().union(
+            *(_configuration_template_environment(item) for item in value.values())
+        )
+    if isinstance(value, list):
+        return set().union(
+            *(_configuration_template_environment(item) for item in value)
+        )
+    return set()
+
+
+def _configuration_events(
+    events: list[dict[str, Any]], show_values: bool
+) -> list[dict[str, Any]]:
+    return [
+        {
+            key: redact_values(value, show_values)
+            if key in {"value", "template", "transform"}
+            else value
+            for key, value in event.items()
+        }
+        for event in events
+    ]

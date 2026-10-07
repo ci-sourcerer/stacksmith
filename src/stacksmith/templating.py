@@ -5,6 +5,8 @@ from typing import Any
 from jinja2 import ChainableUndefined, StrictUndefined, Undefined
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
+from .provenance import ACTIVE_TRACE
+
 _JINJA_MARKERS = ("{{", "{%", "{#")
 _MISSING = object()
 
@@ -17,6 +19,13 @@ class _TemplateEnvProxy:
 
     def __call__(self, name: str, default: Any = _MISSING) -> Any:
         if name in os.environ:
+            if trace := ACTIVE_TRACE.get():
+                trace.record(
+                    f"environment.{name}",
+                    "environment variable",
+                    os.environ[name],
+                    source=name,
+                )
             return os.environ[name]
         if default is not _MISSING:
             return default

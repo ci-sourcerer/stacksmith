@@ -18,6 +18,7 @@ from ..models import (
     StacksmithTestManifest,
     ToolConfig,
 )
+from ..provenance import ACTIVE_TRACE
 from ..templating import (
     create_sandboxed_jinja_environment,
     render_jinja_template_values,
@@ -94,6 +95,8 @@ def _merge_config_layers_with_locations(
             resolved_path.parent,
         )
         merger.replaced_paths.clear()
+        if trace := ACTIVE_TRACE.get():
+            trace.layer("config", str(resolved_path), normalized_layer)
         merged = _merge_layer(merged, normalized_layer, merger)
         merged_locations = _merge_config_locations(
             merged_locations,
@@ -137,6 +140,8 @@ def _merge_config_layers(
             layer,
             resolved_path.parent,
         )
+        if trace := ACTIVE_TRACE.get():
+            trace.layer("config", str(resolved_path), normalized_layer)
         merged = _merge_layer(merged, normalized_layer, merger)
     return merged
 
@@ -229,6 +234,12 @@ def _merge_stack_layers(
                 "stack definition",
                 resolved_path,
             )
+        if strict_template_context and (trace := ACTIVE_TRACE.get()):
+            trace.layer("stack", str(resolved_path), layer)
+            if "{{" in resolved_path.read_text() or "{%" in resolved_path.read_text():
+                trace.record(
+                    "stack", "stack template", layer, template=resolved_path.read_text()
+                )
         merged = _merge_layer(merged, layer, merger)
     return merged
 
@@ -441,6 +452,8 @@ def _merge_runfile_layers(
             rendered_layer,
             resolved_path.parent,
         )
+        if trace := ACTIVE_TRACE.get():
+            trace.layer("runfile", str(resolved_path), layer)
         merged = _merge_layer(merged, layer, merger)
     return merged
 

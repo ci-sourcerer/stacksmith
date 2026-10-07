@@ -9,6 +9,7 @@ from jmespath import exceptions as jmespath_exceptions
 from .enums import MergeMode
 from .exceptions import StacksmithConfigError
 from .models import MergeConfig, MergePolicy
+from .provenance import ACTIVE_TRACE
 
 type MergeScope = Literal["stack", "config", "runfile", "vars"]
 
@@ -59,7 +60,31 @@ class AddressAwareMerger(Merger):
         Raises:
             StacksmithConfigError: If a selector fails or is not boolean.
         """
-        if self._mode_for(path) == MergeMode.OVERRIDE:
+        mode = self._mode_for(path)
+        if (trace := ACTIVE_TRACE.get()) and trace.scope == (
+            "inputs" if self._scope == "vars" else self._scope
+        ):
+            trace.record(
+                ".".join(
+                    [
+                        "inputs" if self._scope == "vars" else self._scope,
+                        *map(str, path),
+                    ]
+                ),
+                "merge",
+                nxt,
+                mode=mode.value,
+                decision=(
+                    "replace"
+                    if mode == MergeMode.OVERRIDE
+                    else "merge dictionaries"
+                    if isinstance(base, dict) and isinstance(nxt, dict)
+                    else "append list"
+                    if isinstance(base, list) and isinstance(nxt, list)
+                    else "replace"
+                ),
+            )
+        if mode == MergeMode.OVERRIDE:
             self.replaced_paths.append(tuple(path))
             return deepcopy(nxt)
 
