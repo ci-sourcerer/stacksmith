@@ -22,7 +22,7 @@ jobs:
   docs:
     uses: ci-sourcerer/common-python-tasks/.github/workflows/docs.yml@v0.12.1
     with:
-      python_version: '3.14'
+      python_version: '3.15'
       dependency_group: dev
       generated_docs_check_task: docs-cli-reference-check
       deploy_github_pages: true
