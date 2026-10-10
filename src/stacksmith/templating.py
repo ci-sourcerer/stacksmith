@@ -8,7 +8,7 @@ from jinja2.sandbox import ImmutableSandboxedEnvironment
 from .provenance import ACTIVE_TRACE
 
 _JINJA_MARKERS = ("{{", "{%", "{#")
-_MISSING = object()
+_MISSING = sentinel("_MISSING")
 
 
 class _TemplateEnvProxy:
