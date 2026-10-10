@@ -1,9 +1,9 @@
 [project]
 name = "stacksmith"
-description = "YAML/JSON-driven OpenTofu wrapper with Terragrunt orchestration"
+description = "YAML/JSON-driven OpenTofu wrapper with Terragrunt orchestration with first-class CI integration"
 readme = "README.md"
 requires-python = ">=3.15,<4.0"
-authors = [{ name = "ci-sourcerer" }]
+authors = [{ name = "Joseph Asbury", email = "ci_sourcerer@yahoo.com" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
