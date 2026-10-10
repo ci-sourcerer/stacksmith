@@ -165,7 +165,7 @@ def _tool_cache_lock(cache_root: Path, tool_name: ToolName) -> Generator[None]:
     lock_path = cache_root / tool_name / ".lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with lock_path.open("a+") as lock_file:
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
         if os.name == "nt":
             lock_file.seek(0)
             _msvcrt.locking(lock_file.fileno(), _msvcrt.LK_LOCK, 1)

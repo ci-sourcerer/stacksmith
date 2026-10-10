@@ -236,9 +236,13 @@ def _merge_stack_layers(
             )
         if strict_template_context and (trace := ACTIVE_TRACE.get()):
             trace.layer("stack", str(resolved_path), layer)
-            if "{{" in resolved_path.read_text() or "{%" in resolved_path.read_text():
+            template = resolved_path.read_text(encoding="utf-8")
+            if "{{" in template or "{%" in template:
                 trace.record(
-                    "stack", "stack template", layer, template=resolved_path.read_text()
+                    "stack",
+                    "stack template",
+                    layer,
+                    template=template,
                 )
         merged = _merge_layer(merged, layer, merger)
     return merged
