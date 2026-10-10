@@ -13,27 +13,44 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger as LOGGER
-from rich.console import Console
-from rich.table import Table
+lazy from rich.console import Console
+lazy from rich.table import Table
 
 from stacksmith.cli.args import (
     get_default_run_file,
     get_default_stack_refs,
 )
 from stacksmith.enums import MergeMode
-from stacksmith.loading import load_runfiles, load_test_manifests
-from stacksmith.models import (
+from stacksmith.utils import parse_bool
+lazy from stacksmith.loading import load_runfiles, load_test_manifests
+lazy from stacksmith.models import (
     ExecutionPreview,
     FileReference,
     MergeConfig,
     MergePolicy,
     StacksmithTestManifest,
 )
-from stacksmith.remote import is_remote_url, resolve_if_remote
-from stacksmith.testing import StacksmithTestGenerator, find_untested_policies
-from stacksmith.utils import parse_bool
+lazy from stacksmith.remote import is_remote_url, resolve_if_remote
+lazy from stacksmith.testing import StacksmithTestGenerator, find_untested_policies
 
-from ..api import (
+from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME, TEST_FILE_CANDIDATES
+from ..enums import (
+    ExecutionPreviewFormat,
+    InspectOutputFormat,
+    TerragruntAction,
+    ValidationReportFormat,
+)
+from ..exceptions import StacksmithConfigError, StacksmithError
+from ..input_parsing import parse_operation_names
+from ..utils import load_env_files
+from .args import (
+    get_env_file_paths,
+    is_debug_enabled,
+    is_quiet_enabled,
+    parse_input_layers,
+)
+from .parser import build_parser
+lazy from ..api import (
     destroy_stack_operations,
     generate_stack,
     inspect_associations,
@@ -53,8 +70,8 @@ from ..api import (
     validate_ci_inputs,
     validate_stack,
 )
-from ..change_reports import validation_report_path_context
-from ..ci.adapters import (
+lazy from ..change_reports import validation_report_path_context
+lazy from ..ci.adapters import (
     load_ci_execution_manifest,
     manifest_output_json,
     prepare_ci_manifest_from_env,
@@ -64,33 +81,16 @@ from ..ci.adapters import (
     write_github_output_manifest,
     write_ssh_key_material,
 )
-from ..ci.contracts import (
+lazy from ..ci.contracts import (
     CiExecutionManifest,
     build_ci_execution_argv,
     resolve_ci_execution_phase,
 )
-from ..ci.reporting import clear_ci_execution_reports, write_ci_execution_report
-from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME, TEST_FILE_CANDIDATES
-from ..enums import (
-    ExecutionPreviewFormat,
-    InspectOutputFormat,
-    TerragruntAction,
-    ValidationReportFormat,
-)
-from ..exceptions import StacksmithConfigError, StacksmithError
-from ..formatters import compact_json
-from ..graph import render_execution_preview_dot, render_execution_preview_mermaid
-from ..input_parsing import parse_operation_names
-from ..inspector import format_json, format_table
-from ..provenance import ACTIVE_TRACE, ResolutionTrace
-from ..utils import load_env_files
-from .args import (
-    get_env_file_paths,
-    is_debug_enabled,
-    is_quiet_enabled,
-    parse_input_layers,
-)
-from .parser import build_parser
+lazy from ..ci.reporting import clear_ci_execution_reports, write_ci_execution_report
+lazy from ..formatters import compact_json
+lazy from ..graph import render_execution_preview_dot, render_execution_preview_mermaid
+lazy from ..inspector import format_json, format_table
+lazy from ..provenance import ACTIVE_TRACE, ResolutionTrace
 
 _RUNTIME_LOCK_REQUIRE_ENV = "STACKSMITH_REQUIRE_LOCKFILE"
 

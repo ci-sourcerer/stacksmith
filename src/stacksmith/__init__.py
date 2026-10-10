@@ -1,4 +1,4 @@
-from .api import (
+lazy from .api import (
     destroy_stack_operations,
     generate_stack,
     inspect_associations,
@@ -14,7 +14,7 @@ from .api import (
     run_stack_operations,
     validate_stack,
 )
-from .exceptions import (
+lazy from .exceptions import (
     StacksmithConfigError,
     StacksmithError,
     StacksmithNotFoundError,
@@ -22,7 +22,7 @@ from .exceptions import (
     StacksmithTransformError,
     StacksmithValidationError,
 )
-from .gitops.changes import (
+lazy from .gitops.changes import (
     CommitPushResult,
     DocumentChange,
     OperationRerunResult,
@@ -35,8 +35,8 @@ from .gitops.changes import (
     update_operation_rerun_token,
     validate_stack_document,
 )
-from .models import ExecutionPreview, MergePolicy, MergeRule
-from .testing import ComponentPropertyResult, StacksmithTestRunner
+lazy from .models import ExecutionPreview, MergePolicy, MergeRule
+lazy from .testing import ComponentPropertyResult, StacksmithTestRunner
 
 __all__ = [
     "CommitPushResult",
