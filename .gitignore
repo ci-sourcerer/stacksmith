@@ -216,6 +216,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 .stacksmith/
+stacksmith-profile.html
 .secrets
 tmp/
 

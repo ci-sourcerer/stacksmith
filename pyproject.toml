@@ -30,6 +30,10 @@ dynamic = ["version"]
 [tool.poe]
 include_script = "common_python_tasks:tasks(exclude_tags=['fastapi'])"
 
+[tool.poe.tasks.profile]
+cmd = "python -m profiling.sampling run --flamegraph -o stacksmith-profile.html -m stacksmith"
+help = "Profile a Stacksmith command and write an HTML flame graph"
+
 [tool.poe.tasks.docs-cli-reference]
 cmd = "python scripts/update_cli_reference.py"
 help = "Update the generated CLI reference page"
