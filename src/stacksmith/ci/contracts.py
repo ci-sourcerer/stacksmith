@@ -75,11 +75,7 @@ def _ci_config_split(config_ref: str) -> list[str]:
 
 
 def _ci_config_args(config_ref: str) -> list[str]:
-    return [
-        argument
-        for reference in _ci_config_split(config_ref)
-        for argument in ("--config", reference)
-    ]
+    return [*("--config", reference) for reference in _ci_config_split(config_ref)]
 
 
 class CiExecutionRow(BaseModel):
