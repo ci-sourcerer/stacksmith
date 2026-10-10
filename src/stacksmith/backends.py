@@ -1,7 +1,6 @@
 import os
 import textwrap
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any
 
 from .exceptions import StacksmithConfigError, StacksmithNotFoundError
@@ -40,18 +39,18 @@ def _backend_context(
     inputs: dict[str, Any],
 ) -> dict[str, Any]:
     return {
-        "inputs": MappingProxyType(dict(inputs)),
-        "stack": MappingProxyType(
+        "inputs": frozendict(inputs),
+        "stack": frozendict(
             {
                 "name": stack.name,
                 "tags": tuple(sorted(stack.tags)),
                 "source_path": str(stack.source_path) if stack.source_path else None,
             }
         ),
-        "config": MappingProxyType(
+        "config": frozendict(
             {"source_path": str(config.source_path) if config.source_path else None}
         ),
-        "environment": MappingProxyType(dict(os.environ)),
+        "environment": frozendict(os.environ),
     }
 
 

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from stacksmith.api import generate_stack
-from stacksmith.backends import resolve_backend
+from stacksmith.backends import _backend_context, resolve_backend
 from stacksmith.exceptions import StacksmithConfigError
 from stacksmith.loading import load_config
 from stacksmith.models import StackDefinition
@@ -11,6 +11,24 @@ from stacksmith.models import StackDefinition
 
 def _stack() -> StackDefinition:
     return StackDefinition(name="payments", tags={"production"})
+
+
+def test_backend_context_contains_immutable_snapshots(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.setenv("STACKSMITH_TEST_BUCKET", "original")
+    inputs = {"environment": "prod"}
+    config_path = tmp_path / "stacksmith-config.yaml"
+    config_path.write_text(_resolver_config("data: {type: local}"), encoding="utf-8")
+    context = _backend_context(load_config(config_path), _stack(), inputs)
+    inputs["environment"] = "dev"
+    monkeypatch.setenv("STACKSMITH_TEST_BUCKET", "changed")
+
+    assert context["inputs"]["environment"] == "prod"
+    assert context["environment"]["STACKSMITH_TEST_BUCKET"] == "original"
+    for name in ("inputs", "stack", "config", "environment"):
+        with pytest.raises(TypeError):
+            context[name]["new"] = "value"
 
 
 def _resolver_config(source: str) -> str:
