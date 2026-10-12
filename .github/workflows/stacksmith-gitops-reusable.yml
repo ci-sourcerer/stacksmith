@@ -56,6 +56,7 @@ jobs:
   execute:
     name: stacksmith-${{ inputs.phase || fromJson(inputs.ci_manifest).command }}-${{ inputs.environment }}
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(vars.STACKSMITH_EXECUTION_TIMEOUT_MINUTES || '60') }}
     environment: ${{ ((inputs.phase || fromJson(inputs.ci_manifest).command) == 'apply' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'operation' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'destroy') && inputs.environment || '' }}
     env:
       STACKSMITH_PLAN_ARTIFACT_KIND: ${{ fromJson(inputs.ci_manifest).command == 'destroy' && 'destroy-plan' || 'plan' }}

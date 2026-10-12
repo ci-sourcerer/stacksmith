@@ -59,6 +59,7 @@ jobs:
   discover:
     name: discover-environments
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(vars.STACKSMITH_EXECUTION_TIMEOUT_MINUTES || '60') }}
     container:
       image: docker.io/cisourcerer/stacksmith:${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
     outputs:

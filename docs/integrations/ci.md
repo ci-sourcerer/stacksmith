@@ -52,6 +52,8 @@ Protect each consumer repository's CI entrypoint with a CODEOWNERS file so ordin
 
 Mutating runs (`apply`, `destroy`, and `apply-operation`) are serialized across the complete preview, approval, and execution lifecycle. GitHub Actions uses one deployment concurrency group per consumer repository, shared across these commands; previews remain independent, and new runs do not cancel active deployments. GitHub's default concurrency queue retains only the newest pending run. Jenkins uses the Lockable Resources plugin and queues deployments under one lock per Multibranch Pipeline, or per standalone job. Set `STACKSMITH_DEPLOYMENT_LOCK` to the same resource name on separate Jenkins jobs that target the same infrastructure. The plugin is required for mutating Jenkins commands; preview and test commands do not require it. These queues are local to each CI provider; remote backend state locking still protects individual state writes.
 
+Set `STACKSMITH_EXECUTION_TIMEOUT_MINUTES` to a positive integer to bound preparation and execution; the default is 60 minutes. GitHub Actions applies this limit to each discovery or single-environment lifecycle job. Jenkins applies it separately to manifest preparation and each environment's execution in each phase. Jenkins approvals have a separate 60-minute expiry, configurable through `STACKSMITH_APPROVAL_TIMEOUT_MINUTES`. An expired or rejected approval aborts the build and prevents every mutating phase. The Jenkins agent and deployment lock remain reserved while approval is pending. GitHub environment approvals are governed by GitHub's environment protection settings and are separate from execution timeouts.
+
 ## GitHub Actions
 
 In your own repository, you can do either of the following.

@@ -203,16 +203,32 @@ Object withStacksmithCredentials(String credentialsJson, String context, Closure
     return body()
 }
 
+int stacksmithTimeoutMinutes(String setting, int defaultMinutes = 60) {
+    String configured = env[setting]?.toString()?.trim()
+    if (!configured) {
+        return defaultMinutes
+    }
+    if (!configured.isInteger() || configured.toInteger() < 1) {
+        error("${setting} must be a positive integer number of minutes")
+    }
+    return configured.toInteger()
+}
+
 int executeStacksmith() {
-    return sh(
-        script: '''#!/usr/bin/env bash
-            set -euo pipefail
-            stacksmith ci execute-from-env \
-                --provider jenkins \
-                --phase "$STACKSMITH_CI_PHASE"
-        ''',
-        returnStatus: true
-    )
+    return timeout(
+        time: stacksmithTimeoutMinutes('STACKSMITH_EXECUTION_TIMEOUT_MINUTES'),
+        unit: 'MINUTES'
+    ) {
+        sh(
+            script: '''#!/usr/bin/env bash
+                set -euo pipefail
+                stacksmith ci execute-from-env \
+                    --provider jenkins \
+                    --phase "$STACKSMITH_CI_PHASE"
+            ''',
+            returnStatus: true
+        )
+    }
 }
 
 List<Object> buildPipelineParameters(boolean testPipeline) {
@@ -406,16 +422,21 @@ def call() {
                     env.STACKSMITH_CREDENTIALS_JSON ?: '',
                     'manifest preparation'
                 ) {
-                    sh(
-                        script: '''#!/usr/bin/env bash
-                            set -euo pipefail
-                            mkdir -p "$(dirname \"$CI_MANIFEST_FILE\")"
-                            stacksmith ci prepare-from-env \
-                                --provider jenkins \
-                                --manifest-file "$CI_MANIFEST_FILE"
-                        ''',
-                        returnStdout: true
-                    )
+                    timeout(
+                        time: stacksmithTimeoutMinutes('STACKSMITH_EXECUTION_TIMEOUT_MINUTES'),
+                        unit: 'MINUTES'
+                    ) {
+                        sh(
+                            script: '''#!/usr/bin/env bash
+                                set -euo pipefail
+                                mkdir -p "$(dirname \"$CI_MANIFEST_FILE\")"
+                                stacksmith ci prepare-from-env \
+                                    --provider jenkins \
+                                    --manifest-file "$CI_MANIFEST_FILE"
+                            ''',
+                            returnStdout: true
+                        )
+                    }
                 }
             }
 
@@ -488,13 +509,18 @@ def call() {
                     }
 
                     try {
-                        input(
-                            message: buildApprovalMessage(
-                                env.COMMAND,
-                                env.SELECTED_OPERATIONS,
-                                env.SELECTED_ENVIRONMENTS
+                        timeout(
+                            time: stacksmithTimeoutMinutes('STACKSMITH_APPROVAL_TIMEOUT_MINUTES'),
+                            unit: 'MINUTES'
+                        ) {
+                            input(
+                                message: buildApprovalMessage(
+                                    env.COMMAND,
+                                    env.SELECTED_OPERATIONS,
+                                    env.SELECTED_ENVIRONMENTS
+                                )
                             )
-                        )
+                        }
                     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
                         currentBuild.result = 'ABORTED'
                         env.DO_NOT_EXECUTE_STACKSMITH = '1'
