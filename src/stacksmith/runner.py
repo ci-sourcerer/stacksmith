@@ -489,7 +489,8 @@ def _run_plan_validations(
 
     # If the user requested to persist the plan, use their path instead of a temp file
     if save_plan_binary:
-        plan_path = save_plan_binary
+        plan_path = save_plan_binary.resolve()
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
         # We don't cleanup the file at the end
         cleanup_plan = False
     else:

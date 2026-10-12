@@ -404,7 +404,7 @@ def build_ci_execution_argv(
             test_args.append("--no-cas")
         return ["test", *test_args, *manifest.stacksmith_args]
     tag_args: list[str] = []
-    if execution_phase in {"plan", "apply", "destroy"} and manifest.tags:
+    if execution_phase == "plan" and manifest.tags:
         for tag_name in manifest.tags:
             tag_args.extend(["--tag", tag_name])
     common_args = [
@@ -434,6 +434,8 @@ def build_ci_execution_argv(
         return [
             "plan",
             *common_args,
+            "--out",
+            f".stacksmith-ci/{row.environment}/reviewed.tfplan",
             "--save-plan-summary-json",
             f".stacksmith-ci/{row.environment}/plan-summary.json",
             "--save-redacted-plan-json",
@@ -455,20 +457,13 @@ def build_ci_execution_argv(
                 else []
             ),
         ]
-    if execution_phase == "apply":
+    if execution_phase in {"apply", "destroy"}:
         return [
             "apply",
             *common_args,
-            "--auto-approve",
+            "--plan",
+            f".stacksmith-ci/{row.environment}/reviewed.tfplan",
             "--no-after-apply",
-            "--save-apply-summary-json",
-            f".stacksmith-ci/{row.environment}/apply-summary.json",
-        ]
-    if execution_phase == "destroy":
-        return [
-            "destroy",
-            *common_args,
-            "--auto-approve",
             "--save-apply-summary-json",
             f".stacksmith-ci/{row.environment}/apply-summary.json",
         ]

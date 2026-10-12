@@ -32,12 +32,16 @@ def test_github_preparation_receives_source_credentials():
             / ".github/workflows/stacksmith-gitops-opinionated-reusable.yml"
         ).read_text()
     )["jobs"]["discover"]["steps"][1]["env"]
-    execution_env = yaml.safe_load(
-        (
-            Path(__file__).parents[1]
-            / ".github/workflows/stacksmith-gitops-reusable.yml"
-        ).read_text()
-    )["jobs"]["execute"]["steps"][1]["env"]
+    execution_env = next(
+        step
+        for step in yaml.safe_load(
+            (
+                Path(__file__).parents[1]
+                / ".github/workflows/stacksmith-gitops-reusable.yml"
+            ).read_text()
+        )["jobs"]["execute"]["steps"]
+        if step["name"] == "Execute Stacksmith manifest"
+    )["env"]
     for name in (
         "STACKSMITH_GIT_TOKEN",
         "STACKSMITH_GIT_SSH_KEY_MATERIAL",
@@ -1132,7 +1136,8 @@ def test_ci_apply_manifest_supports_plan_then_apply_phases():
     assert "--save-redacted-plan-json" in plan_argv
     assert "--fail-on-changes" not in plan_argv
     assert apply_argv[0] == "apply"
-    assert "--auto-approve" in apply_argv
+    assert "--plan" in apply_argv
+    assert "--auto-approve" not in apply_argv
 
 
 def test_ci_destroy_manifest_supports_destroy_plan_then_destroy_phases():
@@ -1151,8 +1156,9 @@ def test_ci_destroy_manifest_supports_destroy_plan_then_destroy_phases():
     assert plan_argv[0] == "plan"
     assert "--destroy" in plan_argv
     assert "--save-redacted-plan-json" in plan_argv
-    assert destroy_argv[0] == "destroy"
-    assert "--auto-approve" in destroy_argv
+    assert destroy_argv[0] == "apply"
+    assert "--plan" in destroy_argv
+    assert "--auto-approve" not in destroy_argv
     assert "--locked" in destroy_argv
     assert "--offline" in destroy_argv
     assert destroy_argv[destroy_argv.index("--lockfile") + 1] == (
@@ -1250,7 +1256,7 @@ def test_ci_apply_manifest_uses_no_after_apply_in_apply_phase():
     apply_argv = build_ci_execution_argv(manifest, "dev", "apply")
 
     assert apply_argv[0] == "apply"
-    assert "--auto-approve" in apply_argv
+    assert "--plan" in apply_argv
     assert "--no-after-apply" in apply_argv
 
 

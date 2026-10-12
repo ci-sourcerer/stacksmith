@@ -11,6 +11,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+lazy import hashlib
 
 from loguru import logger as LOGGER
 lazy from rich.console import Console
@@ -87,6 +88,12 @@ lazy from ..ci.contracts import (
     resolve_ci_execution_phase,
 )
 lazy from ..ci.reporting import clear_ci_execution_reports, write_ci_execution_report
+lazy from ..execution_plans import (
+    apply_execution_plan,
+    bind_execution_plan,
+    execution_plan_context_path,
+    transfer_execution_plan,
+)
 lazy from ..formatters import compact_json
 lazy from ..graph import render_execution_preview_dot, render_execution_preview_mermaid
 lazy from ..inspector import format_json, format_table
@@ -1241,6 +1248,21 @@ def _cmd_ci_execute(args: argparse.Namespace) -> int:
     )
 
 
+def _ci_plan_binding(manifest: CiExecutionManifest, environment: str) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "manifest": manifest.model_dump(mode="json"),
+                "environment": environment,
+                "revision": os.getenv("GITHUB_SHA") or os.getenv("GIT_COMMIT", ""),
+                "run": os.getenv("STACKSMITH_CI_EXECUTION_ID")
+                or os.getenv("BUILD_TAG", ""),
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+
+
 def _execute_ci_manifest(
     manifest: CiExecutionManifest, environment: str, phase: str = ""
 ) -> int:
@@ -1256,6 +1278,25 @@ def _execute_ci_manifest(
             manifest.max_parallel_operations
         )
         os.chdir(manifest.workdir)
+        reviewed_plan = Path(f".stacksmith-ci/{environment}/reviewed.tfplan")
+        if execution_phase in {"apply", "destroy"}:
+            try:
+                return apply_execution_plan(
+                    reviewed_plan,
+                    _ci_plan_binding(manifest, environment),
+                    reviewed_plan.parent / "apply-summary.json",
+                    destroy=execution_phase == "destroy",
+                    no_cas=manifest.no_cas,
+                )
+            finally:
+                reviewed_plan.unlink(missing_ok=True)
+                execution_plan_context_path(reviewed_plan).unlink(missing_ok=True)
+        if execution_phase == "plan":
+            reviewed_plan.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+            reviewed_plan.parent.chmod(0o700)
+            reviewed_plan.unlink(missing_ok=True)
+            execution_plan_context_path(reviewed_plan).unlink(missing_ok=True)
+            reviewed_plan.with_suffix(".receipt.json").unlink(missing_ok=True)
         execution_args = build_parser().parse_args(
             build_ci_execution_argv(manifest, environment, execution_phase)
         )
@@ -1278,7 +1319,10 @@ def _execute_ci_manifest(
             return _cmd_operation_run(execution_args)
         if execution_phase == "test":
             return _cmd_test(execution_args)
-        return _cmd_terragrunt_action(execution_args, execution_phase)
+        exit_code = _cmd_terragrunt_action(execution_args, execution_phase)
+        if execution_phase == "plan" and exit_code == 0:
+            bind_execution_plan(reviewed_plan, _ci_plan_binding(manifest, environment))
+        return exit_code
     finally:
         os.chdir(original_directory)
         if original_max_parallel_operations is None:
@@ -1344,6 +1388,26 @@ def _cmd_ci_execute_from_env(args: argparse.Namespace) -> int:
                 ),
                 phase,
             )
+    finally:
+        if temporary_manifest_path is not None:
+            temporary_manifest_path.unlink(missing_ok=True)
+
+
+def _cmd_ci_plan_bundle(args: argparse.Namespace) -> int:
+    manifest_path, temporary_manifest_path = resolve_ci_execution_manifest_path(
+        args.manifest_file
+    )
+    try:
+        manifest = load_ci_execution_manifest(manifest_path)
+        environment = resolve_ci_environment(args.environment)
+        if manifest.command not in {"apply", "destroy"}:
+            raise StacksmithError("Plan transfer requires an apply or destroy manifest")
+        transfer_execution_plan(
+            Path(manifest.workdir) / ".stacksmith-ci" / environment / "reviewed.tfplan",
+            _ci_plan_binding(manifest, environment),
+            decrypt=args.mode == "open",
+        )
+        return 0
     finally:
         if temporary_manifest_path is not None:
             temporary_manifest_path.unlink(missing_ok=True)
@@ -1529,6 +1593,8 @@ def main() -> None:
                         exit_code = _cmd_ci_execute_from_env(args)
                     case "redact-plan":
                         exit_code = _cmd_ci_redact_plan(args)
+                    case "plan-bundle":
+                        exit_code = _cmd_ci_plan_bundle(args)
                     case _:
                         parser.print_help(sys.stderr)
                         exit_code = 1

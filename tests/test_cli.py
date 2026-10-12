@@ -2454,6 +2454,7 @@ def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path)
         return 0
 
     monkeypatch.setattr(cli_main, "_cmd_terragrunt_action", _fake_plan_handler)
+    monkeypatch.setattr(cli_main, "bind_execution_plan", lambda *args: None)
     args = parser.parse_args(
         ["ci", "execute", "--manifest", str(manifest_path), "--environment", "dev"]
     )
@@ -2465,7 +2466,9 @@ def test_cmd_ci_execute_reuses_plan_handler(monkeypatch, parser, tmp_path: Path)
     assert calls["args"].fail_on_changes is True
 
 
-def test_cmd_ci_execute_reuses_destroy_handler(monkeypatch, parser, tmp_path: Path):
+def test_cmd_ci_execute_applies_reviewed_destroy_plan(
+    monkeypatch, parser, tmp_path: Path
+):
     from stacksmith.ci.contracts import CiExecutionManifest, CiExecutionRow
 
     manifest_path = tmp_path / "manifest.json"
@@ -2482,20 +2485,19 @@ def test_cmd_ci_execute_reuses_destroy_handler(monkeypatch, parser, tmp_path: Pa
     )
     calls = {}
 
-    def _fake_destroy_handler(args, command):
-        calls["command"] = command
-        calls["args"] = args
+    def _fake_destroy_handler(plan, binding, report, *, destroy, no_cas):
+        calls["plan"] = plan
+        calls["destroy"] = destroy
         return 0
 
-    monkeypatch.setattr(cli_main, "_cmd_terragrunt_action", _fake_destroy_handler)
+    monkeypatch.setattr(cli_main, "apply_execution_plan", _fake_destroy_handler)
     args = parser.parse_args(
         ["ci", "execute", "--manifest", str(manifest_path), "--environment", "dev"]
     )
 
     assert cli_main._cmd_ci_execute(args) == 0
-    assert calls["command"] == "destroy"
-    assert calls["args"].config == ["platform/stacksmith-config.yaml"]
-    assert calls["args"].auto_approve is True
+    assert calls["destroy"] is True
+    assert calls["plan"] == Path(".stacksmith-ci/dev/reviewed.tfplan")
 
 
 def test_cmd_ci_execute_routes_destroy_operation_state_phase(
@@ -2624,6 +2626,7 @@ def test_cmd_ci_execute_skips_modules_and_policies_tables_in_debug_mode(
         return 0
 
     monkeypatch.setattr(cli_main, "_cmd_info_modules_and_policies", _fake_info_handler)
+    monkeypatch.setattr(cli_main, "bind_execution_plan", lambda *args: None)
     monkeypatch.setattr(
         cli_main,
         "_cmd_terragrunt_action",

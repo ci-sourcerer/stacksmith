@@ -48,6 +48,16 @@ Plan artifacts produced by the managed GitHub Actions and Jenkins entrypoints ar
 
 Use `stacksmith ci redact-plan <plan.json> --output <redacted-plan.json>` to sanitize an existing raw plan, or pass `--in-place` to atomically replace it. Keep the input file protected until redaction finishes.
 
+Managed infrastructure apply and destroy phases consume the binary plan from their successful preview. They restore the original generated configuration and provider lockfile instead of resolving and regenerating the stack after approval. A receipt (`reviewed.receipt.json`) identifies the binary's SHA256 digest; applied-change reports carry the same digest in their selection metadata. The saved plan is bound to the complete CI manifest, environment, source revision, and run identity. Missing, modified, mismatched, or expired plans fail without creating a replacement preview. OpenTofu also rejects plans whose state or tool version is no longer compatible. Rerun the complete lifecycle to obtain a new reviewed plan.
+
+GitHub Actions requires a repository or organization secret named `STACKSMITH_PLAN_ENCRYPTION_KEY` for apply and destroy. Generate a Fernet key locally and store it as that secret; use the same key during preview and execution, without an environment-level override.
+
+```sh
+uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+```
+
+The binary plan and private configuration context travel in an authenticated encrypted artifact with one-day retention, independently of `STACKSMITH_UPLOAD_ARTIFACTS`. Public review artifacts contain the redacted reports and receipt. Jenkins retains the binary and context in its protected workspace and archives only the receipt and redacted reports. Plans expire after 24 hours, and plaintext binaries and contexts are removed after an apply or destroy attempt. GitHub reruns must include the preview jobs because the handoff is bound to the run attempt. Native operation execution continues to plan its isolated state using current outputs, including after-apply operations whose inputs depend on newly created infrastructure.
+
 Protect each consumer repository's CI entrypoint with a CODEOWNERS file so ordinary contributors cannot replace or bypass it. GitHub Actions callers can pin the reusable workflow to a release tag. Jenkins consumers keep only a protected call to the centrally managed trusted library in their repository.
 
 Mutating runs (`apply`, `destroy`, and `apply-operation`) are serialized across the complete preview, approval, and execution lifecycle. GitHub Actions uses one deployment concurrency group per consumer repository, shared across these commands; previews remain independent, and new runs do not cancel active deployments. GitHub's default concurrency queue retains only the newest pending run. Jenkins uses the Lockable Resources plugin and queues deployments under one lock per Multibranch Pipeline, or per standalone job. Set `STACKSMITH_DEPLOYMENT_LOCK` to the same resource name on separate Jenkins jobs that target the same infrastructure. The plugin is required for mutating Jenkins commands; preview and test commands do not require it. These queues are local to each CI provider; remote backend state locking still protects individual state writes.

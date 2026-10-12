@@ -421,4 +421,10 @@ def build_parser() -> argparse.ArgumentParser:
             help="Create an archive-safe redacted OpenTofu plan JSON artifact",
         )
     )
+    plan_bundle_parser = ci_subparsers.add_parser(
+        "plan-bundle", help="Encrypt or restore a reviewed CI execution plan"
+    )
+    plan_bundle_parser.add_argument("mode", choices=["seal", "open"])
+    plan_bundle_parser.add_argument("--manifest-file", type=Path)
+    plan_bundle_parser.add_argument("--environment", default="")
     return parser

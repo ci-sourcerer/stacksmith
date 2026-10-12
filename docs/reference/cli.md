@@ -823,4 +823,16 @@ stacksmith ci redact-plan [-h] (--output OUTPUT | --in-place) input
 | `--output` | Write redacted plan JSON to this path. |
 | `--in-place` | Atomically replace the input file with its redacted form. |
 
+### `stacksmith ci plan-bundle`
+
+```text
+stacksmith ci plan-bundle [-h] [--manifest-file MANIFEST_FILE] [--environment ENVIRONMENT] {seal,open}
+```
+
+| Argument | Description |
+| - | - |
+| `mode` | Choices: `seal`, `open`. |
+| `--manifest-file` |  |
+| `--environment` |  |
+
 <!-- END GENERATED CLI REFERENCE -->

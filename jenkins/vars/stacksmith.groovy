@@ -309,6 +309,10 @@ void executeStacksmithMatrix(
                         artifacts << "${archiveArtifactDir}/plan-summary.json"
                     }
 
+                    if (fileExists("${artifactDir}/reviewed.receipt.json")) {
+                        artifacts << "${archiveArtifactDir}/reviewed.receipt.json"
+                    }
+
                     if (fileExists("${artifactDir}/stacksmith-report.json")) {
                         artifacts << "${archiveArtifactDir}/stacksmith-report.json"
                     }

@@ -27,6 +27,9 @@ on:
         type: boolean
         default: true
     secrets:
+      STACKSMITH_PLAN_ENCRYPTION_KEY:
+        description: Fernet key for encrypted reviewed-plan transfer during apply and destroy.
+        required: false
       STACKSMITH_GIT_TOKEN:
         description: Optional Stacksmith Git token.
         required: false
@@ -59,6 +62,10 @@ jobs:
     timeout-minutes: ${{ fromJSON(vars.STACKSMITH_EXECUTION_TIMEOUT_MINUTES || '60') }}
     environment: ${{ ((inputs.phase || fromJson(inputs.ci_manifest).command) == 'apply' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'operation' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'destroy') && inputs.environment || '' }}
     env:
+      STACKSMITH_CI_MANIFEST: ${{ inputs.ci_manifest }}
+      STACKSMITH_ENVIRONMENT: ${{ inputs.environment }}
+      STACKSMITH_CI_EXECUTION_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      STACKSMITH_PLAN_ENCRYPTION_KEY: ${{ secrets.STACKSMITH_PLAN_ENCRYPTION_KEY }}
       STACKSMITH_PLAN_ARTIFACT_KIND: ${{ fromJson(inputs.ci_manifest).command == 'destroy' && 'destroy-plan' || 'plan' }}
     container:
       image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
@@ -70,6 +77,26 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Check reviewed-plan encryption key
+        if: ${{ contains(fromJSON('["apply", "destroy"]'), fromJson(inputs.ci_manifest).command) }}
+        run: |
+          python3 - <<'PYKEY'
+          import os
+          from cryptography.fernet import Fernet
+          Fernet(os.environ["STACKSMITH_PLAN_ENCRYPTION_KEY"])
+          PYKEY
+
+      - name: Download reviewed execution plan
+        if: ${{ contains(fromJSON('["apply", "destroy"]'), inputs.phase || fromJson(inputs.ci_manifest).command) }}
+        uses: actions/download-artifact@v8
+        with:
+          name: stacksmith-reviewed-plan-${{ inputs.environment }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}
+
+      - name: Restore reviewed execution plan
+        if: ${{ contains(fromJSON('["apply", "destroy"]'), inputs.phase || fromJson(inputs.ci_manifest).command) }}
+        run: stacksmith ci plan-bundle open
 
       - name: Execute Stacksmith manifest
         env:
@@ -93,14 +120,30 @@ jobs:
               --provider github-actions \
               --phase "$STACKSMITH_CI_PHASE"
 
+      - name: Encrypt reviewed execution plan
+        if: ${{ success() && fromJson(inputs.ci_manifest).command != 'plan' && (inputs.phase || fromJson(inputs.ci_manifest).command) == 'plan' }}
+        run: stacksmith ci plan-bundle seal
+
+      - name: Transfer encrypted reviewed plan
+        if: ${{ success() && fromJson(inputs.ci_manifest).command != 'plan' && (inputs.phase || fromJson(inputs.ci_manifest).command) == 'plan' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: stacksmith-reviewed-plan-${{ inputs.environment }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/reviewed.enc
+          retention-days: 1
+          if-no-files-found: error
+          include-hidden-files: true
+
       - name: Upload plan artifacts
         if: ${{ (success() || failure()) && inputs.upload_artifacts && (inputs.phase || fromJson(inputs.ci_manifest).command) == 'plan' }}
         uses: actions/upload-artifact@v7
         with:
           name: stacksmith-${{ env.STACKSMITH_PLAN_ARTIFACT_KIND }}-${{ inputs.environment }}-${{ github.sha }}
+          include-hidden-files: true
           path: |
             ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/stacksmith-report.json
             ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/plan-summary.json
+            ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/reviewed.receipt.json
             ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/validation-report.${{ fromJson(inputs.ci_manifest).validation_report_format }}
             ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/${{ env.STACKSMITH_PLAN_ARTIFACT_KIND }}.json
 
@@ -109,6 +152,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: stacksmith-${{ inputs.phase || fromJson(inputs.ci_manifest).command }}-results-${{ inputs.environment }}-${{ github.sha }}
+          include-hidden-files: true
           path: |
             ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/stacksmith-report.json
             ${{ fromJson(inputs.ci_manifest).workdir }}/.stacksmith-ci/${{ inputs.environment }}/apply-summary.json
@@ -143,6 +187,11 @@ jobs:
           print()
           print(f"- Environment: `{row['environment']}`")
           print(f"- Runfile: `{row['runfile']}`")
+          if phase == "plan":
+              from pathlib import Path
+              receipt = Path(manifest["workdir"]) / ".stacksmith-ci" / row["environment"] / "reviewed.receipt.json"
+              if receipt.exists():
+                  print(f"- Reviewed plan SHA256: `{json.loads(receipt.read_text())['plan_sha256']}`")
           if phase in {"plan-operation", "operation"}:
               if manifest["command"] == "destroy":
                   print("- Scope: `complete isolated operation state`")

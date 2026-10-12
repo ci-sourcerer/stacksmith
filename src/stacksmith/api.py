@@ -97,6 +97,7 @@ from .utils import (
 from .validations import PlanValidationOutcome, PlanValidationResult
 from .variables import InputLayer, resolve_inputs
 from .vendor import get_vendor_dir, load_vendor_manifest
+lazy from .execution_plans import save_execution_plan_context
 
 __all__ = [
     "destroy_stack_operations",
@@ -2260,6 +2261,15 @@ def run_stack_action(
                 ),
                 report_format=validation_report_format,
             )
+
+    if (
+        terragrunt_exit_code == 0
+        and action_enum == TerragruntAction.PLAN
+        and out is not None
+    ):
+        save_execution_plan_context(
+            out.resolve(), output_dir, loaded_config, stack.name, list(stack.components)
+        )
 
     if (
         terragrunt_exit_code == 0
