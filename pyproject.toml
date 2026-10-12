@@ -59,7 +59,12 @@ help = "Update generated editor schemas for partial merge layers"
 cmd = "python scripts/update_layer_schemas.py --check"
 help = "Check that generated partial-layer schemas are current"
 
+[tool.poe.tasks.ci-pin-version]
+cmd = "python scripts/update_ci_pins.py"
+help = "Pin CI workflows and images to a release version; accepts --dry-run, --check, and --commit"
+
 [tool.poe.env]
+RELEASE_PRE_SCRIPT = "uv run python scripts/update_ci_pins.py --commit"
 CONTAINER_ENV = "TF_PLUGIN_CACHE_DIR=/workspace/.stacksmith/providers STACKSMITH_TOOL_CACHE_DIR=/workspace/.stacksmith/.cache/tools STACKSMITH_VENDOR_DIR=/workspace/.stacksmith/modules"
 CONTAINER_APT_PACKAGES = "git jq"
 CONTAINER_DEPS_FILE = "Dockerfile.deps"

@@ -85,6 +85,29 @@ poe docs-cli-reference-check
 
 The check command reports a diff and exits unsuccessfully when parser changes have not been propagated to the documentation.
 
+## Release CI version pins
+
+Stacksmith's package version comes from Git tags through `uv-dynamic-versioning`. CI workflow refs, container tags, and Jenkins library refs should identify the same Stacksmith release. A consumer's own repository version does not determine the Stacksmith version it uses.
+
+The current development templates use `@main` and `latest`. Preview a coordinated pin update without changing files.
+
+```sh
+poe ci-pin-version 1.2.3 --dry-run
+```
+
+Update the reusable workflows' image defaults, the GitHub consumer examples' `@v1.2.3` refs, the Jenkins image default, and the documented Jenkins library ref together. Start from a clean checkout when creating the optional local commit.
+
+```sh
+poe ci-pin-version 1.2.3 --commit
+poe ci-pin-version 1.2.3 --check
+```
+
+This task creates a `chore(release)` commit when requested and never tags, pushes, builds, or publishes anything. A plain invocation without `--commit` leaves the changed files available for review. Prerelease versions such as `1.2.3rc1` are supported.
+
+The common-python-tasks release flow is configured with `RELEASE_PRE_SCRIPT` to run this task before tagging. It supplies the computed `RELEASE_VERSION` and `RELEASE_TAG`; the hook commits the coordinated pins into the revision that will be tagged and built. Both workflows and the released container then identify that release. `RELEASE_SCRIPT_DRY_RUN=1` prevents the hook from writing or committing files during a release dry run. Use the pre-release hook rather than the post-release hook so the pins are included in the release itself.
+
+`poe release` performs publishing and pushes as part of its normal release flow. Use the pin task directly when preparing local changes without publishing. Consumer repositories can adopt the new release afterward, and Jenkins administrators must configure the trusted library to use the release tag shown in the updated example.
+
 ## License
 
 Contributions are accepted under the repository's [license](https://github.com/ci-sourcerer/stacksmith/blob/main/LICENSE).
