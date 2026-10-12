@@ -51,6 +51,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: stacksmith-${{ github.repository }}-${{ contains(fromJSON('["apply", "destroy", "apply-operation"]'), inputs.command) && 'deployment' || format('preview-{0}-{1}', github.run_id, inputs.command) }}
+  cancel-in-progress: false
+
 jobs:
   discover:
     name: discover-environments

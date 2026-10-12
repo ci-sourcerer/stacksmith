@@ -331,6 +331,29 @@ void executeStacksmithMatrix(
     }
 }
 
+String deploymentLockResource() {
+    if (env.STACKSMITH_DEPLOYMENT_LOCK) {
+        return env.STACKSMITH_DEPLOYMENT_LOCK
+    }
+    if (env.BRANCH_NAME && env.JOB_NAME.contains('/')) {
+        return "stacksmith-${env.JOB_NAME.substring(0, env.JOB_NAME.lastIndexOf('/'))}"
+    }
+    return "stacksmith-${env.JOB_NAME}"
+}
+
+void withStacksmithDeploymentLock(Closure body) {
+    if (!(env.COMMAND in ['apply', 'destroy', 'apply-operation'])) {
+        body()
+        return
+    }
+    if (StepDescriptor.byFunctionName('lock') == null) {
+        error('Stacksmith deployments require the Jenkins Lockable Resources plugin')
+    }
+    lock(resource: deploymentLockResource()) {
+        body()
+    }
+}
+
 def call() {
     Closure runPipeline = {
         ansiColor('xterm') {
@@ -423,134 +446,136 @@ def call() {
                 return
             }
 
-            stage('Plan') {
-                if (!(env.SELECTED_ENVIRONMENTS && env.COMMAND in ['plan', 'apply', 'destroy'])) {
-                    Utils.markStageSkippedForConditional(env.STAGE_NAME)
-                    return
-                }
+            withStacksmithDeploymentLock {
+                stage('Plan') {
+                    if (!(env.SELECTED_ENVIRONMENTS && env.COMMAND in ['plan', 'apply', 'destroy'])) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
 
-                executeStacksmithMatrix(
-                    env.SELECTION_MATRIX,
-                    workdir,
-                    'plan',
-                    env.STACKSMITH_CREDENTIALS_JSON ?: ''
-                )
-            }
-
-            stage('Plan operation(s)') {
-                if (!(
-                    env.SELECTED_ENVIRONMENTS
-                    && env.COMMAND in ['plan', 'apply', 'destroy', 'plan-operation', 'apply-operation']
-                )) {
-                    Utils.markStageSkippedForConditional(env.STAGE_NAME)
-                    return
-                }
-
-                executeStacksmithMatrix(
-                    env.SELECTION_MATRIX,
-                    workdir,
-                    'plan-operation',
-                    env.STACKSMITH_CREDENTIALS_JSON ?: ''
-                )
-            }
-
-            stage('Approve') {
-                if (!(
-                    env.SELECTED_ENVIRONMENTS
-                    && env.COMMAND in ['apply', 'destroy', 'apply-operation']
-                )) {
-                    Utils.markStageSkippedForConditional(env.STAGE_NAME)
-                    return
-                }
-
-                try {
-                    input(
-                        message: buildApprovalMessage(
-                            env.COMMAND,
-                            env.SELECTED_OPERATIONS,
-                            env.SELECTED_ENVIRONMENTS
-                        )
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        workdir,
+                        'plan',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
                     )
-                } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
-                    currentBuild.result = 'ABORTED'
-                    env.DO_NOT_EXECUTE_STACKSMITH = '1'
-                }
-            }
-
-            if (env.DO_NOT_EXECUTE_STACKSMITH) {
-                echo('Stacksmith execution aborted by user')
-            }
-
-            stage('Apply') {
-                if (!(
-                    env.SELECTED_ENVIRONMENTS
-                    && env.COMMAND == 'apply'
-                    && !env.DO_NOT_EXECUTE_STACKSMITH
-                )) {
-                    Utils.markStageSkippedForConditional(env.STAGE_NAME)
-                    return
                 }
 
-                executeStacksmithMatrix(
-                    env.SELECTION_MATRIX,
-                    workdir,
-                    'apply',
-                    env.STACKSMITH_CREDENTIALS_JSON ?: ''
-                )
-            }
+                stage('Plan operation(s)') {
+                    if (!(
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND in ['plan', 'apply', 'destroy', 'plan-operation', 'apply-operation']
+                    )) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
 
-            stage('Run operation(s)') {
-                if (!(
-                    env.SELECTED_ENVIRONMENTS
-                    && env.COMMAND in ['apply', 'apply-operation']
-                    && !env.DO_NOT_EXECUTE_STACKSMITH
-                )) {
-                    Utils.markStageSkippedForConditional(env.STAGE_NAME)
-                    return
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        workdir,
+                        'plan-operation',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
+                    )
                 }
 
-                executeStacksmithMatrix(
-                    env.SELECTION_MATRIX,
-                    workdir,
-                    'operation',
-                    env.STACKSMITH_CREDENTIALS_JSON ?: ''
-                )
-            }
+                stage('Approve') {
+                    if (!(
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND in ['apply', 'destroy', 'apply-operation']
+                    )) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
 
-            stage('Destroy operation state') {
-                if (!(
-                    env.SELECTED_ENVIRONMENTS
-                    && env.COMMAND == 'destroy'
-                    && !env.DO_NOT_EXECUTE_STACKSMITH
-                )) {
-                    Utils.markStageSkippedForConditional(env.STAGE_NAME)
-                    return
+                    try {
+                        input(
+                            message: buildApprovalMessage(
+                                env.COMMAND,
+                                env.SELECTED_OPERATIONS,
+                                env.SELECTED_ENVIRONMENTS
+                            )
+                        )
+                    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+                        currentBuild.result = 'ABORTED'
+                        env.DO_NOT_EXECUTE_STACKSMITH = '1'
+                    }
                 }
 
-                executeStacksmithMatrix(
-                    env.SELECTION_MATRIX,
-                    workdir,
-                    'operation',
-                    env.STACKSMITH_CREDENTIALS_JSON ?: ''
-                )
-            }
-
-            stage('Destroy') {
-                if (!(
-                    env.SELECTED_ENVIRONMENTS
-                    && env.COMMAND == 'destroy'
-                    && !env.DO_NOT_EXECUTE_STACKSMITH
-                )) {
-                    Utils.markStageSkippedForConditional(env.STAGE_NAME)
-                    return
+                if (env.DO_NOT_EXECUTE_STACKSMITH) {
+                    echo('Stacksmith execution aborted by user')
                 }
 
-                executeStacksmithMatrix(
-                    env.SELECTION_MATRIX,
-                    workdir,
-                    'destroy',
-                    env.STACKSMITH_CREDENTIALS_JSON ?: ''
-                )
+                stage('Apply') {
+                    if (!(
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND == 'apply'
+                        && !env.DO_NOT_EXECUTE_STACKSMITH
+                    )) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        workdir,
+                        'apply',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
+                    )
+                }
+
+                stage('Run operation(s)') {
+                    if (!(
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND in ['apply', 'apply-operation']
+                        && !env.DO_NOT_EXECUTE_STACKSMITH
+                    )) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        workdir,
+                        'operation',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
+                    )
+                }
+
+                stage('Destroy operation state') {
+                    if (!(
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND == 'destroy'
+                        && !env.DO_NOT_EXECUTE_STACKSMITH
+                    )) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        workdir,
+                        'operation',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
+                    )
+                }
+
+                stage('Destroy') {
+                    if (!(
+                        env.SELECTED_ENVIRONMENTS
+                        && env.COMMAND == 'destroy'
+                        && !env.DO_NOT_EXECUTE_STACKSMITH
+                    )) {
+                        Utils.markStageSkippedForConditional(env.STAGE_NAME)
+                        return
+                    }
+
+                    executeStacksmithMatrix(
+                        env.SELECTION_MATRIX,
+                        workdir,
+                        'destroy',
+                        env.STACKSMITH_CREDENTIALS_JSON ?: ''
+                    )
+                }
             }
 
         }

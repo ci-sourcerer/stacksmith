@@ -50,6 +50,8 @@ Use `stacksmith ci redact-plan <plan.json> --output <redacted-plan.json>` to san
 
 Protect each consumer repository's CI entrypoint with a CODEOWNERS file so ordinary contributors cannot replace or bypass it. GitHub Actions callers can pin the reusable workflow to a release tag. Jenkins consumers keep only a protected call to the centrally managed trusted library in their repository.
 
+Mutating runs (`apply`, `destroy`, and `apply-operation`) are serialized across the complete preview, approval, and execution lifecycle. GitHub Actions uses one deployment concurrency group per consumer repository, shared across these commands; previews remain independent, and new runs do not cancel active deployments. GitHub's default concurrency queue retains only the newest pending run. Jenkins uses the Lockable Resources plugin and queues deployments under one lock per Multibranch Pipeline, or per standalone job. Set `STACKSMITH_DEPLOYMENT_LOCK` to the same resource name on separate Jenkins jobs that target the same infrastructure. The plugin is required for mutating Jenkins commands; preview and test commands do not require it. These queues are local to each CI provider; remote backend state locking still protects individual state writes.
+
 ## GitHub Actions
 
 In your own repository, you can do either of the following.
