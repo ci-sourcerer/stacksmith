@@ -65,7 +65,7 @@ The wrappers pass reusable workflow inputs from repository variables when availa
 - `STACKSMITH_ENV_FILE` (default `/dev/null`)
 - `STACKSMITH_IMAGE_VERSION` (default `latest`)
 - `STACKSMITH_VALIDATION_REPORT_FORMAT` (default `json`, plan template)
-- `STACKSMITH_UPLOAD_ARTIFACTS` (default `true`, plan template)
+- `STACKSMITH_UPLOAD_ARTIFACTS` (default `true`; controls plan, apply, and destroy report uploads)
 - `STACKSMITH_FAIL_ON_CHANGES` (default `false`, plan template)
 - `STACKSMITH_STRICT_VALIDATION_WARNINGS` (default `false`, plan template)
 - `STACKSMITH_DEBUG` (default `false`; enables debug logging and the modules-and-policies diagnostic)
