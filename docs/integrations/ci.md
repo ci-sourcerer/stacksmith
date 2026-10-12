@@ -29,7 +29,7 @@ The deployment CI selector is named `command` in GitHub Actions and `COMMAND` in
 - In GitHub Actions, `STACKSMITH_GITOPS_ROOT` defaults to `.` and can be overridden per run with `gitops_root`.
 - Changes under `<gitops_root>/common` and `<gitops_root>/manifests/common` fan out to all environments.
 - Changes under `<gitops_root>/environments/<env>` and `<gitops_root>/manifests/environments/<env>` target only that environment.
-- For push events, any changed path that does not map to a discovered environment conservatively selects all environments. Pull requests retain targeted selection and produce a no-op when no changed path maps to an environment.
+- For push and pull-request events, any changed path that does not map to a discovered environment conservatively selects all environments. This includes variables, local modules, lockfiles, and unrelated files whose dependencies cannot be inferred. Changes confined to recognized environment paths still target only those environments.
 - Manual `environments` entries must map to discovered environments or selection fails fast.
 
 Both implementations reserve the command selector, operation selection, operation concurrency, runfiles, build directory, plan output, validation format, and apply approval flags because those values are part of the GitOps contract. Every other Stacksmith CLI option can be supplied, in order and without shell-quoting loss, through `STACKSMITH_ARGS_JSON`. For example:
@@ -94,14 +94,13 @@ The opinionated reusable workflow exposes `debug` as an optional input. `STACKSM
 
 Call the opinionated reusable workflow from your repository using `uses:`. Keep triggers and approval policies local and delegate discovery + per-environment execution to the reusable workflow here.
 
-Plan on PR/manual (minimal example).
+Plan on PR/manual (minimal example). The wrapper observes all pull requests without branch or path filters, so custom IaC input paths cannot bypass planning.
 
 ```yaml
 name: stacksmith-plan
 
 on:
-  pull_request:
-    branches: [main]
+  pull_request: {}
   workflow_dispatch: {}
 
 jobs:

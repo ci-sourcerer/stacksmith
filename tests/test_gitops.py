@@ -184,8 +184,19 @@ def test_evaluate_environment_selection_push_mixed_change_selects_all(tmp_path: 
     assert selection.selected_environments == ["dev", "prod"]
 
 
-def test_evaluate_environment_selection_pull_request_unmapped_change_is_no_op(
+@pytest.mark.parametrize(
+    "changed_path",
+    [
+        "vars/vars.prod.yaml",
+        "modules/network/main.tf",
+        "stacksmith.lock.yaml",
+        ".terraform.lock.hcl",
+        "docs/readme.md",
+    ],
+)
+def test_evaluate_environment_selection_pull_request_unmapped_change_selects_all(
     tmp_path: Path,
+    changed_path: str,
 ):
     _create_env_files_layout(tmp_path)
 
@@ -193,11 +204,22 @@ def test_evaluate_environment_selection_pull_request_unmapped_change_is_no_op(
         gitops_root=str(tmp_path),
         discovery_mode="env-files",
         event_name="pull_request",
-        changed_paths=["docs/readme.md"],
+        changed_paths=[changed_path],
     )
 
-    assert selection.selected_environments == []
-    assert selection.matrix == []
+    assert selection.selected_environments == ["dev", "prod"]
+    assert [row["environment"] for row in selection.matrix] == ["dev", "prod"]
+
+
+def test_pull_request_mixed_changes_select_all_environments(tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+
+    assert evaluate_environment_selection(
+        gitops_root=str(tmp_path),
+        discovery_mode="env-files",
+        event_name="pull_request",
+        changed_paths=["environments/dev.yaml", "modules/network/main.tf"],
+    ).selected_environments == ["dev", "prod"]
 
 
 def test_evaluate_environment_selection_requires_discovered_or_manual(tmp_path: Path):

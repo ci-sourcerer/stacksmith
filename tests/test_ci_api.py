@@ -975,7 +975,7 @@ def test_github_destroy_example_is_manual_only_and_environment_scoped():
     assert "command: destroy" in destroy_workflow
     assert "environments: ${{ inputs.environments }}" in destroy_workflow
     assert "secrets: inherit" in destroy_workflow
-    assert ".github/workflows/stacksmith-destroy.yml" in plan_workflow
+    assert yaml.load(plan_workflow, Loader=yaml.BaseLoader)["on"]["pull_request"] == {}
 
 
 def test_github_operation_example_uses_the_manifest_command_name():

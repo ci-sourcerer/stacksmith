@@ -489,7 +489,7 @@ def select_changed_environments(
 
     if select_all_on_unmapped and unmapped_paths:
         LOGGER.info(
-            "Unmapped push changes detected; selecting all environments: %s",
+            "Unmapped changes detected; selecting all environments: %s",
             unmapped_paths,
         )
         return set(all_envs)
@@ -547,7 +547,7 @@ def select_target_environments(
                         ),
                     ),
                     all_envs,
-                    select_all_on_unmapped=event_name == "push",
+                    select_all_on_unmapped=True,
                 )
             )
         else:

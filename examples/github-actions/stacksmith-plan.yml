@@ -1,24 +1,7 @@
 name: stacksmith-plan
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "**/stacksmith.yaml"
-      - "**/stacksmith.*.yaml"
-      - "**/stacksmith.*.yml"
-      - "**/stacksmith.*.json"
-      - "**/*.stack.yaml"
-      - "**/*.stack.yml"
-      - "**/environments/*.yaml"
-      - "**/environments/*.yml"
-      - "**/environments/*.json"
-      - "**/manifests/common/**"
-      - "**/manifests/environments/**"
-      - .github/workflows/stacksmith-plan.yml
-      - .github/workflows/stacksmith-apply.yml
-      - .github/workflows/stacksmith-destroy.yml
+  pull_request: {}
   workflow_dispatch:
     inputs:
       environments:
