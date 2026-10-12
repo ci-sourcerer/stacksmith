@@ -70,6 +70,11 @@ jobs:
       - name: Select target environments
         id: select
         env:
+          STACKSMITH_GIT_TOKEN: ${{ secrets.STACKSMITH_GIT_TOKEN }}
+          STACKSMITH_GIT_SSH_KEY_MATERIAL: ${{ secrets.STACKSMITH_GIT_SSH_KEY }}
+          STACKSMITH_HTTP_TOKEN: ${{ secrets.STACKSMITH_HTTP_TOKEN }}
+          STACKSMITH_HTTP_USERNAME: ${{ secrets.STACKSMITH_HTTP_USERNAME }}
+          STACKSMITH_HTTP_PASSWORD: ${{ secrets.STACKSMITH_HTTP_PASSWORD }}
           INPUT_ENVIRONMENTS: ${{ inputs.environments }}
           INPUT_DISCOVERY_MODE: ${{ inputs.discovery_mode }}
           INPUT_GITOPS_ROOT: ${{ inputs.gitops_root }}

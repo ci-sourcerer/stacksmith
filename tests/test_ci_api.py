@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 import pytest
+import yaml
 
 from stacksmith.api import (
     inspect_environments,
@@ -22,6 +23,29 @@ from stacksmith.exceptions import StacksmithConfigError, StacksmithError
 _FIXTURES = Path(__file__).parent / "fixtures"
 _REMOTE_BACKEND_CONFIG = _FIXTURES / "sample_config.yaml"
 _LOCAL_BACKEND_CONFIG = _FIXTURES / "sample_config_local.yaml"
+
+
+def test_github_preparation_receives_source_credentials():
+    preparation_env = yaml.safe_load(
+        (
+            Path(__file__).parents[1]
+            / ".github/workflows/stacksmith-gitops-opinionated-reusable.yml"
+        ).read_text()
+    )["jobs"]["discover"]["steps"][1]["env"]
+    execution_env = yaml.safe_load(
+        (
+            Path(__file__).parents[1]
+            / ".github/workflows/stacksmith-gitops-reusable.yml"
+        ).read_text()
+    )["jobs"]["execute"]["steps"][1]["env"]
+    for name in (
+        "STACKSMITH_GIT_TOKEN",
+        "STACKSMITH_GIT_SSH_KEY_MATERIAL",
+        "STACKSMITH_HTTP_TOKEN",
+        "STACKSMITH_HTTP_USERNAME",
+        "STACKSMITH_HTTP_PASSWORD",
+    ):
+        assert preparation_env[name] == execution_env[name]
 
 
 def _create_env_files_layout(tmp_path: Path) -> None:
@@ -996,14 +1020,16 @@ def test_github_pipeline_orders_apply_and_destroy_operation_phases():
 
 
 def test_jenkins_pipeline_provides_configured_credentials_during_preparation():
-    jenkins_pipeline = (
-        Path(__file__).parents[1] / "jenkins/vars/stacksmith.groovy"
-    ).read_text()
+    jenkins_pipeline = " ".join(
+        (Path(__file__).parents[1] / "jenkins/vars/stacksmith.groovy")
+        .read_text()
+        .split()
+    )
 
     credential_scope = jenkins_pipeline.index(
-        "withStacksmithCredentials(\n"
-        "                        env.STACKSMITH_CREDENTIALS_JSON ?: '',\n"
-        "                        'manifest preparation'"
+        "withStacksmithCredentials( "
+        "env.STACKSMITH_CREDENTIALS_JSON ?: '', "
+        "'manifest preparation'"
     )
     prepare_command = jenkins_pipeline.index(
         "stacksmith ci prepare-from-env", credential_scope

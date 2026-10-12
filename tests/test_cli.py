@@ -2342,6 +2342,46 @@ def test_cmd_ci_prepare_from_env_writes_github_outputs(monkeypatch, parser, tmp_
     assert "count=1" in output_lines
 
 
+@pytest.mark.parametrize("fail_preparation", [False, True])
+@pytest.mark.parametrize("previous_key", [None, "/existing/key"])
+def test_ci_preparation_uses_and_removes_temporary_ssh_key(
+    monkeypatch, parser, fail_preparation, previous_key
+):
+    from stacksmith.ci.contracts import CiExecutionManifest
+
+    key_paths = []
+    monkeypatch.setenv("STACKSMITH_GIT_SSH_KEY_MATERIAL", "private-key-material")
+    if previous_key is None:
+        monkeypatch.delenv("STACKSMITH_GIT_SSH_KEY", raising=False)
+    else:
+        monkeypatch.setenv("STACKSMITH_GIT_SSH_KEY", previous_key)
+
+    def prepare_with_key():
+        key_paths.append(Path(os.environ["STACKSMITH_GIT_SSH_KEY"]))
+        assert key_paths[0].read_text() == "private-key-material\n"
+        assert key_paths[0].stat().st_mode & 0o777 == 0o600
+        if fail_preparation:
+            raise StacksmithConfigError("Private config unavailable")
+        return CiExecutionManifest(command="plan", config_ref="private/config.yaml")
+
+    monkeypatch.setattr(cli_main, "prepare_ci_manifest_from_env", prepare_with_key)
+    with (
+        pytest.raises(StacksmithConfigError, match="Private config unavailable")
+        if fail_preparation
+        else contextlib.nullcontext()
+    ):
+        assert (
+            cli_main._cmd_ci_prepare_from_env(
+                parser.parse_args(["ci", "prepare-from-env", "--provider", "jenkins"])
+            )
+            == 0
+        )
+
+    assert len(key_paths) == 1
+    assert not key_paths[0].exists()
+    assert os.environ.get("STACKSMITH_GIT_SSH_KEY") == previous_key
+
+
 @pytest.mark.parametrize("provider", ["github-actions", "jenkins"])
 def test_cmd_ci_prepare_from_env_serializes_destroy_for_both_providers(
     provider,

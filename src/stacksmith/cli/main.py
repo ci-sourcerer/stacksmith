@@ -78,8 +78,8 @@ lazy from ..ci.adapters import (
     resolve_ci_environment,
     resolve_ci_execution_manifest_path,
     resolve_validation_report_output,
+    temporary_ci_ssh_key,
     write_github_output_manifest,
-    write_ssh_key_material,
 )
 lazy from ..ci.contracts import (
     CiExecutionManifest,
@@ -1205,7 +1205,8 @@ def _cmd_ci_prepare(args: argparse.Namespace) -> int:
 
 
 def _cmd_ci_prepare_from_env(args: argparse.Namespace) -> int:
-    manifest = prepare_ci_manifest_from_env()
+    with temporary_ci_ssh_key("prepare"):
+        manifest = prepare_ci_manifest_from_env()
     if args.manifest_file is not None:
         args.manifest_file.parent.mkdir(parents=True, exist_ok=True)
         args.manifest_file.write_text(manifest_output_json(manifest), encoding="utf-8")
@@ -1328,26 +1329,24 @@ def _cmd_ci_execute_from_env(args: argparse.Namespace) -> int:
         args.manifest_file
     )
     environment = resolve_ci_environment(args.environment)
-    ssh_key_path = write_ssh_key_material(environment)
     try:
-        manifest = load_ci_execution_manifest(manifest_path)
-        phase = args.phase or os.getenv("STACKSMITH_CI_PHASE", "")
-        return _run_ci_execute(
-            manifest,
-            environment,
-            resolve_validation_report_output(
-                args.validation_report_output,
+        with temporary_ci_ssh_key(environment):
+            manifest = load_ci_execution_manifest(manifest_path)
+            phase = args.phase or os.getenv("STACKSMITH_CI_PHASE", "")
+            return _run_ci_execute(
                 manifest,
                 environment,
+                resolve_validation_report_output(
+                    args.validation_report_output,
+                    manifest,
+                    environment,
+                    phase,
+                ),
                 phase,
-            ),
-            phase,
-        )
+            )
     finally:
         if temporary_manifest_path is not None:
             temporary_manifest_path.unlink(missing_ok=True)
-        if ssh_key_path is not None:
-            ssh_key_path.unlink(missing_ok=True)
 
 
 def _cmd_ci_redact_plan(args: argparse.Namespace) -> int:

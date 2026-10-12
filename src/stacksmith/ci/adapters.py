@@ -1,6 +1,8 @@
 import logging
 import os
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from ..exceptions import StacksmithError
@@ -141,6 +143,32 @@ def write_ssh_key_material(environment: str) -> Path | None:
     os.environ["STACKSMITH_GIT_SSH_KEY"] = str(path)
     LOGGER.debug("Wrote temporary SSH key material for CI environment %s", environment)
     return path
+
+
+@contextmanager
+def temporary_ci_ssh_key(environment: str) -> Iterator[None]:
+    """Make workflow SSH key material available for a CI phase.
+
+    Args:
+        environment: Environment or phase name used in the temporary filename.
+
+    Returns:
+        A context manager that removes the key and restores the previous key path.
+
+    Raises:
+        OSError: If the temporary key cannot be written or removed.
+    """
+    original_key = os.environ.get("STACKSMITH_GIT_SSH_KEY")
+    key_path = write_ssh_key_material(environment)
+    try:
+        yield
+    finally:
+        if key_path is not None:
+            key_path.unlink(missing_ok=True)
+            if original_key is None:
+                os.environ.pop("STACKSMITH_GIT_SSH_KEY", None)
+            else:
+                os.environ["STACKSMITH_GIT_SSH_KEY"] = original_key
 
 
 def resolve_ci_execution_manifest_path(
