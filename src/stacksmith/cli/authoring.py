@@ -29,23 +29,6 @@ class AuthoringRequest(BaseModel):
     edits: list[StackEdit] = Field(default_factory=list)
 
 
-def configure_authoring_parser(parser: argparse.ArgumentParser) -> None:
-    """Configure the source-authoring command without runtime configuration flags.
-
-    Args:
-        parser: Authoring subcommand parser.
-
-    Returns:
-        None.
-    """
-    parser.add_argument(
-        "--request",
-        default="-",
-        metavar="PATH",
-        help="Read a version 1 JSON request from PATH, or stdin when '-' (default).",
-    )
-
-
 def run_authoring(args: argparse.Namespace) -> int:
     """Read a structured request and emit a JSON proposal or JSON error.
 

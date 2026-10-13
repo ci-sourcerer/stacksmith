@@ -1132,3 +1132,20 @@ def add_stack_arg(
                 "stacksmith falls back to --stack, STACKSMITH_STACK, or ./stack.yaml."
             ),
         )
+
+
+def configure_authoring_parser(parser: argparse.ArgumentParser) -> None:
+    """Configure the source-authoring command without runtime configuration flags.
+
+    Args:
+        parser: Authoring subcommand parser.
+
+    Returns:
+        None.
+    """
+    parser.add_argument(
+        "--request",
+        default="-",
+        metavar="PATH",
+        help="Read a version 1 JSON request from PATH, or stdin when '-' (default).",
+    )

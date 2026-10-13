@@ -16,6 +16,7 @@ from .args import (
     add_target_selection_args,
     add_validation_report_format_arg,
     configure_associations_parser,
+    configure_authoring_parser,
     configure_ci_environments_parser,
     configure_ci_execute_from_env_parser,
     configure_ci_execute_parser,
@@ -27,7 +28,6 @@ from .args import (
     configure_modules_and_policies_parser,
     path_type,
 )
-from .authoring import configure_authoring_parser
 
 
 def build_parser() -> argparse.ArgumentParser:
