@@ -19,7 +19,7 @@ COMMON_CANDIDATES = (
     "stacksmith.defaults.yaml",
 )
 DISCOVERY_FILE_EXTENSIONS = ("yaml", "yml", "json")
-LOGGER = logging.getLogger("stacksmith.gitops")
+LOGGER = logging.getLogger("stacksmith.ci")
 
 
 _NON_ENVIRONMENT_NAMES = {

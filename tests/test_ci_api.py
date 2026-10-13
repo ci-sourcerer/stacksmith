@@ -86,7 +86,7 @@ def test_inspect_environments_auto_discovers_env_files_layout(
     (tmp_path / "environments" / "dev.yaml").write_text("stacks: []\n")
     (tmp_path / "environments" / "prod.yaml").write_text("stacks: []\n")
 
-    with caplog.at_level(logging.INFO, logger="stacksmith.gitops"):
+    with caplog.at_level(logging.INFO, logger="stacksmith.ci"):
         payload = inspect_environments(
             gitops_root=str(tmp_path),
             discovery_mode="auto",

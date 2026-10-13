@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from stacksmith.gitops import (
+from stacksmith.ci.selection import (
     discover_environments,
     evaluate_environment_selection,
     normalize_discovery_mode,
@@ -259,7 +259,7 @@ def test_evaluate_environment_selection_uses_jenkins_ci_context(
 def test_changed_paths_for_event_git_error_resilience(monkeypatch):
     import subprocess
 
-    from stacksmith.gitops import changed_paths_for_event
+    from stacksmith.ci.selection import changed_paths_for_event
 
     def mock_run(*args, **kwargs):
         raise subprocess.CalledProcessError(1, "git")

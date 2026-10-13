@@ -12,7 +12,6 @@ from ..backends import resolve_backend
 from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME
 from ..enums import MergeMode, ValidationReportFormat
 from ..exceptions import StacksmithConfigError
-from ..gitops import evaluate_environment_selection
 from ..input_parsing import parse_operation_names, parse_tag_names
 from ..loading import load_config, load_runfiles, load_stack_metadata
 from ..models import MergeConfig, MergePolicy, RunFile, StackDefinition, ToolConfig
@@ -25,6 +24,7 @@ from .contracts import (
     parse_ci_stacksmith_args,
     validate_ci_policy,
 )
+from .selection import evaluate_environment_selection
 
 LOGGER = logging.getLogger("stacksmith.ci")
 
