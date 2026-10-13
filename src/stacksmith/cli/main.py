@@ -1530,6 +1530,10 @@ def main() -> None:
     """CLI entry point."""
     parser = build_parser()
     args = parser.parse_args()
+    if args.command == "author":
+        from .authoring import run_authoring
+
+        sys.exit(run_authoring(args))
     if not (
         args.command == "ci"
         and args.ci_command

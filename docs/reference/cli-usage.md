@@ -137,3 +137,20 @@ stacksmith ci validate \
 - Using a monorepo and concerned about who can edit what? Use GitHub's [CODEOWNERS](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners) file to restrict write access to certain stack files while allowing broader read access. Similarly, the managed config can be locked down to a small team of platform engineers, while the validation policies themselves can be tightly controlled by a security team.
 - Doing a lot of `get` calls on dictionaries in your validation scripts? Try using `jmespath` instead to query complex nested structures with ease. For example, `jmespath.search("components.*.properties.bucket", stack)` would return a list of all bucket properties across all components in the stack.
 - Want to take existing resources into consideration for validation rules? Import `boto3` and use it to query AWS directly from your validation scripts. Just be mindful of latency implications.
+
+## Propose authored source edits
+
+`stacksmith author` reads a version 1 JSON request from stdin, or from `--request PATH`. It returns JSON on stdout without writing the stack or loading environment files, managed configuration, or platform hooks. The request contains `version`, `source`, `path`, and optional ordered `edits`. Each edit has an `action` (`set`, `merge`, or `remove`), an array of mapping keys in `path`, and a `value` for set or merge. Merge is shallow.
+
+```json
+{
+  "version": 1,
+  "source": "name: example\ncomponents:\n  app:\n    type: application\n",
+  "path": "stack.yaml",
+  "edits": [
+    {"action": "merge", "path": ["components", "app", "properties"], "value": {"image": "example:v2"}}
+  ]
+}
+```
+
+A successful response contains `version: 1`, `validation: "document"`, `source`, `diff`, and `changed`, with exit code zero. An unsuccessful response contains `version: 1` and `error` with `code` and `message`, with exit code six. Error codes are `invalid_request`, `request_io`, and `invalid_document`. Unknown request fields and unsupported contract versions are rejected. Document validation checks authored stack structure; configuration-dependent policies, resolved references, and infrastructure plans require separate inspection and validation.

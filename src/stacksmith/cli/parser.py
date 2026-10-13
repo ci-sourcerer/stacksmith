@@ -27,6 +27,7 @@ from .args import (
     configure_modules_and_policies_parser,
     path_type,
 )
+from .authoring import configure_authoring_parser
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -45,6 +46,12 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"{parser.prog} {metadata_version('stacksmith')}",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    configure_authoring_parser(
+        subparsers.add_parser(
+            "author", help="Propose authored stack edits from a versioned JSON request"
+        )
+    )
 
     validate_parser = subparsers.add_parser(
         "validate",

@@ -7,7 +7,7 @@ Single-stack commands default to `stack.yaml` in the current directory, with fal
 
 ```text
 stacksmith [-h] [--version]
-                  {validate,generate,lock,test,run-all,init,plan,apply,destroy,operation,info,ci} ...
+                  {author,validate,generate,lock,test,run-all,init,plan,apply,destroy,operation,info,ci} ...
 ```
 
 YAML/JSON-driven Terragrunt wrapper
@@ -20,6 +20,7 @@ YAML/JSON-driven Terragrunt wrapper
 
 | Command | Description |
 | - | - |
+| `author` | Propose authored stack edits from a versioned JSON request |
 | `validate` | Validate stack schema and variables |
 | `generate` | Generate .tf.json and terragrunt.hcl.json |
 | `lock` | Resolve stack inputs and write a deterministic lockfile |
@@ -32,6 +33,16 @@ YAML/JSON-driven Terragrunt wrapper
 | `operation` | Plan, run, or destroy native operations approved by managed configuration |
 | `info` | Show stacksmith inspection and diagnostics commands |
 | `ci` | Prepare, inspect, and execute CI workflows |
+
+### `stacksmith author`
+
+```text
+stacksmith author [-h] [--request PATH]
+```
+
+| Argument | Description |
+| - | - |
+| `--request` | Read a version 1 JSON request from PATH, or stdin when '-' (default). |
 
 ### `stacksmith validate`
 
