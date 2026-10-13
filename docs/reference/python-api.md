@@ -36,9 +36,30 @@ sys.exit(exit_code)
 
 The top-level package also exports Stacksmith's exception types, merge-policy models, `StacksmithTestRunner`, and the GitOps change helpers described below.
 
+## Source authoring
+
+`author_stack` accepts original YAML/JSON text and ordered `StackEdit` objects, then returns a `SourceChange` containing proposed source, a unified diff, and a change indicator. It has no filesystem or Git effects. Semantic no-ops retain the exact original source. `set` replaces a value, `merge` shallow-merges a mapping, and `remove` deletes a mapping key. Missing intermediate mappings are created for set and merge; traversal through a scalar fails.
+
+```python
+from stacksmith import StackEdit, author_stack
+
+proposal = author_stack(
+    source,
+    [
+        StackEdit(
+            action="merge",
+            path=("components", "app", "properties"),
+            value={"image": "example:v2"},
+        )
+    ],
+    path="stacks/app.yaml",
+)
+print(proposal.diff)
+```
+
 ## GitOps change helpers
 
-Stacksmith offers small, importable helpers for automated GitOps changes. They validate edited stack documents before leaving a change on disk, and `commit_and_push` stages and commits only the paths supplied by the caller.
+Stacksmith offers small, importable helpers for automated GitOps changes. Document helpers live in `stacksmith.authoring`, local Git publication lives in `stacksmith.repository`, and `stacksmith.gitops` provides convenience compositions. Document helpers validate proposed authored source before writing it; `commit_and_push` commits only the paths supplied by the caller. CI environment selection lives in `stacksmith.ci.selection`.
 
 What they do is easily implemented with your own git commands, but these helpers are simply convenient for Python-based automation scripts.
 
@@ -54,7 +75,7 @@ result = request_operation_rerun(
 print(result.rerun_token)
 ```
 
-Use `update_operation_rerun_token`, `set_operation_inputs`, and `update_component_properties` when mutation and Git publication should be controlled separately. YAML edits retain content outside the modified value; comments within a replaced mapping may be reformatted or removed.
+Use `update_operation_rerun_token`, `set_operation_inputs`, and `update_component_properties` when mutation and Git publication should be controlled separately. YAML edits retain surviving comments and scalar styles. Comments on removed keys are removed with those keys. Whole-file Jinja, YAML anchors, aliases, and custom tags are read-only. Document validation checks the stack schema without rendering templates, loading managed configuration, or running platform hooks; use separate inspection and validation workflows for those checks.
 
 The Jenkins and GitHub Actions GitOps entrypoints also support native operation batches. Use `COMMAND=plan-operation` for a dry run or `COMMAND=apply-operation` for an approved execution in Jenkins; use the corresponding reusable workflow `command` value in GitHub Actions. Provide comma-delimited names through `OPERATION_NAMES` or `operation_names`, or leave the value empty to select all operations. Set `STACKSMITH_FORCE_RERUN=1` in Jenkins folder properties or GitHub repository variables for a definite dispatch. Native operations use the same environment discovery, runfile layering, credentials, branch protections, and deployment approvals as infrastructure applies.
 

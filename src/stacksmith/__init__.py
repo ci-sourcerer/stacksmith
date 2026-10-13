@@ -14,6 +14,7 @@ lazy from .api import (
     run_stack_operations,
     validate_stack,
 )
+lazy from .authoring import SourceChange, StackEdit, author_stack
 lazy from .exceptions import (
     StacksmithConfigError,
     StacksmithError,
@@ -22,7 +23,7 @@ lazy from .exceptions import (
     StacksmithTransformError,
     StacksmithValidationError,
 )
-lazy from .gitops.changes import (
+lazy from .gitops import (
     CommitPushResult,
     DocumentChange,
     OperationRerunResult,
@@ -47,6 +48,8 @@ __all__ = [
     "MergeRule",
     "OperationRerunResult",
     "RepositoryStatus",
+    "SourceChange",
+    "StackEdit",
     "StacksmithConfigError",
     "StacksmithError",
     "StacksmithNotFoundError",
@@ -54,6 +57,7 @@ __all__ = [
     "StacksmithTestRunner",
     "StacksmithTransformError",
     "StacksmithValidationError",
+    "author_stack",
     "commit_and_push",
     "destroy_stack_operations",
     "generate_stack",

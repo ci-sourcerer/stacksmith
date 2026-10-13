@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from stacksmith.exceptions import StacksmithConfigError
-from stacksmith.gitops.changes import (
+from stacksmith.gitops import (
     commit_and_push,
     repository_status,
     request_operation_rerun,
