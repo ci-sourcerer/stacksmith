@@ -15,7 +15,16 @@ from stacksmith.targeting import (
     compute_stack_target_modules,
     extract_tag_references,
 )
+from stacksmith.validation_reports import parse_validation_report_csv
 from stacksmith.validations import PlanValidationOutcome
+
+
+def _parse_validation_output(output, report_format):
+    return (
+        json.loads(output)
+        if report_format == "json"
+        else parse_validation_report_csv(output)
+    )
 
 
 def _build_stack(
@@ -704,11 +713,13 @@ def test_validate_stack_emits_single_json_report_block(
     assert report["summary"] == {"pass": 1, "warn": 0, "fail": 0}
 
 
-def test_validate_stack_emits_json_report_block_when_requested(
+@pytest.mark.parametrize("report_format", ["json", "csv"])
+def test_validate_stack_emits_report_when_requested(
     monkeypatch,
     tmp_path: Path,
     sample_config_yaml: Path,
     capsys: pytest.CaptureFixture[str],
+    report_format,
 ):
     config = load_config(sample_config_yaml)
     stack = _build_stack("sample", "bucket", "aws_s3_bucket", set())
@@ -725,21 +736,23 @@ def test_validate_stack_emits_json_report_block_when_requested(
 
     report = api.validate_stack(
         tmp_path / "stack.yaml",
-        validation_report_format="json",
+        validation_report_format=report_format,
     )
 
     assert report["exit_code"] == 0
-    payload = json.loads(capsys.readouterr().out)
+    payload = _parse_validation_output(capsys.readouterr().out, report_format)
     assert payload == report
     assert payload["command"] == "validate"
     assert payload["status"] == "pass"
 
 
-def test_validate_stack_var_validation_failure_emits_json_report(
+@pytest.mark.parametrize("report_format", ["json", "csv"])
+def test_validate_stack_var_validation_failure_emits_report(
     monkeypatch,
     tmp_path: Path,
     sample_config_yaml: Path,
     capsys: pytest.CaptureFixture[str],
+    report_format,
 ):
     config = load_config(sample_config_yaml)
     stack = _build_stack("sample", "bucket", "aws_s3_bucket", set())
@@ -764,11 +777,11 @@ def test_validate_stack_var_validation_failure_emits_json_report(
 
     report = api.validate_stack(
         tmp_path / "stack.yaml",
-        validation_report_format="json",
+        validation_report_format=report_format,
     )
 
     assert report["exit_code"] == 1
-    payload = json.loads(capsys.readouterr().out)
+    payload = _parse_validation_output(capsys.readouterr().out, report_format)
     assert payload == report
     assert payload["status"] == "fail"
     assert payload["results"][0]["status"] == "fail"
@@ -861,12 +874,14 @@ def test_run_stack_action_plan_emits_single_json_report_block(
     assert len(report["results"]) == 1
 
 
-def test_run_stack_action_plan_emits_json_report_block_when_requested(
+@pytest.mark.parametrize("report_format", ["json", "csv"])
+def test_run_stack_action_plan_emits_report_when_requested(
     monkeypatch,
     tmp_path: Path,
     sample_stack_yaml: Path,
     sample_config_yaml: Path,
     capsys: pytest.CaptureFixture[str],
+    report_format,
 ):
     calls = _setup_run_stack_action_mocks(
         monkeypatch,
@@ -894,11 +909,11 @@ def test_run_stack_action_plan_emits_json_report_block_when_requested(
         "plan",
         sample_stack_yaml,
         tag_expr="contains(tags, 'prod')",
-        validation_report_format="json",
+        validation_report_format=report_format,
     )
 
     assert exit_code == 0
-    report = json.loads(capsys.readouterr().out)
+    report = _parse_validation_output(capsys.readouterr().out, report_format)
     assert report["command"] == "plan"
     assert report["status"] == "warn"
     assert report["results"][0]["name"] == "warn_rule"
@@ -949,11 +964,13 @@ def test_run_all_plan_emits_single_json_report_block(
     assert report["stack_count"] == 1
 
 
-def test_run_all_plan_emits_json_report_block_when_requested(
+@pytest.mark.parametrize("report_format", ["json", "csv"])
+def test_run_all_plan_emits_report_when_requested(
     monkeypatch,
     tmp_path: Path,
     sample_config_yaml: Path,
     capsys: pytest.CaptureFixture[str],
+    report_format,
 ):
     matched = _build_stack("matched", "bucket", "aws_s3_bucket", {"prod"})
     stack_dirs = {"matched": tmp_path / "matched"}
@@ -984,11 +1001,11 @@ def test_run_all_plan_emits_json_report_block_when_requested(
     exit_code = api.run_all_stacks(
         "plan",
         tmp_path,
-        validation_report_format="json",
+        validation_report_format=report_format,
     )
 
     assert exit_code == 1
-    report = json.loads(capsys.readouterr().out)
+    report = _parse_validation_output(capsys.readouterr().out, report_format)
     assert report["command"] == "run-all plan"
     assert report["status"] == "fail"
     assert report["results"][0]["name"] == "fail_rule"

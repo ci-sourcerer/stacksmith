@@ -199,6 +199,31 @@ Plan validation rules can return `pass`, `warn`, or `fail` outcomes.
 - Warnings are non-blocking by default; use `--strict-validation-warnings` to treat warning outcomes as failures.
 - Use `--fail-on-changes` on `plan` or `run-all plan` to return a non-zero exit code whenever the rendered plan contains *any* resource changes. This is useful for automated drift detection or CI checks where only a non-empty plan should fail.
 
+### Validation reports
+
+`validate`, `plan`, and `run-all plan` emit a machine-readable validation report to stdout. JSON is the default. Select CSV with `--validation-report-format csv` and redirect stdout to save a spreadsheet-readable artifact. Logs and console summaries go to stderr.
+
+```sh
+stacksmith validate --stack stack.yaml --validation-report-format csv > validation.csv
+stacksmith plan --stack stack.yaml --validation-report-format json > validation.json
+stacksmith run-all plan --root stacks --validation-report-format csv > validations.csv
+```
+
+CSV uses a fixed header and preserves result order. Each validation result gets one row. `validate` reports one overall outcome for stack and input validation; plan commands report each executed plan rule. An empty plan validation result list produces one report-only row with blank rule, result status, message, and detail fields. This preserves execution failures and report metadata without inventing a validation result.
+
+| Columns | Meaning |
+| --- | --- |
+| `stack_name`, `name`, `status`, `message`, `detail` | Stack identity, rule identifier, `pass`/`warn`/`fail` outcome, message, and optional redacted diagnostic detail. A result uses the report's stack name when it has no stack name of its own. |
+| `command`, `report_status`, `exit_code`, `strict_validation_warnings` | Invocation context and overall outcome. The report status can be `fail` even when no rule failed, such as an execution failure or strict warning policy. |
+| `pass_count`, `warn_count`, `fail_count` | Counts of validation outcomes across the report. |
+| `report_stack_name`, `stack_count` | Overall stack identity or stack count, when available. |
+| `run_id`, `plan_summary_path`, `plan_complete` | Link to the aggregate plan report and whether plan collection completed. |
+| `create_count`, `update_count`, `replace_count`, `destroy_count`, `resource_count`, `output_count` | Basic plan change totals. |
+
+Report metadata is repeated on each row. Missing optional values are blank; zero counts remain `0`, and booleans use `true` or `false`. Messages retain commas, quotes, Unicode, and line breaks through standard CSV quoting, so consumers should use a CSV parser rather than split lines or commas. JSON retains the structured report payload, and the Python API returns that payload regardless of the selected output format. Stack names are available after a successful `validate`; failures before stack preparation can leave the name blank.
+
+Use `stacksmith ci prepare --validation-report-format csv` to select CSV for managed CI plan phases. The standalone artifact uses `validation-report.csv`, and the CI JSON envelope embeds the reconstructed validation payload, including its run ID and plan summary link.
+
 ## Native operations
 
 Operations are config-owned imperative actions. Stacksmith compiles them into a separate runner-only Terraform root backed by `<stack-path>/operations/terraform.tfstate`. The infrastructure root never contains operation resources, and the operation root never contains infrastructure resources or providers.

@@ -94,6 +94,7 @@ from .utils import (
     stacksmith_env_int,
     stacksmith_env_list,
 )
+from .validation_reports import serialize_validation_report
 from .validations import PlanValidationOutcome, PlanValidationResult
 from .variables import InputLayer, resolve_inputs
 from .vendor import get_vendor_dir, load_vendor_manifest
@@ -514,8 +515,7 @@ def _emit_validation_report(
     report: dict[str, Any],
     report_format: str | ValidationReportFormat = ValidationReportFormat.JSON,
 ) -> None:
-    ValidationReportFormat(report_format)
-    print(json.dumps(report, indent=2, sort_keys=True))
+    print(serialize_validation_report(report, report_format), end="")
 
 
 def _summarize_plan_validation_results(
@@ -579,7 +579,9 @@ def _build_plan_validation_report(
     return payload
 
 
-def _build_validate_report(exit_code: int, message: str) -> dict[str, Any]:
+def _build_validate_report(
+    exit_code: int, message: str, stack_name: str | None = None
+) -> dict[str, Any]:
     status = (
         PlanValidationOutcome.PASS.value
         if exit_code == 0
@@ -605,8 +607,9 @@ def _build_validate_report(exit_code: int, message: str) -> dict[str, Any]:
                 "status": status,
                 "message": message,
             }
+            | ({"stack_name": stack_name} if stack_name is not None else {})
         ],
-    }
+    } | ({"stack_name": stack_name} if stack_name is not None else {})
 
 
 def load_runtime_config(
@@ -1182,20 +1185,23 @@ def validate_stack(
             no_cache=no_cache,
             merge_mode=merge_mode,
         )
-        _prepare_stack_definition(
-            stack_file,
-            loaded_config,
-            vars_file,
-            input_layers,
-            cache_dir,
-            merge_mode,
+        report = _build_validate_report(
+            exit_code=0,
+            message="Validation passed",
+            stack_name=_prepare_stack_definition(
+                stack_file,
+                loaded_config,
+                vars_file,
+                input_layers,
+                cache_dir,
+                merge_mode,
+            )[0].name,
         )
         LOGGER.debug(
             "Validating stack {stack_file} using config paths: {config_paths}",
             stack_file=stack_file,
             config_paths=config_paths,
         )
-        report = _build_validate_report(exit_code=0, message="Validation passed")
     except (
         StacksmithError,
         FileNotFoundError,

@@ -51,7 +51,7 @@ stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-
                            [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}]
                            [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
                            [--strict-validation-warnings] [--use-local-modules | --no-local-modules]
-                           [--debug | -q] [--validation-report-format {json}]
+                           [--debug | -q] [--validation-report-format {json,csv}]
                            [stack_file]
 ```
 
@@ -74,7 +74,7 @@ stacksmith validate [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
-| `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
+| `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`, `csv`. |
 
 ### `stacksmith generate`
 
@@ -180,7 +180,7 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
                           [--env-file ENV_FILE] [--vars VARS_FILE] [--var VARS] [--merge-mode {deep,override}]
                           [--build-dir BUILD_DIR] [--log LOG] [--no-cache] [--no-cas]
                           [--strict-validation-warnings] [--use-local-modules | --no-local-modules] [--debug |
-                          -q] [--validation-report-format {json}] [--destroy]
+                          -q] [--validation-report-format {json,csv}] [--destroy]
                           [--save-plan-summary-json SAVE_PLAN_SUMMARY_JSON]
                           [--plan-summary {table,detailed,none}] [--save-plan-json SAVE_PLAN_JSON |
                           --save-redacted-plan-json SAVE_REDACTED_PLAN_JSON] [--out OUT] [--fail-on-changes]
@@ -211,7 +211,7 @@ stacksmith run-all [-h] [--root ROOT] [--stack STACK] [--runfile RUNFILE] [-c CO
 | `--no-local-modules` | Disable local module rewriting even if STACKSMITH_ONLY_USE_LOCAL_MODULES is set. |
 | `--debug` | Enable debug logging. Can also be enabled via STACKSMITH_DEBUG=1. |
 | `-q, --quiet` | Suppress non-error stacksmith logs while still streaming Terragrunt output. |
-| `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
+| `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`, `csv`. |
 | `--destroy` | Plan destroy operations instead of a create/update when action is plan. |
 | `--save-plan-summary-json` | Write the aggregate plan report here (default: build directory/plan-summary.json). |
 | `--plan-summary` | Console plan summary format (default: table). JSON is always saved. Choices: `table`, `detailed`, `none`. |
@@ -276,7 +276,7 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
                        [--save-plan-summary-json SAVE_PLAN_SUMMARY_JSON]
                        [--plan-summary {table,detailed,none}] [--save-plan-json SAVE_PLAN_JSON |
                        --save-redacted-plan-json SAVE_REDACTED_PLAN_JSON] [--out OUT] [--fail-on-changes]
-                       [--tag TAG] [--tag-expr TAG_EXPR] [--validation-report-format {json}] [--locked]
+                       [--tag TAG] [--tag-expr TAG_EXPR] [--validation-report-format {json,csv}] [--locked]
                        [--offline] [--lockfile LOCKFILE]
                        [stack_file]
 ```
@@ -309,7 +309,7 @@ stacksmith plan [-h] [--stack STACK] [--runfile RUNFILE] [-c CONFIG] [--env-file
 | `--fail-on-changes` | Return a non-zero exit code if the plan contains any resource changes. |
 | `--tag` | Select components by tag. Repeat to require multiple tags. |
 | `--tag-expr` | JMESPath expression used to select resource targets. |
-| `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`. |
+| `--validation-report-format` | Format for machine-readable validation reports emitted by validate, plan, and run-all plan. Choices: `json`, `csv`. |
 | `--locked` | Require inputs to match lockfile entries. |
 | `--offline` | Require locked artifacts to be available locally without network access. |
 | `--lockfile` | Path to stacksmith.lock.yaml. When omitted, Stacksmith resolves the default location beside the primary runfile or stack file. |
@@ -739,7 +739,7 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
                              [--workdir WORKDIR] [--env-file ENV_FILE]
                              [--stacksmith-args-json STACKSMITH_ARGS_JSON] [--debug] [--no-cas] [--locked]
                              [--offline] [--lockfile LOCKFILE] [--force-rerun]
-                             [--validation-report-format {json}] [--fail-on-changes]
+                             [--validation-report-format {json,csv}] [--fail-on-changes]
                              [--strict-validation-warnings] [--ref-name REF_NAME]
                              [--default-branch DEFAULT_BRANCH] [--is-primary-branch {true,false}]
                              [--skip-branch-validation] [--format {table,json}]
@@ -768,7 +768,7 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
 | `--offline` | Resolve locked remote inputs without network access. |
 | `--lockfile` | Optional explicit Stacksmith lockfile path. |
 | `--force-rerun` | Force native operation execution even when its identity is unchanged. |
-| `--validation-report-format` | Validation report format for plan executions. Choices: `json`. |
+| `--validation-report-format` | Validation report format for plan executions. Choices: `json`, `csv`. |
 | `--fail-on-changes` | Fail plan executions when resource changes are detected. |
 | `--strict-validation-warnings` | Treat plan validation warnings as failures. |
 | `--ref-name` | Current branch name used for shared branch policy validation. |
@@ -790,7 +790,7 @@ stacksmith ci execute [-h] --manifest MANIFEST --environment ENVIRONMENT
 | `--manifest` | Path to a JSON manifest emitted by stacksmith ci prepare. |
 | `--environment` | Environment row from the manifest to execute. |
 | `--phase` | Lifecycle phase to execute. The phase must belong to the manifest command; destroy manifests support infrastructure and operation-state previews, operation-state cleanup, and infrastructure destruction. Choices: `test`, `plan`, `apply`, `destroy`, `plan-operation`, `operation`. |
-| `--validation-report-output` | Optional path for plan validation report output. When set, plan JSON report output is written to this file. |
+| `--validation-report-output` | Optional path for plan validation report output. When set, the selected JSON or CSV report is written to this file. |
 
 ### `stacksmith ci prepare-from-env`
 

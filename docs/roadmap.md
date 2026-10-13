@@ -26,10 +26,6 @@ Add a trust policy for Python validation, transform, and provider configuration 
 
 This work should share source verification with the lockfile rather than inventing a separate integrity mechanism. Documentation should make clear that managed Python hooks are executable code and define which repository owners are expected to approve them.
 
-## Additional validation report formats
-
-Add CSV output for validation reports while retaining JSON as the stable machine-oriented default. It should use one row per validation outcome with consistent columns for stack, rule, status, message, and origin.
-
 ## Typer-based CLI
 
 Consider migrating the CLI from `argparse` to `typer` after the command and option model has stabilized.

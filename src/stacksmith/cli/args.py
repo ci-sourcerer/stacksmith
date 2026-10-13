@@ -970,7 +970,7 @@ def configure_ci_execute_parser(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "Optional path for plan validation report output. "
-            "When set, plan JSON report output is written to this file."
+            "When set, the selected JSON or CSV report is written to this file."
         ),
     )
 

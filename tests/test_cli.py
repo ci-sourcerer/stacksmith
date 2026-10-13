@@ -1466,9 +1466,36 @@ def test_cmd_run_all_rejects_tag_expr_for_init(parser):
     assert exit_code == 1
 
 
-def test_validation_report_format_rejects_csv(parser):
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["validate", "stack.yaml"],
+        ["plan", "stack.yaml"],
+        ["run-all", "plan"],
+        ["ci", "prepare", "--command", "plan", "--config-ref", "config.yaml"],
+    ],
+)
+def test_validation_report_format_supports_csv(parser, command):
+    assert (
+        parser.parse_args(
+            [*command, "--validation-report-format", "csv"]
+        ).validation_report_format
+        == "csv"
+    )
+
+
+def test_validation_report_format_rejects_unsupported_formats(parser):
     with pytest.raises(SystemExit):
-        parser.parse_args(["run-all", "plan", "--validation-report-format", "csv"])
+        parser.parse_args(["run-all", "plan", "--validation-report-format", "xml"])
+
+
+def test_cmd_run_all_rejects_csv_for_non_plan_actions(parser):
+    assert (
+        cli_main._cmd_run_all(
+            parser.parse_args(["run-all", "apply", "--validation-report-format", "csv"])
+        )
+        == 1
+    )
 
 
 def test_plan_json_output_modes_are_mutually_exclusive(parser):

@@ -156,7 +156,10 @@ def test_inspect_environments_auto_discovers_flat_files_layout(tmp_path: Path):
     assert payload["selected_environments"] == ["dev", "prod"]
 
 
-def test_validate_ci_inputs_auto_discovers_env_files_layout(tmp_path: Path):
+@pytest.mark.parametrize("report_format", ["json", "csv"])
+def test_validate_ci_inputs_auto_discovers_env_files_layout(
+    tmp_path: Path, report_format
+):
     (tmp_path / "common").mkdir()
     (tmp_path / "common" / "stacksmith.yaml").write_text("merge_mode: deep\n")
     (tmp_path / "environments").mkdir()
@@ -166,7 +169,7 @@ def test_validate_ci_inputs_auto_discovers_env_files_layout(tmp_path: Path):
     report = validate_ci_inputs(
         gitops_root=str(tmp_path),
         env_file="/dev/null",
-        validation_report_format="json",
+        validation_report_format=report_format,
     )
 
     assert report["status"] == "pass"

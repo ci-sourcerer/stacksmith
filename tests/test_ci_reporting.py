@@ -1,22 +1,34 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from stacksmith.ci.contracts import CiExecutionManifest
 from stacksmith.ci.reporting import (
     clear_ci_execution_reports,
     write_ci_execution_report,
 )
+from stacksmith.validation_reports import serialize_validation_report
 
 
-def _manifest(tmp_path: Path, command: str = "plan") -> CiExecutionManifest:
+def _manifest(
+    tmp_path: Path, command: str = "plan", report_format: str = "json"
+) -> CiExecutionManifest:
     return CiExecutionManifest(
         command=command,
         config_ref="config.yaml",
         workdir=str(tmp_path),
+        validation_report_format=report_format,
     )
 
 
-def test_plan_ci_report_embeds_linked_plan_and_validation_reports(tmp_path: Path):
+@pytest.mark.parametrize("report_format", ["json", "csv"])
+@pytest.mark.parametrize(
+    "results", [[], [{"name": "rule", "status": "pass", "message": "OK"}]]
+)
+def test_plan_ci_report_embeds_linked_plan_and_validation_reports(
+    tmp_path: Path, report_format, results
+):
     artifact_dir = tmp_path / ".stacksmith-ci" / "dev"
     artifact_dir.mkdir(parents=True)
     plan_report = {"run_id": "run-1", "complete": True, "totals": {"create": 2}}
@@ -24,13 +36,20 @@ def test_plan_ci_report_embeds_linked_plan_and_validation_reports(tmp_path: Path
         "run_id": "run-1",
         "status": "pass",
         "summary": {"pass": 3, "warn": 0, "fail": 0},
+        "results": results,
     }
     (artifact_dir / "plan-summary.json").write_text(json.dumps(plan_report))
-    validation_path = artifact_dir / "validation-report.json"
-    validation_path.write_text(json.dumps(validation_report))
+    validation_path = artifact_dir / f"validation-report.{report_format}"
+    validation_path.write_text(
+        serialize_validation_report(validation_report, report_format)
+    )
 
     output_path = write_ci_execution_report(
-        _manifest(tmp_path), "dev", "plan", 0, validation_path
+        _manifest(tmp_path, report_format=report_format),
+        "dev",
+        "plan",
+        0,
+        validation_path,
     )
 
     assert output_path == artifact_dir / "stacksmith-report.json"
@@ -48,6 +67,25 @@ def test_plan_ci_report_embeds_linked_plan_and_validation_reports(tmp_path: Path
         "validation_report": validation_report,
     }
     assert all(source["available"] for source in payload["sources"].values())
+
+
+def test_plan_ci_report_flags_invalid_csv(tmp_path: Path):
+    artifact_dir = tmp_path / ".stacksmith-ci" / "dev"
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "plan-summary.json").write_text(
+        json.dumps({"run_id": "run-1", "complete": True})
+    )
+    (artifact_dir / "validation-report.csv").write_text("name,status\nrule,pass\n")
+
+    output_path = write_ci_execution_report(
+        _manifest(tmp_path, report_format="csv"), "dev", "plan", 0
+    )
+
+    assert output_path is not None
+    payload = json.loads(output_path.read_text())
+    assert payload["complete"] is False
+    assert payload["reports"]["validation_report"] is None
+    assert payload["issues"][0]["code"] == "invalid_report_csv"
 
 
 def test_apply_ci_report_records_missing_child_report(tmp_path: Path):

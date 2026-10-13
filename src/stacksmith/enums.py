@@ -14,6 +14,7 @@ class ValidationReportFormat(StrEnum):
     """Supported machine-readable validation report output formats."""
 
     JSON = auto()
+    CSV = auto()
 
 
 class DiscoveryMode(StrEnum):

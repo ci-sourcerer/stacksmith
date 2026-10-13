@@ -1,3 +1,4 @@
+import csv
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -5,13 +6,18 @@ from typing import Any
 from uuid import uuid4
 
 from ..change_reports import write_change_report
+from ..enums import ValidationReportFormat
+from ..validation_reports import parse_validation_report_csv
 from .contracts import CiExecutionManifest, CiExecutionPhase
 
 _INFRASTRUCTURE_PHASES = {"plan", "apply", "destroy"}
 
 
 def _read_report(
-    path: Path, report_name: str, issues: list[dict[str, str]]
+    path: Path,
+    report_name: str,
+    issues: list[dict[str, str]],
+    report_format: str = ValidationReportFormat.JSON.value,
 ) -> dict[str, Any] | None:
     if not path.is_file():
         issues.append(
@@ -23,13 +29,26 @@ def _read_report(
         )
         return None
     try:
-        report = json.loads(path.read_text(encoding="utf-8"))
+        report = (
+            parse_validation_report_csv(path.read_text(encoding="utf-8"))
+            if report_format == ValidationReportFormat.CSV
+            else json.loads(path.read_text(encoding="utf-8"))
+        )
     except json.JSONDecodeError as exc:
         issues.append(
             {
                 "code": "invalid_report_json",
                 "report": report_name,
                 "detail": f"Report is not valid JSON: {exc}",
+            }
+        )
+        return None
+    except (csv.Error, ValueError) as exc:
+        issues.append(
+            {
+                "code": "invalid_report_csv",
+                "report": report_name,
+                "detail": f"Report is not valid Stacksmith CSV: {exc}",
             }
         )
         return None
@@ -62,11 +81,12 @@ def _plan_reports(
     artifact_dir: Path,
     validation_report_path: Path,
     issues: list[dict[str, str]],
+    validation_report_format: str,
 ) -> tuple[dict[str, dict[str, Any] | None], dict[str, dict[str, Any]]]:
     plan_path = artifact_dir / "plan-summary.json"
     plan_report = _read_report(plan_path, "plan_summary", issues)
     validation_report = _read_report(
-        validation_report_path, "validation_report", issues
+        validation_report_path, "validation_report", issues, validation_report_format
     )
     reports = {
         "plan_summary": plan_report,
@@ -190,6 +210,7 @@ def write_ci_execution_report(
             validation_report_path
             or artifact_dir / f"validation-report.{manifest.validation_report_format}",
             issues,
+            manifest.validation_report_format,
         )
     else:
         reports, sources = _apply_reports(artifact_dir, issues)
