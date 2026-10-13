@@ -25,6 +25,51 @@ _REMOTE_BACKEND_CONFIG = _FIXTURES / "sample_config.yaml"
 _LOCAL_BACKEND_CONFIG = _FIXTURES / "sample_config_local.yaml"
 
 
+def test_github_executor_transfers_reviewed_plan_before_execution():
+    executor = yaml.safe_load(
+        (
+            Path(__file__).parents[1]
+            / ".github/workflows/stacksmith-gitops-reusable.yml"
+        ).read_text()
+    )["jobs"]["execute"]
+    steps = {step["name"]: step for step in executor["steps"]}
+    order = list(steps)
+
+    assert steps["Checkout repository"]["with"]["ref"] == "${{ github.sha }}"
+    assert (
+        order.index("Download reviewed execution plan")
+        < order.index("Restore reviewed execution plan")
+        < order.index("Execute Stacksmith manifest")
+        < order.index("Encrypt reviewed execution plan")
+        < order.index("Transfer encrypted reviewed plan")
+    )
+    assert steps["Restore reviewed execution plan"]["run"] == (
+        "stacksmith ci plan-bundle open"
+    )
+    assert steps["Encrypt reviewed execution plan"]["run"] == (
+        "stacksmith ci plan-bundle seal"
+    )
+    assert (
+        steps["Download reviewed execution plan"]["with"]["name"]
+        == (steps["Transfer encrypted reviewed plan"]["with"]["name"])
+    )
+    for name in (
+        "Download reviewed execution plan",
+        "Restore reviewed execution plan",
+    ):
+        assert '["apply", "destroy"]' in steps[name]["if"]
+        assert "inputs.upload_artifacts" not in steps[name]["if"]
+    for name in ("Encrypt reviewed execution plan", "Transfer encrypted reviewed plan"):
+        assert "== 'plan'" in steps[name]["if"]
+        assert "inputs.upload_artifacts" not in steps[name]["if"]
+    assert steps["Transfer encrypted reviewed plan"]["with"]["if-no-files-found"] == (
+        "error"
+    )
+    assert steps["Transfer encrypted reviewed plan"]["with"]["path"].endswith(
+        "/reviewed.enc"
+    )
+
+
 def test_github_preparation_receives_source_credentials():
     preparation_env = yaml.safe_load(
         (

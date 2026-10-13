@@ -98,16 +98,9 @@ For production use, add GitHub Environment protections and secrets per environme
 
 The opinionated workflow resolves `STACKSMITH_ENV_FILE` from repository variables and falls back to `/dev/null` so CI runs are deterministic and do not implicitly load repository `.env` values.
 
-> ⚠️ **Warning:** After the preview plan and approval, Stacksmith's GitOps workflows execute a fresh generation and execution of `terragrunt apply --auto-approve` directly against the latest tip of the target branch, rather than applying a pre-saved static plan binary. If you wish to use exact plan binaries natively, ensure you orchestrate `stacksmith plan --out target.tfplan` across your stacks, and push them to storage prior to leveraging `stacksmith apply --plan target.tfplan`.
->
-> - **Concurrent Merges:** If another PR is merged after your PR's plan runs but before it is applied, the apply run will execute with the latest configurations of the target branch, which may differ from the approved plan.
-> - **External State Changes:** If resources are modified out-of-band in the cloud provider, the apply step will reflect those updates.
-> - **Dynamic Configurations:** If you reference dynamic data sources or remote modules with moving targets (e.g., untagged Git references or floating version constraints), the resolved files might differ between plan and apply execution.
->
-> To mitigate this risk, do the following.
->
-> 1. Enforce linear history or require branches to be up-to-date before merging in your repository settings (via GitHub Branch Protection)
-> 2. Ensure all remote resources, configurations, and provider mappings use **immutable version pins** (exact commits or tags) rather than moving refs (like `main` or `latest`).
+The GitOps workflows save the infrastructure preview to `reviewed.tfplan` and apply that exact binary after approval, including for destroy previews. Execution restores the generated configuration and provider lockfile from planning instead of regenerating them against the latest branch tip. The plan is bound to the CI manifest, environment, source revision, and run identity; missing, modified, mismatched, or expired plans fail without replanning. OpenTofu rejects stale state, so rerun the complete lifecycle when a saved plan cannot be applied.
+
+GitHub Actions transfers the binary and its configuration context in an encrypted artifact and requires the repository or organization secret `STACKSMITH_PLAN_ENCRYPTION_KEY`. Jenkins retains them in its protected workspace. See [reviewed-plan handling](../integrations/ci.md) for setup, retention, and review receipts. Native operations continue to plan their isolated state using current outputs, including after-apply operations.
 
 ### Local publication contracts
 
