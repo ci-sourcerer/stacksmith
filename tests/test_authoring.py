@@ -102,6 +102,24 @@ def test_merge_is_shallow_and_preserves_comments_on_surviving_keys():
     assert 'image: "example:v1" # Image comment.' in result.source
 
 
+def test_ordered_edits_do_not_mutate_the_callers_edit_values():
+    edit = StackEdit(action="set", path=("metadata",), value={"owner": "team"})
+    result = author_stack(
+        SOURCE,
+        [edit, StackEdit(action="set", path=("metadata", "owner"), value="other")],
+    )
+    assert edit.value == {"owner": "team"}
+    assert "owner: other" in result.source
+
+
+def test_file_no_op_preserves_crlf_bytes(tmp_path):
+    path = tmp_path / "stack.yaml"
+    path.write_bytes(SOURCE.replace("\n", "\r\n").encode())
+    original = path.read_bytes()
+    assert not update_component_properties(path, "app", {"image": "example:v1"}).changed
+    assert path.read_bytes() == original
+
+
 def test_json_edits_remain_json_and_leave_original_source_untouched():
     source = '{"name":"example","components":{"app":{"type":"app"}}}'
     result = author_stack(

@@ -1,6 +1,7 @@
 import difflib
 import json
 import math
+from copy import deepcopy
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
@@ -145,7 +146,7 @@ def _apply_edit(document: dict[str, Any], edit: StackEdit) -> None:
     if edit.action == "remove":
         current.pop(key, None)
         return
-    value = edit.value
+    value = deepcopy(edit.value)
     if edit.action == "merge":
         if not isinstance(value, dict) or not isinstance(current.get(key, {}), dict):
             raise StacksmithConfigError(
@@ -222,25 +223,27 @@ def validate_stack_document(path: Path | str) -> None:
         StacksmithConfigError: If the authored source is unsupported or invalid.
         OSError: If the document cannot be read.
     """
-    author_stack(Path(path).read_text(encoding="utf-8"), [], str(path))
+    author_stack(_read_stack_text(Path(path).expanduser()), [], str(path))
+
+
+def _read_stack_text(path: Path) -> str:
+    with path.open(encoding="utf-8", newline="") as document:
+        return document.read()
 
 
 def _write_edit(stack_path: Path | str, edit: StackEdit) -> DocumentChange:
     path = Path(stack_path).expanduser().resolve()
-    change = author_stack(path.read_text(encoding="utf-8"), [edit], str(path))
-    if change.changed:
-        path.write_text(change.source, encoding="utf-8")
-    return DocumentChange(path, change.changed)
-
-
-def _require_definition(stack_path: Path | str, section: str, name: str) -> None:
-    document = _load_source(
-        Path(stack_path).read_text(encoding="utf-8"), str(stack_path)
-    )
+    source = _read_stack_text(path)
+    document = _load_source(source, str(path))
+    section, name = edit.path[:2]
     if not isinstance(document.get(section), dict) or not isinstance(
         document[section].get(name), dict
     ):
         raise StacksmithConfigError(f"Unknown {section} definition '{name}'.")
+    change = author_stack(source, [edit], str(path))
+    if change.changed:
+        path.write_text(change.source, encoding="utf-8")
+    return DocumentChange(path, change.changed)
 
 
 def update_operation_rerun_token(
@@ -262,7 +265,6 @@ def update_operation_rerun_token(
     """
     if not rerun_token.strip():
         raise StacksmithConfigError("rerun_token must be a non-empty string.")
-    _require_definition(stack_path, "operations", operation)
     return _write_edit(
         stack_path,
         StackEdit(
@@ -295,7 +297,6 @@ def set_operation_inputs(
         ValidationError: If values cannot be represented as JSON.
         OSError: If the document cannot be read or written.
     """
-    _require_definition(stack_path, "operations", operation)
     return _write_edit(
         stack_path,
         StackEdit(
@@ -328,7 +329,6 @@ def update_component_properties(
         ValidationError: If properties cannot be represented as JSON.
         OSError: If the document cannot be read or written.
     """
-    _require_definition(stack_path, "components", component)
     return _write_edit(
         stack_path,
         StackEdit(
