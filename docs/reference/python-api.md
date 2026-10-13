@@ -64,12 +64,13 @@ Stacksmith offers small, importable helpers for automated GitOps changes. Docume
 What they do is easily implemented with your own git commands, but these helpers are simply convenient for Python-based automation scripts.
 
 ```python
-from stacksmith import request_operation_rerun
+from stacksmith import repository_status, request_operation_rerun
 
 result = request_operation_rerun(
     repo_path=".",
     stack_path="stacks/app.yaml",
     operation="deploy_app",
+    expected_head=repository_status(".").head,
     push=False,
 )
 print(result.rerun_token)
@@ -107,3 +108,13 @@ The opinionated workflow resolves `STACKSMITH_ENV_FILE` from repository variable
 >
 > 1. Enforce linear history or require branches to be up-to-date before merging in your repository settings (via GitHub Branch Protection)
 > 2. Ensure all remote resources, configurations, and provider mappings use **immutable version pins** (exact commits or tags) rather than moving refs (like `main` or `latest`).
+
+### Local publication contracts
+
+`commit_and_push` and `request_operation_rerun` require `expected_head`, the full SHA against which the caller reviewed the change. Relative publication paths resolve from the repository root. Paths must identify explicit files; tracked deletions are supported. Wildcards are treated literally. A local branch must be checked out. `destination_branch` names only the remote destination and does not create or check out a local branch. Pushing defaults to false.
+
+Local publication builds a commit from selected worktree files using a private index and updates the local branch only if its head still matches `expected_head`. Unrelated staged changes remain staged. These automation commits use `git commit-tree` and `git update-ref`; commit hooks and automatic signing are not invoked. Use the normal Git workflow when those are required. Serialize worktree edits and branch switches during publication.
+
+A successful local commit is retained when pushing fails. Inspect `CommitPushResult.pushed` and `push_error`, then use `retry_push(result, repo_path)` to publish the exact recorded commit, even if local HEAD has since advanced. Pushes never force-update remote branches. `branch` records the local source branch and `destination_branch` records the remote destination. If updating selected entries in the real index fails after the commit, `index_error` records that failure; after resolving the index lock or other problem, synchronize the selected files with `git reset <commit_sha> -- <selected-files>`. Neither publication failure creates a second commit.
+
+Operation rerun requests check repository prerequisites before editing the document. If local commit creation subsequently fails, the validated document edit remains available for review and another publication attempt.

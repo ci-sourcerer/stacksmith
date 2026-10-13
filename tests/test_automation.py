@@ -104,6 +104,7 @@ def test_repository_status_and_commit_only_selected_path(tmp_path: Path):
         repo_path=stack_path.parent,
         paths=[stack_path],
         message="chore(operations): rerun deploy",
+        expected_head=status.head,
         push=False,
     )
 
@@ -124,6 +125,7 @@ def test_request_operation_rerun_commits_without_pushing(tmp_path: Path):
         repo_path=stack_path.parent,
         stack_path=stack_path,
         operation="deploy",
+        expected_head=repository_status(stack_path.parent).head,
         rerun_token="release-42",
         push=False,
     )
