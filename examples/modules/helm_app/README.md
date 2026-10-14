@@ -2,13 +2,13 @@
 ## Requirements
 
 | Name | Version |
-| ---- | ------- |
+| - | - |
 | <a name="requirement_helm"></a> [helm](#requirement\_helm) | ~> 3.1 |
 
 ## Providers
 
 | Name | Version |
-| ---- | ------- |
+| - | - |
 | <a name="provider_helm"></a> [helm](#provider\_helm) | ~> 3.1 |
 
 ## Modules
@@ -18,13 +18,13 @@ No modules.
 ## Resources
 
 | Name | Type |
-| ---- | ---- |
+| - | - |
 | [helm_release.app](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-| ---- | ----------- | ---- | ------- | :------: |
+| - | - | - | - | :------: |
 | <a name="input_atomic"></a> [atomic](#input\_atomic) | Whether rollbacks are attempted if the Helm release deployment fails. | `bool` | `true` | no |
 | <a name="input_chart"></a> [chart](#input\_chart) | Helm chart name to deploy. | `string` | n/a | yes |
 | <a name="input_chart_version"></a> [chart\_version](#input\_chart\_version) | Helm chart version. | `string` | n/a | yes |

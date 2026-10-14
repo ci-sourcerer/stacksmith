@@ -212,7 +212,7 @@ stacksmith run-all plan --root stacks --validation-report-format csv > validatio
 CSV uses a fixed header and preserves result order. Each validation result gets one row. `validate` reports one overall outcome for stack and input validation; plan commands report each executed plan rule. An empty plan validation result list produces one report-only row with blank rule, result status, message, and detail fields. This preserves execution failures and report metadata without inventing a validation result.
 
 | Columns | Meaning |
-| --- | --- |
+| - | - |
 | `stack_name`, `name`, `status`, `message`, `detail` | Stack identity, rule identifier, `pass`/`warn`/`fail` outcome, message, and optional redacted diagnostic detail. A result uses the report's stack name when it has no stack name of its own. |
 | `command`, `report_status`, `exit_code`, `strict_validation_warnings` | Invocation context and overall outcome. The report status can be `fail` even when no rule failed, such as an execution failure or strict warning policy. |
 | `pass_count`, `warn_count`, `fail_count` | Counts of validation outcomes across the report. |
