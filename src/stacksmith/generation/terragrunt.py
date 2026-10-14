@@ -134,7 +134,6 @@ def generate_operations_terragrunt_json(
     stack: StackDefinition,
     config: ToolConfig,
     root: Path | None = None,
-    operation_inputs: list[str] | None = None,
 ) -> dict[str, Any]:
     """Generate Terragrunt configuration for an isolated operation root.
 
@@ -142,9 +141,6 @@ def generate_operations_terragrunt_json(
         stack: Parsed stack definition.
         config: Tool configuration.
         root: Optional monorepo root used for state key derivation.
-        operation_inputs: Infrastructure bridge inputs consumed by operations.
-            Retained for caller compatibility; operation roots read these from
-            `terraform_remote_state`.
 
     Returns:
         Terragrunt configuration backed by the operation-only state key.
@@ -171,7 +167,6 @@ def write_operations_terragrunt_json(
     config: ToolConfig,
     output_dir: Path,
     root: Path | None = None,
-    operation_inputs: list[str] | None = None,
 ) -> Path:
     """Write Terragrunt configuration for an isolated operation root.
 
@@ -180,7 +175,6 @@ def write_operations_terragrunt_json(
         config: Tool configuration.
         output_dir: Directory to write `terragrunt.hcl.json` into.
         root: Optional monorepo root used for state key derivation.
-        operation_inputs: Infrastructure bridge inputs consumed by operations.
 
     Returns:
         Path to the written `terragrunt.hcl.json` file.
@@ -193,7 +187,6 @@ def write_operations_terragrunt_json(
                 stack,
                 config,
                 root,
-                operation_inputs,
             ),
             indent=2,
         ),

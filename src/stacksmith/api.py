@@ -774,13 +774,6 @@ def _generate_operation_stack(
         config,
         operation_output_dir,
         root=state_root,
-        operation_inputs=sorted(
-            json.loads(
-                (operation_output_dir / "stacksmith.tf.json").read_text(
-                    encoding="utf-8"
-                )
-            ).get("variable", {})
-        ),
     )
     return operation_output_dir
 
@@ -2913,7 +2906,7 @@ def inspect_configuration(
             if not isinstance(value, dict) or segment not in value:
                 raise StacksmithConfigError(f"Unknown configuration address: {query}")
             value = value[segment]
-        # Source property queries remain available even when the module input is renamed.
+        # Include source property events when querying mapped module inputs.
         events = _configuration_query_events(events, query)
         return {
             "query": query,

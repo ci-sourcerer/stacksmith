@@ -21,7 +21,7 @@ These CI operation phases currently reconcile isolated operation state. Stacksmi
 
 For deployment commands, `stacksmith ci prepare` resolves the effective layered configuration for every selected environment and rejects `backend.type: local`. These CI runs must use a remote backend so state is durable and shared across lifecycle jobs. A standalone `test` command skips backend validation because `stacksmith test` does not read or write infrastructure state.
 
-The deployment CI selector is named `command` in GitHub Actions and `COMMAND` in stack-running Jenkins jobs. Callers using the former `operation` or `OPERATION` selector must update to the new name.
+The deployment CI selector is named `command` in GitHub Actions and `COMMAND` in stack-running Jenkins jobs.
 
 - GitHub Actions `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.
 - `plan-operation` previews native operations without approval or execution; `apply-operation` previews, requests approval, and executes them. Supply a comma-delimited `operation_names` input such as `publish_image,deploy_app,smoke_test`, or leave it empty to select all operations in each stack. Set the repository, organization, job, or folder variable `STACKSMITH_MAX_PARALLEL_OPERATIONS` to cap concurrency and `STACKSMITH_FORCE_RERUN=1` to force replacement of selected operation runner resources when their execution identities have not changed.

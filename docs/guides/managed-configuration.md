@@ -126,7 +126,7 @@ disabled_associations:
   - application-secret-access
 
 components:
-  legacy_instance:
+  application_instance:
     type: aws_ec2_instance
     disabled_associations:
       - standard-instance-security-groups

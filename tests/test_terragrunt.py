@@ -148,17 +148,13 @@ class TestGenerateOperationsTerragruntJson:
             "../.state/my-stack/operations/terraform.tfstate"
         )
 
-    def test_component_inputs_are_not_passed_through_terragrunt(
+    def test_operation_inputs_are_not_passed_through_terragrunt(
         self, sample_stack_yaml: Path, sample_config_yaml: Path
     ):
         stack = load_stack(sample_stack_yaml)
         config = load_config(sample_config_yaml)
 
-        doc = generate_operations_terragrunt_json(
-            stack,
-            config,
-            operation_inputs=["_stacksmith_operation_bridge"],
-        )
+        doc = generate_operations_terragrunt_json(stack, config)
 
         assert "dependency" not in doc
         assert "inputs" not in doc

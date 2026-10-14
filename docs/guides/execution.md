@@ -291,7 +291,7 @@ stacksmith destroy --stack stack.yaml --apply-summary none
 
 The `table` format is the default; `detailed` adds resource addresses and individual operation outcomes. `none` hides console reporting while still writing JSON. The report covers infrastructure execution; separately executed after-apply operations retain their own results. Consequently, an infrastructure report can succeed even if a later after-apply operation fails.
 
-### Event capture and compatibility
+### Event capture support
 
 Stacksmith detects whether the resolved OpenTofu binary supports `-json-into`, available in OpenTofu 1.12 and newer. This captures structured events alongside the normal human-readable UI without changing approval behavior. Unsupported binaries still execute their original command, and the artifact explicitly reports `json_event_capture_unavailable` with `complete: false`.
 
