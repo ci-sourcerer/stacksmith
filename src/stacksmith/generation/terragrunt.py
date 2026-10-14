@@ -7,6 +7,7 @@ from loguru import logger as LOGGER
 from ..constants import GENERATED_TG_JSON
 from ..enums import TerragruntAction
 from ..models import StackDefinition, ToolConfig
+from ..secrets import contains_secret, require_secret_sources
 from ..stack_outputs import build_stack_mock_outputs
 from ..utils import derive_operation_state_key, derive_stack_state_key
 
@@ -49,6 +50,9 @@ def generate_terragrunt_json(
     Returns:
         Dict representing the full terragrunt.hcl.json structure.
     """
+    require_secret_sources(
+        resolved_vars, (name for name, spec in config.inputs.items() if spec.secret)
+    )
     if dependency_stacks is None:
         dependency_stacks = {}
 
@@ -92,7 +96,11 @@ def generate_terragrunt_json(
             deps[dep_name] = dep_block
         doc["dependency"] = deps
 
-    doc["inputs"] = dict(resolved_vars)
+    doc["inputs"] = {
+        name: value
+        for name, value in resolved_vars.items()
+        if not contains_secret(value)
+    }
 
     return doc
 

@@ -123,6 +123,7 @@ def _resolve_ci_inputs(
             row.environment,
         ),
         config_validations=config.var_validations or None,
+        input_specs=config.inputs,
         config_validation_base_path=(
             config.source_path.parent if config.source_path is not None else None
         ),

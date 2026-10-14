@@ -467,6 +467,19 @@ def _prepare_stack_definition(
         isinstance(config, ToolConfig) or getattr(config, "associations", None)
     ):
         stack = resolve_associations(stack, config).stack
+    from .secrets import require_secret_sources
+
+    for invocation in stack.operations.values():
+        if definition := config.operations.get(invocation.use):
+            require_secret_sources(
+                invocation.with_,
+                (
+                    name
+                    for name, specification in definition.inputs.items()
+                    if specification.secret
+                ),
+                "operation input",
+            )
     return stack, resolved_inputs
 
 
@@ -687,6 +700,7 @@ def _resolve_stack_inputs(
         vars_file=vars_path,
         input_layers=input_layers,
         config_validations=config.var_validations or None,
+        input_specs=config.inputs,
         config_validation_base_path=(
             config.source_path.parent if config.source_path is not None else None
         ),

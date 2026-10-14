@@ -320,7 +320,9 @@ def test_gitops_example_wires_pinned_commit_to_jenkins_operation():
     }
 
 
-def test_simple_gitops_example_wires_after_apply_echo_operation():
+def test_simple_gitops_example_wires_after_apply_echo_operation(monkeypatch):
+    monkeypatch.setenv("STACKSMITH_EXAMPLE_SECRET", "example-secret-DO-NOT-LEAK")
+    monkeypatch.setenv("STACKSMITH_SECRET_FINGERPRINT_KEY", "test-key")
     examples_root = Path(__file__).parents[1] / "examples"
     runfile = load_runfile(examples_root / "gitops-simple-repo/common/stacksmith.yaml")
     stack = load_stacks(
@@ -332,7 +334,9 @@ def test_simple_gitops_example_wires_after_apply_echo_operation():
                 "project": "stacksmith",
                 "first_name": "first",
                 "second_name": "second",
-                "reconciliation_secret_token": "example-secret-DO-NOT-LEAK",
+                "reconciliation_secret_token": {
+                    "$secret": {"env": "STACKSMITH_EXAMPLE_SECRET"}
+                },
             }
         },
     )
@@ -351,5 +355,8 @@ def test_simple_gitops_example_wires_after_apply_echo_operation():
         "STACKSMITH_OPERATION_ENVIRONMENT": "dev",
         "STACKSMITH_OPERATION_MESSAGE": "Hello from development",
         "STACKSMITH_OPERATION_PROJECT": "stacksmith",
-        "STACKSMITH_OPERATION_SECRET_TOKEN": "example-secret-DO-NOT-LEAK",
+        "STACKSMITH_OPERATION_SECRET_TOKEN": {
+            "$secret_env": spec["secret_bindings"]["secret_token"]["environment"],
+            "fingerprint": spec["secret_bindings"]["secret_token"]["fingerprint"],
+        },
     }

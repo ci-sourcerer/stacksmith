@@ -10,9 +10,9 @@ Native operations currently use a separate runner-only Terraform root and isolat
 
 ## Secret-aware inputs and operation parameters
 
-Complete the existing `secret` operation input metadata and extend the concept to ordinary Stacksmith inputs. Secret declarations should support environment-backed and file-backed values initially, with a pluggable interface for external secret managers later. Diagnostics, provenance output, validation errors, and normal logs must redact these values.
+Environment-backed and local-file-backed secret references are supported for ordinary inputs and operation parameters. Managed `secret` metadata requires these references, and local operations automatically mask their secret parameters. CI systems can inject the environment variables or files; external secret-manager integrations are outside the current scope.
 
-Where the OpenTofu and Terragrunt execution models permit it, secrets should be passed through the process environment or temporary permission-restricted files instead of being serialized into generated configuration. Stacksmith should warn when a workflow necessarily places a secret in a plan or state file, and secret changes should still be able to affect operation execution identity without exposing the original value.
+Secret contents are supplied through the execution environment rather than serialized into generated configuration. Ordinary module inputs can still enter OpenTofu plans and state, and generation warns about that retention. Operation identity uses keyed fingerprints to detect secret changes. Future work may extend the initial direct-reference contract to safe transformations and validation hooks. See [secret inputs](guides/stack-authoring.md#secret-inputs) for the supported boundaries.
 
 ## Dependency-aware parallel `run-all`
 

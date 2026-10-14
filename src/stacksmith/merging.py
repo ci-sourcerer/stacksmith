@@ -10,6 +10,7 @@ from .enums import MergeMode
 from .exceptions import StacksmithConfigError
 from .models import MergeConfig, MergePolicy
 from .provenance import ACTIVE_TRACE
+from .secrets import is_secret
 
 type MergeScope = Literal["stack", "config", "runfile", "vars"]
 
@@ -84,7 +85,7 @@ class AddressAwareMerger(Merger):
                     else "replace"
                 ),
             )
-        if mode == MergeMode.OVERRIDE:
+        if mode == MergeMode.OVERRIDE or is_secret(base) or is_secret(nxt):
             self.replaced_paths.append(tuple(path))
             return deepcopy(nxt)
 

@@ -14,6 +14,14 @@ from ..models import (
     StackDefinition,
     ToolConfig,
 )
+from ..secrets import (
+    contains_secret,
+    is_secret,
+    normalize_secrets,
+    read_secret,
+    require_secret_sources,
+    secret_fingerprint,
+)
 
 
 def _visit_operation_dependency(
@@ -204,12 +212,17 @@ def build_operation_module_spec(
         auth_config=auth_config,
         vendor_dir=vendor_dir,
     )
+    values, secret_bindings = _prepare_operation_secrets(
+        values, definition, stack, operation_instance_name
+    )
     spec: dict[str, Any] = {
         "identity": _execution_identity(
             stack, invocation.use, definition, values, invocation.rerun_token
         ),
         "runner": definition.runner,
     }
+    if secret_bindings:
+        spec["secret_bindings"] = secret_bindings
     if isinstance(definition, LocalOperationDefinition):
         base = (
             config.source_path.parent if config.source_path is not None else Path.cwd()
@@ -225,6 +238,11 @@ def build_operation_module_spec(
                             *(
                                 str(values[input_name])
                                 for input_name in definition.output_masking.inputs
+                                if input_name in values
+                                and not (
+                                    isinstance(values[input_name], dict)
+                                    and "$secret_env" in values[input_name]
+                                )
                                 if str(values[input_name])
                             ),
                         ]
@@ -248,7 +266,10 @@ def build_operation_module_spec(
                 "poll_interval_seconds": definition.poll_interval_seconds,
                 "timeout_seconds": definition.timeout_seconds,
                 "parameters": {
-                    name: str(values[input_name])
+                    name: values[input_name]
+                    if isinstance(values[input_name], dict)
+                    and "$secret_env" in values[input_name]
+                    else str(values[input_name])
                     for name, input_name in definition.parameters.items()
                 },
             }
@@ -256,9 +277,53 @@ def build_operation_module_spec(
     return spec
 
 
+def _prepare_operation_secrets(
+    values: dict[str, Any],
+    definition: OperationDefinition,
+    stack: StackDefinition,
+    operation_name: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    values = normalize_secrets(
+        values, stack.source_path.parent if stack.source_path else Path.cwd()
+    )
+    require_secret_sources(
+        values,
+        (
+            name
+            for name, specification in definition.inputs.items()
+            if specification.secret
+        ),
+        "operation input",
+    )
+    bindings = {}
+    for name, value in values.items():
+        if not is_secret(value):
+            if contains_secret(value):
+                raise StacksmithConfigError(
+                    "Secret operation parameters must be whole text values"
+                )
+            continue
+        environment = (
+            "STACKSMITH_SECRET_"
+            + hashlib.sha256(json.dumps([stack.name, operation_name, name]).encode())
+            .hexdigest()
+            .upper()
+        )
+        bindings[name] = {
+            "source": value,
+            "environment": environment,
+            "fingerprint": secret_fingerprint(read_secret(value)),
+        }
+        values[name] = {
+            "$secret_env": environment,
+            "fingerprint": bindings[name]["fingerprint"],
+        }
+    return values, bindings
+
+
 def _build_local_operation_environment(
     definition: LocalOperationDefinition, values: dict[str, Any]
-) -> dict[str, str]:
+) -> dict[str, Any]:
     if definition.environment is None:
         return {}
     excluded_inputs = set(definition.environment.inputs.exclude)
@@ -277,6 +342,8 @@ def _build_local_operation_environment(
         environment_inputs[environment_name] = input_name
         value_to_key[input_name] = environment_name
     return {
-        environment_name: str(values[input_name])
+        environment_name: values[input_name]
+        if isinstance(values[input_name], dict) and "$secret_env" in values[input_name]
+        else str(values[input_name])
         for environment_name, input_name in environment_inputs.items()
     }

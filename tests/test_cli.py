@@ -1645,12 +1645,16 @@ def test_validate_stack_is_reusable_without_namespace(monkeypatch, tmp_path):
         return SimpleNamespace(
             remote_auth=None,
             var_validations={},
+            inputs={},
+            operations={},
             source_path=tmp_path / "stacksmith-config.yaml",
         )
 
     def _fake_load_stack(stack_file, **kwargs):
         calls["stack_file"] = stack_file
-        return SimpleNamespace(source_path=stack_path, name="example", tags=set())
+        return SimpleNamespace(
+            source_path=stack_path, name="example", tags=set(), operations={}
+        )
 
     def _fake_resolve_inputs(*args, **kwargs):
         calls["resolve_inputs"] = kwargs
@@ -1683,6 +1687,7 @@ def test_validate_stack_is_reusable_without_namespace(monkeypatch, tmp_path):
         ],
         "input_layers": [("var", "bucket_name=my-bucket")],
         "config_validations": None,
+        "input_specs": {},
         "config_validation_base_path": tmp_path,
         "cache_dir": tmp_path / ".stacksmith" / ".cache",
         "auth_config": None,

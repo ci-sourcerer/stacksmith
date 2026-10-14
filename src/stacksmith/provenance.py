@@ -2,6 +2,8 @@ from contextvars import ContextVar
 from copy import deepcopy
 from typing import Any
 
+from .secrets import contains_secret, is_secret
+
 
 class ResolutionTrace:
     """Collect ordered resolution events for an inspection session."""
@@ -107,10 +109,10 @@ def redact_values(value: Any, show_values: bool = False) -> Any:
     Returns:
         A sanitized copy of the value.
     """
-    if show_values:
-        return deepcopy(value)
+    if is_secret(value) or (isinstance(value, str) and contains_secret(value)):
+        return "[REDACTED]"
     if isinstance(value, dict):
-        return {key: redact_values(item) for key, item in value.items()}
+        return {key: redact_values(item, show_values) for key, item in value.items()}
     if isinstance(value, list):
-        return [redact_values(item) for item in value]
-    return "[REDACTED]"
+        return [redact_values(item, show_values) for item in value]
+    return deepcopy(value) if show_values else "[REDACTED]"

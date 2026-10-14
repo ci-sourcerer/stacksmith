@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import json
 import os
 import subprocess
@@ -5,7 +7,27 @@ import sys
 import threading
 
 spec = json.loads(os.environ["STACKSMITH_OPERATION_SPEC"])
+for binding in spec.get("secret_bindings", {}).values():
+    if not hmac.compare_digest(
+        hmac.new(
+            os.environ["STACKSMITH_SECRET_FINGERPRINT_KEY"].encode(),
+            os.environ[binding["environment"]].encode(),
+            hashlib.sha256,
+        ).hexdigest(),
+        binding["fingerprint"],
+    ):
+        raise RuntimeError("Operation secret changed after planning")
+for name, value in spec["environment"].items():
+    if isinstance(value, dict) and "$secret_env" in value:
+        spec["environment"][name] = os.environ[value["$secret_env"]]
+spec.setdefault("mask_literals", []).extend(
+    os.environ[binding["environment"]]
+    for binding in spec.get("secret_bindings", {}).values()
+)
 environment = os.environ.copy()
+for name in list(environment):
+    if name.startswith("STACKSMITH_SECRET_") or name == "STACKSMITH_OPERATION_SPEC":
+        del environment[name]
 environment.update(spec["environment"])
 stream_output = spec.get("stream_output", False)
 

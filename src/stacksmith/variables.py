@@ -15,13 +15,16 @@ from .merging import AddressAwareMerger
 from .models import (
     FileReference,
     InlineReference,
+    InputSpec,
     MergeConfig,
     RemoteAuthConfig,
     ValidationSpec,
     VariableReference,
+    is_file_reference_remote,
 )
 from .provenance import ACTIVE_TRACE
 from .remote import resolve_if_remote
+from .secrets import contains_secret, normalize_secrets, require_secret_sources
 from .templating import (
     create_sandboxed_jinja_environment,
     render_jinja_template_values,
@@ -76,7 +79,9 @@ def _load_vars_file(
         "variables",
         path.resolve(),
     )
-    return loaded
+    return normalize_secrets(
+        loaded, None if is_file_reference_remote(path_or_url) else path.parent
+    )
 
 
 def _iter_vars_files(
@@ -121,7 +126,7 @@ def _load_vars_source(
     auth_config: RemoteAuthConfig | None = None,
 ) -> dict[str, Any]:
     if isinstance(source, InlineReference):
-        return source.data
+        return normalize_secrets(source.data, Path.cwd())
     return _load_vars_file(source, cache_dir=cache_dir, auth_config=auth_config)
 
 
@@ -161,6 +166,7 @@ def resolve_inputs(
     auth_config: RemoteAuthConfig | None = None,
     merge_mode: MergeConfig = MergeMode.DEEP,
     context: dict[str, Any] | None = None,
+    input_specs: dict[str, InputSpec] | None = None,
 ) -> dict[str, Any]:
     """Resolve input values from all sources and validate them.
 
@@ -179,6 +185,7 @@ def resolve_inputs(
             config. Keyed by variable name.
         config_validation_base_path: Base directory for config-defined validation
             scripts.
+        input_specs: Managed input sensitivity declarations.
         cache_dir: Cache directory for fetching remote resources.
         auth_config: Optional host-keyed auth configuration for remote fetching.
         merge_mode: Merge strategy for layered vars files and inline values.
@@ -210,7 +217,11 @@ def resolve_inputs(
             continue
 
         name = env_key.removeprefix(_ENV_PREFIX).lower()
-        coerced = coerce_input_value(env_val)
+        coerced = (
+            {"$secret": {"env": env_key}}
+            if input_specs and name in input_specs and input_specs[name].secret
+            else coerce_input_value(env_val)
+        )
         if trace := ACTIVE_TRACE.get():
             trace.layer("inputs", env_key, {name: coerced})
         _merge_resolved_value(resolved, name, coerced, merger)
@@ -231,6 +242,10 @@ def resolve_inputs(
             case _:
                 raise StacksmithConfigError(f"Unsupported input layer kind: {kind}")
 
+    resolved = normalize_secrets(resolved, Path.cwd())
+    require_secret_sources(
+        resolved, (name for name, spec in (input_specs or {}).items() if spec.secret)
+    )
     context = _with_git_repository_context(context or {})
     unrendered_inputs = deepcopy(resolved) if ACTIVE_TRACE.get() else {}
     rendered_inputs = deepcopy(resolved)
@@ -256,6 +271,10 @@ def resolve_inputs(
     if config_validations:
         for name, spec in config_validations.items():
             if name in resolved:
+                if contains_secret(resolved[name]):
+                    raise StacksmithConfigError(
+                        f"Secret input '{name}' cannot use Python validation hooks"
+                    )
                 outcome, error_msg = validate_value(
                     spec,
                     resolved[name],

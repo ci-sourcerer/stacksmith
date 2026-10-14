@@ -77,8 +77,20 @@ def _should_run_plan_validation_flow(
 @contextmanager
 def _build_env(
     auth_config: RemoteAuthConfig | None = None,
+    working_dir: Path | None = None,
 ) -> Generator[dict[str, str]]:
+    from .constants import GENERATED_TF_JSON
+    from .secrets import secret_environment
+
     env = os.environ.copy()
+    if working_dir is not None and (working_dir / GENERATED_TF_JSON).is_file():
+        env.update(
+            secret_environment(
+                json.loads(
+                    (working_dir / GENERATED_TF_JSON).read_text(encoding="utf-8")
+                )
+            )
+        )
     env["TG_TF_PATH"] = _RESOLVED_TOOLCHAIN.tofu
     with terragrunt_auth_env(env, auth_config):
         LOGGER.debug(
@@ -184,7 +196,7 @@ def _run_terragrunt(
     capture_output: bool = False,
     auth_config: RemoteAuthConfig | None = None,
 ) -> subprocess.CompletedProcess[str] | int:
-    with _build_env(auth_config) as env:
+    with _build_env(auth_config, working_dir) as env:
         kwargs = {
             "cwd": working_dir,
             "env": env,
@@ -211,7 +223,7 @@ def _run_terragrunt(
 def _run_terragrunt_streaming(
     cmd: list[str], working_dir: Path, auth_config: RemoteAuthConfig | None = None
 ) -> int:
-    with _build_env(auth_config) as env:
+    with _build_env(auth_config, working_dir) as env:
         result = subprocess.run(  # noqa: PLW1510
             cmd,
             cwd=working_dir,

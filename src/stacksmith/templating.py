@@ -6,6 +6,12 @@ from jinja2 import ChainableUndefined, StrictUndefined, Undefined
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 from .provenance import ACTIVE_TRACE
+from .secrets import (
+    is_secret,
+    normalize_secrets,
+    secret_template_context,
+    validate_secret_template,
+)
 
 _JINJA_MARKERS = ("{{", "{%", "{#")
 _MISSING = sentinel("_MISSING")
@@ -91,7 +97,14 @@ def render_jinja_template_values(
         Rendered value with the same nested structure as the input.
     """
     if isinstance(value, str) and contains_jinja_template(value):
-        return jinja_env.from_string(value).render(_build_render_context(context))
+        validate_secret_template(jinja_env.parse(value), context)
+        return normalize_secrets(
+            jinja_env.from_string(value).render(
+                secret_template_context(_build_render_context(context))
+            )
+        )
+    if is_secret(value):
+        return value
     if isinstance(value, dict):
         for key, nested in value.items():
             value[key] = render_jinja_template_values(

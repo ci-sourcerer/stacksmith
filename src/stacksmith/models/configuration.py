@@ -843,6 +843,13 @@ class DefaultModuleMapping(_ModuleMappingBase):
     source: ModuleSourceTemplateReference
 
 
+class InputSpec(BaseModel):
+    """Sensitivity metadata for an ordinary Stacksmith input."""
+
+    description: str | None = None
+    secret: bool = False
+
+
 class OperationInputSpec(BaseModel):
     """Input contract for a native Stacksmith operation."""
 
@@ -977,18 +984,6 @@ class LocalOperationDefinition(BaseModel):
                 "Operation output masking references undeclared inputs: "
                 f"{', '.join(unknown_mask_inputs)}"
             )
-        if self.stream_output and (
-            missing_secret_masks := sorted(
-                name
-                for name, specification in self.inputs.items()
-                if specification.secret and name not in self.output_masking.inputs
-            )
-        ):
-            raise ValueError(
-                "Operation output masking must include secret inputs when "
-                "stream_output is enabled: "
-                f"{', '.join(missing_secret_masks)}"
-            )
         return self
 
 
@@ -1088,6 +1083,7 @@ class ToolConfig(BaseModel):
     default_module_mapping: DefaultModuleMapping | None = None
     associations: dict[str, AssociationRule] = Field(default_factory=dict)
     operations: dict[str, OperationDefinition] = Field(default_factory=dict)
+    inputs: dict[str, InputSpec] = Field(default_factory=dict)
     var_validations: dict[str, ValidationSpec] = Field(default_factory=dict)
     plan_validations: dict[str, PlanValidation] = Field(default_factory=dict)
     remote_auth: dict[str, RemoteAuthEntry] = Field(default_factory=dict)

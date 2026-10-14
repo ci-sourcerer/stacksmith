@@ -11,6 +11,11 @@ from jinja2 import TemplateError, UndefinedError
 
 from ..component_references import validate_component_reference_template
 from ..exceptions import StacksmithConfigError, StacksmithNotFoundError
+from ..secrets import (
+    normalize_secrets,
+    secret_template_context,
+    validate_secret_template,
+)
 from ..templating import create_sandboxed_jinja_environment
 
 _UNDEFINED_ATTRIBUTE_PATTERN = re.compile(r"has no attribute '([^']+)'")
@@ -101,7 +106,8 @@ def _render_template(
     try:
         environment = create_sandboxed_jinja_environment(strict)
         validate_component_reference_template(environment, text)
-        return environment.from_string(text).render(context)
+        validate_secret_template(environment.parse(text), context)
+        return environment.from_string(text).render(secret_template_context(context))
     except UndefinedError as exc:
         raise StacksmithConfigError(
             _format_undefined_template_error(text, path, exc)
@@ -135,7 +141,7 @@ def load_object_file(
             template_context,
             strict=strict_template_context,
         )
-    return _parse_object_file(path, suffix, text)
+    return normalize_secrets(_parse_object_file(path, suffix, text), path.parent)
 
 
 def _format_yaml_range(node: yaml.nodes.Node, path: Path) -> str:

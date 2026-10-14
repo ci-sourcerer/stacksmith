@@ -248,7 +248,7 @@ environment:
 
 OpenTofu suppresses all `local-exec` output when its command or environment contains a sensitive value. To support operation-level output control, Stacksmith declassifies the runner specification only at the local process boundary while keeping it sensitive in plans, then discards the child process's standard output and standard error by default. Set `stream_output: true` on a managed local operation to inherit those streams through OpenTofu.
 
-Use `output_masking` to define literal redaction rules for streamed local operation output. `output_masking.literals` masks fixed literal strings, and `output_masking.inputs` masks resolved values for selected operation inputs. When streaming is enabled, every secret input must be listed in `output_masking.inputs`.
+Use `output_masking` to define literal redaction rules for streamed local operation output. `output_masking.literals` masks fixed literal strings, and `output_masking.inputs` masks resolved values for selected operation inputs. Env-backed and file-backed secret inputs are masked automatically when streaming is enabled. See [secret inputs](stack-authoring.md#secret-inputs) for declaration and execution requirements.
 
 ```yaml
 # stacksmith-config.yaml

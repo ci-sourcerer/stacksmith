@@ -986,6 +986,19 @@
           "description": "Terragrunt binary settings."
         }
       }
+    },
+    "inputSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "secret": {
+          "type": "boolean",
+          "default": false
+        }
+      }
     }
   },
   "additionalProperties": false,
@@ -1161,6 +1174,13 @@
         "$ref": "#/$defs/operationDefinition"
       },
       "description": "Approved native operations keyed by operation name. Stack definitions can only select an entry from this catalogue."
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/inputSpec"
+      },
+      "description": "Sensitivity metadata for ordinary Stacksmith inputs."
     }
   },
   "x-stacksmith-schema-profile": "layer"

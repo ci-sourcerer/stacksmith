@@ -23,6 +23,12 @@ from ..models import (
     render_module_source_identity,
 )
 from ..module_mapping import auto_exposed_output_names, resolve_module_mapping
+from ..secrets import (
+    SECRET_SOURCES_LOCAL,
+    bind_secret_variables,
+    normalize_secrets,
+    require_secret_sources,
+)
 from ..stack_outputs import build_stack_output_blocks
 from ..utils import (
     derive_operation_state_key,
@@ -575,6 +581,9 @@ def generate_tf_json(
     Returns:
         Dict representing the entire `.tf.json` file content.
     """
+    require_secret_sources(
+        resolved_inputs, (name for name, spec in config.inputs.items() if spec.secret)
+    )
     module_source_options = None
     provider_source_options = None
     if formatter_options is not None:
@@ -635,6 +644,24 @@ def generate_tf_json(
     )
     if providers:
         doc["provider"] = providers
+    secret_sources = {}
+    doc = bind_secret_variables(
+        normalize_secrets(
+            doc, stack.source_path.parent if stack.source_path else Path.cwd()
+        ),
+        secret_sources,
+    )
+    if secret_sources:
+        doc["variable"] = {
+            name: {"type": "string", "sensitive": True, "nullable": False}
+            for name in secret_sources
+        }
+        doc["locals"] = {SECRET_SOURCES_LOCAL: secret_sources}
+        for output in doc.get("output", {}).values():
+            output["sensitive"] = True
+        LOGGER.warning(
+            "Secret inputs can be retained in OpenTofu plan and state files; protect these artifacts"
+        )
     return doc
 
 

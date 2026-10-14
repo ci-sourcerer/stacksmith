@@ -174,6 +174,9 @@ def _dedupe_unique_ordered_list(items: list[Any]) -> list[Any]:
 
 
 def _build_stack(data: dict[str, Any], stack_paths: list[Path]) -> StackDefinition:
+    from ..secrets import validate_secret_locations
+
+    validate_secret_locations(data)
     validate_component_reference_locations(data)
     validate_effective_document(
         data,
@@ -228,6 +231,9 @@ def _merge_stack_layers(
             strict_template_context=strict_template_context,
         )
         if strict_template_context:
+            from ..secrets import validate_secret_locations
+
+            validate_secret_locations(layer)
             validate_fragment(
                 layer,
                 "stack.schema.json",

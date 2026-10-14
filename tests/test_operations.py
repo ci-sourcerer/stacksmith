@@ -230,26 +230,24 @@ def test_streams_output_for_an_operation_without_secret_inputs():
     assert module["spec"]["stream_output"] is True
 
 
-def test_rejects_streaming_output_for_an_operation_with_secret_inputs():
+def test_streaming_secret_inputs_no_longer_require_explicit_masks():
     config_data = _config().model_dump(mode="json")
     config_data["operations"]["deploy"]["stream_output"] = True
     config_data["operations"]["deploy"]["inputs"]["release_tag"]["secret"] = True
 
-    with pytest.raises(
-        ValueError,
-        match="Operation output masking must include secret inputs",
-    ):
-        ToolConfig.model_validate(config_data)
+    assert ToolConfig.model_validate(config_data).operations["deploy"].stream_output
 
 
-def test_streaming_output_allows_secret_input_when_configured_for_masking():
+def test_streaming_output_allows_secret_input_when_configured_for_masking(monkeypatch):
+    monkeypatch.setenv("DEPLOY_TOKEN", "1.2.3-secret")
+    monkeypatch.setenv("STACKSMITH_SECRET_FINGERPRINT_KEY", "test-key")
     stack = StackDefinition.model_validate(
         {
             "name": "application",
             "operations": {
                 "deploy_app": {
                     "use": "deploy",
-                    "with": {"release_tag": "1.2.3-secret"},
+                    "with": {"release_tag": {"$secret": {"env": "DEPLOY_TOKEN"}}},
                 }
             },
         }
@@ -268,7 +266,11 @@ def test_streaming_output_allows_secret_input_when_configured_for_masking():
 
     module = generated["module"]["stacksmith_operation_deploy_app"]
     assert module["spec"]["stream_output"] is True
-    assert module["spec"]["mask_literals"] == ["DO-NOT-LEAK", "1.2.3-secret"]
+    assert module["spec"]["mask_literals"] == ["DO-NOT-LEAK"]
+    assert module["spec"]["secret_bindings"]["release_tag"]["source"] == {
+        "$secret": {"env": "DEPLOY_TOKEN"}
+    }
+    assert "1.2.3-secret" not in json.dumps(generated)
 
 
 def test_rejects_streaming_output_for_a_jenkins_operation():

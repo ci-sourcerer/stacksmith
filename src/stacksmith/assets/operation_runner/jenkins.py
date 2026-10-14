@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import hmac
 import json
 import os
 import time
@@ -43,6 +45,19 @@ def _wait_for_result(build_url, authorization, deadline, poll_interval):
 
 def _run():
     spec = json.loads(os.environ["STACKSMITH_OPERATION_SPEC"])
+    for binding in spec.get("secret_bindings", {}).values():
+        if not hmac.compare_digest(
+            hmac.new(
+                os.environ["STACKSMITH_SECRET_FINGERPRINT_KEY"].encode(),
+                os.environ[binding["environment"]].encode(),
+                hashlib.sha256,
+            ).hexdigest(),
+            binding["fingerprint"],
+        ):
+            raise RuntimeError("Operation secret changed after planning")
+    for name, value in spec["parameters"].items():
+        if isinstance(value, dict) and "$secret_env" in value:
+            spec["parameters"][name] = os.environ[value["$secret_env"]]
     authorization = (
         "Basic "
         + base64.b64encode(

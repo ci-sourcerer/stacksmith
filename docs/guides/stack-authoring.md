@@ -163,3 +163,72 @@ def config(**context):
         "region": "us-east-1",
     }
 ```
+
+## Secret inputs
+
+Use a `$secret` reference to supply text from an environment variable or a local UTF-8 file. Stacksmith keeps the reference through merging and rendering, then supplies the contents through the execution environment. No external secret-manager integration is required; CI can populate the environment or mount the files.
+
+```yaml
+# vars.yaml
+api_token:
+  $secret:
+    env: DEPLOY_API_TOKEN
+private_key:
+  $secret:
+    file: ./secrets/private-key.pem
+password:
+  $secret:
+    file: /run/secrets/database-password
+    strip_trailing_newline: true
+```
+
+Exactly one of `env` or `file` is required. Values remain strings, including empty strings; JSON-looking text and Jinja syntax inside a secret are never evaluated. Files preserve whitespace and line endings unless `strip_trailing_newline: true` removes trailing CR/LF characters. Missing environment variables, unreadable files, and invalid UTF-8 fail execution without displaying contents. Stacksmith does not create or copy secret files; provision them with permissions appropriate to the executing user.
+
+Relative file paths in local documents are anchored to the declaring document's directory. Inline API and CLI declarations use the current directory. Remote vars files require absolute secret paths. Use absolute paths for remotely sourced stack and runfile declarations as well, since their local cache directories are not a portable base for injected files.
+
+Managed configuration can require a secret source for an ordinary input.
+
+```yaml
+# stacksmith-config.yaml
+inputs:
+  api_token:
+    description: Deployment API credential
+    secret: true
+```
+
+A `$secret` reference is secret even without managed metadata. With `secret: true`, plaintext values in vars files or `--var` are rejected. The existing `STACKSMITH_VAR_API_TOKEN` environment mechanism is automatically treated as a secret source for an input declared secret. Normal input precedence still applies, and replacing a secret reference replaces the whole reference, rather than merging its source fields.
+
+Use direct interpolation to pass a secret into a component or operation.
+
+```yaml
+# stack.yaml
+name: application
+components:
+  application:
+    type: application
+    properties:
+      api_token: "{{ inputs.api_token }}"
+operations:
+  deploy:
+    use: deploy
+    with:
+      token: "{{ inputs.api_token }}"
+```
+
+Secret references also work directly in component properties and operation `with` values. Operation parameters must be whole text secrets; component properties may contain references inside objects or lists. Required and automatic module input injection preserve references. Secrets cannot define stack names, tags, component names, or other structural fields. Secret interpolation must occupy the entire value. Filters, concatenation, control flow, dynamic access through a container containing secrets, and secret-value Python validation or transformation hooks are unsupported. Ordinary non-secret inputs retain their existing behavior.
+
+Managed operations declare `secret: true` on their input contracts. Local runners automatically mask secret text in streamed output, including matches split across output chunks. Explicit output masks remain available for other values. Masking covers literal text, not encoded or transformed variants printed by a command. Jenkins receives the resolved secret as a job parameter; Jenkins configuration controls its storage and display.
+
+```yaml
+# Within an operation definition
+inputs:
+  token:
+    required: true
+    secret: true
+```
+
+Operations with secrets require `STACKSMITH_SECRET_FINGERPRINT_KEY` during generation and execution. Supply a stable, high-entropy value through the execution environment; for example, a CI-managed random credential. Do not commit it. Stacksmith uses a keyed SHA-256 fingerprint so changing a secret changes execution identity without storing the secret or an unkeyed hash. Changing the key also changes identity. If a source or key changes after generation, execution fails and requires a new operation plan. The fingerprint key is removed from the local operation child's environment.
+
+Run secret-backed configurations through Stacksmith so it can populate the generated runtime bindings. Ordinary input contents are passed as sensitive OpenTofu root variables; operation contents reach the runner through inherited environment bindings. Generated configuration and provenance contain references rather than secret contents, and `--show-values` never resolves or reveals secret contents.
+
+Sensitive OpenTofu variables can still be retained in binary plans and state. Generation emits a warning, and all root outputs are conservatively marked sensitive when secret root variables are present. Protect plans, state, raw plan JSON, and execution environments. An infrastructure saved plan applies the values captured during planning; changing a source does not replace the values in that plan. Operation plans instead verify their runtime values against the generated keyed fingerprints. CI must make the required sources available in each phase that uses them, and local file paths must exist on that phase's worker. Stacksmith's existing reviewed-plan encryption and artifact policies continue to apply.

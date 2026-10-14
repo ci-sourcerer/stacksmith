@@ -22,6 +22,7 @@ from ..models import (
     ToolConfig,
 )
 from ..provenance import ACTIVE_TRACE
+from ..secrets import contains_secret
 from ..templating import (
     create_sandboxed_jinja_environment,
     render_jinja_template_values,
@@ -102,6 +103,11 @@ def apply_property_spec(
     rendered = value
     if property_spec is None:
         return rendered
+
+    if contains_secret(value) and (property_spec.transform or property_spec.validation):
+        raise StacksmithConfigError(
+            "Secret properties cannot use transforms or validation hooks"
+        )
 
     if property_spec.transform is not None:
         try:

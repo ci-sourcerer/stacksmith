@@ -59,6 +59,10 @@ def apply_stack_output_transform(
     """
     if specification.transform is None:
         return value
+    from .secrets import contains_secret
+
+    if contains_secret(value):
+        raise StacksmithTransformError("Secret outputs cannot use transforms")
     try:
         validate_component_reference_template(
             create_sandboxed_jinja_environment(),
