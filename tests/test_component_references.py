@@ -445,7 +445,7 @@ def test_rejects_component_outputs_outside_runtime_values(tmp_path: Path):
 def test_rejects_raw_module_references(tmp_path: Path):
     with pytest.raises(
         StacksmithConfigError,
-        match="Raw Terraform module references are not supported",
+        match="Raw OpenTofu module references are not supported",
     ):
         _load_rendered_stack(
             tmp_path / "stack.yaml",

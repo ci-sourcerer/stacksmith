@@ -1,5 +1,7 @@
 import json
 import textwrap
+from collections.abc import Generator
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import pytest
@@ -25,6 +27,23 @@ from stacksmith.models import (
     TransformSpec,
     ValidationSpec,
 )
+
+
+@contextmanager
+def _mock_module_inputs(
+    variable_names: set[str], variable_types: dict[str, str] | None = None
+) -> Generator[None]:
+    with (
+        patch(
+            "stacksmith.inspector.discover_module_variables",
+            return_value=variable_names,
+        ),
+        patch(
+            "stacksmith.inspector.discover_module_variable_types",
+            return_value=variable_types or {},
+        ),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -88,8 +107,9 @@ def _auto_inject_inputs_mapping() -> ModuleMapping:
 
 def test_inspect_component_type_basic(_simple_mapping):
     discovered = {"bucket_name", "bucket_acl", "tags"}
-    with patch(
-        "stacksmith.inspector.discover_module_variables", return_value=discovered
+    with _mock_module_inputs(
+        discovered,
+        {"bucket_name": "string", "bucket_acl": "string", "tags": "map(string)"},
     ):
         result = inspect_component_type("aws_s3_bucket", _simple_mapping)
 
@@ -103,6 +123,11 @@ def test_inspect_component_type_basic(_simple_mapping):
     assert "acl" in names
     assert "bucket_name" in names
     assert "tags" in names
+    assert {input_.name: input_.type_constraint for input_ in result.inputs} == {
+        "acl": "string",
+        "bucket_name": "string",
+        "tags": "map(string)",
+    }
     assert result.outputs == [
         OutputInfo(
             name="id",
@@ -149,10 +174,7 @@ def test_format_json_includes_public_component_outputs():
 def test_inspect_component_type_includes_auto_exposed_outputs(_simple_mapping):
     mapping = _simple_mapping.model_copy(update={"auto_expose_outputs": True})
     with (
-        patch(
-            "stacksmith.inspector.discover_module_variables",
-            return_value={"bucket_acl"},
-        ),
+        _mock_module_inputs({"bucket_acl"}),
         patch(
             "stacksmith.inspector.discover_module_outputs",
             return_value={"endpoint", "s3_bucket_id"},
@@ -198,10 +220,7 @@ def test_inspect_table_uses_module_description(capsys):
 
 
 def test_inspect_component_type_maps_property_spec(_simple_mapping):
-    with patch(
-        "stacksmith.inspector.discover_module_variables",
-        return_value={"bucket_acl", "other"},
-    ):
+    with _mock_module_inputs({"bucket_acl", "other"}):
         result = inspect_component_type("aws_s3_bucket", _simple_mapping)
 
     acl_input = next(i for i in result.inputs if i.name == "acl")
@@ -211,9 +230,7 @@ def test_inspect_component_type_maps_property_spec(_simple_mapping):
 
 def test_inspect_component_type_auto_inject_inputs_flag(_auto_inject_inputs_mapping):
     discovered = {"instance_type", "tags", "ami"}
-    with patch(
-        "stacksmith.inspector.discover_module_variables", return_value=discovered
-    ):
+    with _mock_module_inputs(discovered):
         result = inspect_component_type("aws_ec2_instance", _auto_inject_inputs_mapping)
 
     assert result.auto_inject_inputs is True
@@ -225,9 +242,7 @@ def test_inspect_component_type_auto_inject_inputs_flag(_auto_inject_inputs_mapp
 def test_inspect_component_type_validation_transform_metadata(
     _auto_inject_inputs_mapping,
 ):
-    with patch(
-        "stacksmith.inspector.discover_module_variables", return_value={"tags", "ami"}
-    ):
+    with _mock_module_inputs({"tags", "ami"}):
         result = inspect_component_type(
             "aws_ec2_instance",
             _auto_inject_inputs_mapping,
@@ -297,10 +312,7 @@ def test_inspect_component_type_transform_script_path_is_relative(tmp_path):
         encoding="utf-8",
     )
     config, locations = load_config_with_locations([config_path])
-    with patch(
-        "stacksmith.inspector.discover_module_variables",
-        return_value={"bucket_name"},
-    ):
+    with _mock_module_inputs({"bucket_name"}):
         results = inspect_all(
             config,
             cache_dir=None,
@@ -361,10 +373,7 @@ def test_inspect_component_type_policy_metadata_renders(tmp_path):
         encoding="utf-8",
     )
     config, locations = load_config_with_locations([config_path])
-    with patch(
-        "stacksmith.inspector.discover_module_variables",
-        return_value={"acl"},
-    ):
+    with _mock_module_inputs({"acl"}):
         results = inspect_all(
             config,
             cache_dir=None,
@@ -545,10 +554,7 @@ def test_inspect_component_type_uses_var_validation_script_location(tmp_path):
         encoding="utf-8",
     )
     config, locations = load_config_with_locations([config_path])
-    with patch(
-        "stacksmith.inspector.discover_module_variables",
-        return_value={"aws_region", "bucket_name"},
-    ):
+    with _mock_module_inputs({"aws_region", "bucket_name"}):
         results = inspect_all(
             config,
             cache_dir=None,
@@ -588,7 +594,7 @@ def test_inspect_all_filters_by_component_type(sample_config_yaml):
     from stacksmith.loading import load_config
 
     config = load_config([sample_config_yaml])
-    with patch("stacksmith.inspector.discover_module_variables", return_value=set()):
+    with _mock_module_inputs(set()):
         results = inspect_all(config, component_types=["aws_s3_bucket"])
 
     assert len(results) == 1
@@ -601,7 +607,7 @@ def test_inspect_all_unknown_type_raises(sample_config_yaml):
     config = load_config([sample_config_yaml])
     with (
         pytest.raises(StacksmithConfigError, match="not configured"),
-        patch("stacksmith.inspector.discover_module_variables", return_value=set()),
+        _mock_module_inputs(set()),
     ):
         inspect_all(config, component_types=["nonexistent_type"])
 
@@ -625,7 +631,7 @@ def test_inspect_all_resolves_requested_type_with_default_mapping(sample_config_
         }
     )
 
-    with patch("stacksmith.inspector.discover_module_variables", return_value=set()):
+    with _mock_module_inputs(set()):
         results = inspect_all(config, component_types=["convention-service"])
 
     assert len(results) == 1
@@ -638,7 +644,7 @@ def test_inspect_all_no_filter(sample_config_yaml):
     from stacksmith.loading import load_config
 
     config = load_config([sample_config_yaml])
-    with patch("stacksmith.inspector.discover_module_variables", return_value=set()):
+    with _mock_module_inputs(set()):
         results = inspect_all(config)
 
     assert len(results) == len(config.module_mappings)

@@ -35,7 +35,9 @@ operations:
 
 
 def _run_git(repo_path: Path, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", *args], cwd=repo_path, check=True, capture_output=True, shell=False
+    )
 
 
 def _initialize_repository(repo_path: Path) -> Path:
@@ -43,6 +45,7 @@ def _initialize_repository(repo_path: Path) -> Path:
     _run_git(repo_path, "init")
     _run_git(repo_path, "config", "user.email", "stacksmith@example.com")
     _run_git(repo_path, "config", "user.name", "Stacksmith Test")
+    _run_git(repo_path, "config", "commit.gpgsign", "false")
     stack_path = repo_path / "stack.yaml"
     _write_stack(stack_path)
     _run_git(repo_path, "add", "stack.yaml")
