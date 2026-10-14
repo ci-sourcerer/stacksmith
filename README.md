@@ -3,7 +3,7 @@
 Stacksmith is a YAML/JSON-driven orchestration layer for [OpenTofu](https://opentofu.org) and [Terragrunt](https://terragrunt.gruntwork.io). It lets application teams describe infrastructure as reusable components while platform teams centrally manage modules, providers, state, policy, and CI behavior.
 
 > [!WARNING]
-> Stacksmith is an early proof of concept. Interfaces and repository history may change without notice, and CI workflows—especially destructive paths—need further production validation. Use it at your own risk.
+> Stacksmith is an early proof of concept. Interfaces and repository history may change without notice, and some items need further production validation. Use at your own risk.
 
 ## What it does
 
