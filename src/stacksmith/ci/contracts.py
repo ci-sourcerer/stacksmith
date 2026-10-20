@@ -85,11 +85,23 @@ class CiExecutionRow(BaseModel):
         environment: Deployment environment name.
         runfile: Common Stacksmith runfile.
         environment_runfile: Optional environment-specific runfile overlay.
+        stack: Optional direct stack definition instead of a runfile.
     """
 
     environment: str
-    runfile: str
+    runfile: str = ""
     environment_runfile: str = ""
+    stack: str = ""
+
+    @model_validator(mode="after")
+    def _execution_source(self):
+        if bool(self.runfile) == bool(self.stack) or (
+            self.stack and self.environment_runfile
+        ):
+            raise ValueError(
+                "A CI row requires either a runfile or a direct stack definition."
+            )
+        return self
 
 
 class CiExecutionManifest(BaseModel):
@@ -384,7 +396,7 @@ def build_ci_execution_argv(
             f"CI execution manifest does not contain environment '{environment}'."
         )
     config_args = _ci_config_args(manifest.config_ref)
-    runfiles = ["--runfile", row.runfile]
+    runfiles = ["--stack", row.stack] if row.stack else ["--runfile", row.runfile]
     if row.environment_runfile:
         runfiles.extend(["--runfile", row.environment_runfile])
     if execution_phase == "test":

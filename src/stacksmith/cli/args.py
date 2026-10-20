@@ -658,6 +658,7 @@ def _add_gitops_discovery_args(
         DiscoveryMode.FOLDERS.value,
         DiscoveryMode.FLAT_FILES.value,
         DiscoveryMode.ENV_FILES.value,
+        DiscoveryMode.SINGLE.value,
         "env",
     ]
     if include_auto_mode:
@@ -673,7 +674,7 @@ def _add_gitops_discovery_args(
         default=discovery_mode_default,
         choices=discovery_mode_choices,
         help=(
-            "Environment discovery mode. Use folders, flat-files, or env-files "
+            "Environment discovery mode. Use single, folders, flat-files, or env-files "
             "(env is an alias for env-files)."
         ),
     )

@@ -44,6 +44,7 @@ class GitOpsSelectionResult:
     selected_environments: list[str]
     common_runfile: str
     changed_paths: list[str]
+    stack_file: str = ""
 
     @property
     def matrix(self) -> list[dict[str, str]]:
@@ -64,6 +65,7 @@ class GitOpsSelectionResult:
                     "environment": environment,
                     "runfile": runfile,
                     "environment_runfile": environment_runfile,
+                    **({"stack": self.stack_file} if self.stack_file else {}),
                 }
             )
         return rows
@@ -150,6 +152,11 @@ def resolve_discovery_mode(mode: DiscoveryMode, root: Path) -> DiscoveryMode:
         for path in _flat_environment_files(root)
     ):
         return DiscoveryMode.FLAT_FILES
+    if any((root / candidate).is_file() for candidate in COMMON_CANDIDATES) or any(
+        (root / f"stack.{extension}").is_file()
+        for extension in DISCOVERY_FILE_EXTENSIONS
+    ):
+        return DiscoveryMode.SINGLE
     return DiscoveryMode.FOLDERS
 
 
@@ -207,6 +214,17 @@ def discover_environments(mode: DiscoveryMode, root: Path) -> tuple[list[str], s
     """
     LOGGER.info("Discovering environments with mode=%s root=%s", mode, root)
     all_envs = []
+    if mode == DiscoveryMode.SINGLE:
+        if Path(common_run_file_for(root)).is_file():
+            return ["default"], common_run_file_for(root)
+        if any(
+            (root / f"stack.{extension}").is_file()
+            for extension in DISCOVERY_FILE_EXTENSIONS
+        ):
+            return ["default"], ""
+        raise ValueError(
+            "Single deployment mode requires a Stacksmith runfile or root stack definition at the GitOps root."
+        )
     env_root = root / "environments"
 
     if mode == DiscoveryMode.FLAT_FILES:
@@ -648,4 +666,13 @@ def evaluate_environment_selection(
         selected_environments=selected,
         common_runfile=common_runfile,
         changed_paths=used_changed_paths,
+        stack_file=(
+            next(
+                (root / f"stack.{extension}").as_posix()
+                for extension in DISCOVERY_FILE_EXTENSIONS
+                if (root / f"stack.{extension}").is_file()
+            )
+            if resolved_mode == DiscoveryMode.SINGLE and not common_runfile
+            else ""
+        ),
     )

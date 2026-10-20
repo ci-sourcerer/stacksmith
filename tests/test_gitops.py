@@ -273,3 +273,50 @@ def test_changed_paths_for_event_git_error_resilience(monkeypatch):
     # Verify we gracefully return [] on failures instead of raising exceptions
     assert changed_paths_for_event("push", before="sha1", after="sha256") == []
     assert changed_paths_for_event("pull_request", base_ref="main") == []
+
+
+@pytest.mark.parametrize("mode", ["single", "auto"])
+def test_single_deployment_uses_root_runfile_without_environment_directories(
+    tmp_path, monkeypatch, mode
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "stacksmith.yaml").write_text("stacks: []\n")
+    result = evaluate_environment_selection(
+        gitops_root=".",
+        discovery_mode=mode,
+        event_name="push",
+        changed_paths=["stacks/main.yaml"],
+    )
+    assert result.discovery_mode == "single"
+    assert result.selected_environments == ["default"]
+    assert result.matrix == [
+        {
+            "environment": "default",
+            "runfile": "stacksmith.yaml",
+            "environment_runfile": "",
+        }
+    ]
+
+
+def test_single_deployment_requires_a_runfile(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match="requires a Stacksmith runfile"):
+        evaluate_environment_selection(gitops_root=".", discovery_mode="single")
+
+
+@pytest.mark.parametrize("mode", ["auto", "single"])
+@pytest.mark.parametrize("extension", ["yaml", "yml", "json"])
+def test_single_deployment_accepts_direct_root_stack(
+    tmp_path, monkeypatch, mode, extension
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / f"stack.{extension}").write_text("{}")
+    selected = evaluate_environment_selection(gitops_root=".", discovery_mode=mode)
+    assert selected.matrix == [
+        {
+            "environment": "default",
+            "runfile": "",
+            "environment_runfile": "",
+            "stack": f"stack.{extension}",
+        }
+    ]

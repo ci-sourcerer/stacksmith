@@ -136,15 +136,19 @@ def _resolve_ci_inputs(
 def _effective_ci_backends(
     manifest: CiExecutionManifest, row: CiExecutionRow
 ) -> list[tuple[str, str]]:
-    runfile = load_runfiles(
-        [
-            Path(row.runfile).expanduser(),
-            *(
-                [Path(row.environment_runfile).expanduser()]
-                if row.environment_runfile
-                else []
-            ),
-        ]
+    runfile = (
+        RunFile(stacks=[{"source": "local", "data": {"path": row.stack}}])
+        if row.stack
+        else load_runfiles(
+            [
+                Path(row.runfile).expanduser(),
+                *(
+                    [Path(row.environment_runfile).expanduser()]
+                    if row.environment_runfile
+                    else []
+                ),
+            ]
+        )
     )
     workdir_path = (
         Path(manifest.workdir).expanduser() / STACKSMITH_DIR_NAME / CACHE_DIR_NAME
@@ -449,12 +453,17 @@ def validate_ci_inputs(
             )
         )
     elif discovery is not None:
-        common_runfile_path = Path(discovery["common_runfile"]).expanduser()
-        if not common_runfile_path.is_absolute():
+        common_runfile_path = Path(
+            next(
+                (item["stack"] for item in discovery["matrix"] if item.get("stack")),
+                discovery["common_runfile"],
+            )
+        ).expanduser()
+        if not common_runfile_path.is_absolute() and not common_runfile_path.is_file():
             common_runfile_path = (
                 Path(discovery["gitops_root"] or ".") / common_runfile_path
             )
-        exists = common_runfile_path.exists()
+        exists = common_runfile_path.is_file()
         results.append(
             CiValidationCheckResult(
                 name="common_runfile",

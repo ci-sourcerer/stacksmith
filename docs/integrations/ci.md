@@ -332,3 +332,9 @@ Validation artifacts support JSON (the default) and CSV through `--validation-re
 Managed Jenkins and GitHub Actions executions render change-report tables at 160 columns because these environments do not expose the browser viewport as a terminal width. Set `STACKSMITH_CONSOLE_WIDTH` to a positive integer to override that default; values below 80 use the minimum supported table width of 80 columns. Local interactive commands continue to use the detected terminal width. Stack and component names fold across lines when necessary instead of being truncated.
 
 Capture requires a resolved OpenTofu binary with `-json-into` support (OpenTofu 1.12 or newer). Older binaries produce an explicit unavailable report while retaining normal execution behavior. See [Applied-change reports](../guides/execution.md#applied-change-reports) for confirmation rules and coverage limits.
+
+## Single deployment without named environments
+
+Use `single` discovery mode for a repository with one Stacksmith runfile at the GitOps root, such as `stacksmith.yaml`, and no environment overlays. A direct stack definition named `stack.yaml`, `stack.yml`, or `stack.json` is also supported without a runfile. No `environments/` directory or named environment is required. `auto` also selects this mode when a common runfile exists and no environment files or folders are found.
+
+The CI manifest contains one execution row named `default`. This stable internal target keeps saved plans, report paths, and execution selection consistent. Use `--environment default` when executing that manifest directly. Existing folder and environment-file layouts retain their discovery behavior.

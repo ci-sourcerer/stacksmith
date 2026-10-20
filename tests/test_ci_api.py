@@ -270,6 +270,7 @@ def test_prepare_ci_execution_returns_provider_neutral_manifest(tmp_path: Path):
             "environment": "dev",
             "runfile": f"{tmp_path.as_posix()}/common/stacksmith.yaml",
             "environment_runfile": f"{tmp_path.as_posix()}/environments/dev.yaml",
+            "stack": "",
         }
     ]
 
@@ -1401,3 +1402,37 @@ def test_managed_ci_archives_applied_change_reports():
     jenkins_pipeline = (root / "jenkins/vars/stacksmith.groovy").read_text()
     assert 'artifacts << "${archiveArtifactDir}/apply-summary.json"' in jenkins_pipeline
     assert "archiveArtifacts(artifacts: artifacts.join(','))" in jenkins_pipeline
+
+
+def test_single_direct_stack_prepares_and_executes_without_a_runfile(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "stack.yaml").write_text("name: example\ncomponents: {}\n")
+    manifest = prepare_ci_execution(
+        command="plan",
+        config_ref=str(_REMOTE_BACKEND_CONFIG.resolve()),
+        gitops_root=".",
+        discovery_mode="single",
+        skip_branch_validation=True,
+    )
+    assert manifest.matrix[0].stack == "stack.yaml"
+    arguments = build_ci_execution_argv(manifest, "default", phase="plan")
+    assert arguments[arguments.index("--stack") + 1] == "stack.yaml"
+    assert "--runfile" not in arguments
+    assert (
+        validate_ci_inputs(gitops_root=".", discovery_mode="single")["status"] == "pass"
+    )
+
+
+def test_single_direct_stack_still_rejects_local_backend(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "stack.yaml").write_text("name: example\ncomponents: {}\n")
+    with pytest.raises(StacksmithConfigError, match="local backend"):
+        prepare_ci_execution(
+            command="plan",
+            config_ref=str(_LOCAL_BACKEND_CONFIG.resolve()),
+            gitops_root=".",
+            discovery_mode="single",
+            skip_branch_validation=True,
+        )

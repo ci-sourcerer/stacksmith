@@ -687,7 +687,7 @@ stacksmith info graph [-h] [--action {plan,apply,destroy}] [--root ROOT] [--stac
 
 ```text
 stacksmith ci environments [-h] [--gitops-root GITOPS_ROOT]
-                                  [--discovery-mode {folders,flat-files,env-files,env,auto}]
+                                  [--discovery-mode {folders,flat-files,env-files,single,env,auto}]
                                   [--environments ENVIRONMENTS] [--event-name EVENT_NAME]
                                   [--changed-path CHANGED_PATH] [--base-ref BASE_REF] [--before BEFORE]
                                   [--after AFTER] [--format {table,json}]
@@ -696,7 +696,7 @@ stacksmith ci environments [-h] [--gitops-root GITOPS_ROOT]
 | Argument | Description |
 | - | - |
 | `--gitops-root` | Relative path to the GitOps root folder. |
-| `--discovery-mode` | Environment discovery mode. Use folders, flat-files, or env-files (env is an alias for env-files). Choices: `folders`, `flat-files`, `env-files`, `env`, `auto`. |
+| `--discovery-mode` | Environment discovery mode. Use single, folders, flat-files, or env-files (env is an alias for env-files). Choices: `folders`, `flat-files`, `env-files`, `single`, `env`, `auto`. |
 | `--environments` | Optional comma-separated environment names to target manually. |
 | `--event-name` | Optional caller event name used for event-aware selection. |
 | `--changed-path` | Changed repository path used for selection simulation. Repeatable. |
@@ -709,7 +709,7 @@ stacksmith ci environments [-h] [--gitops-root GITOPS_ROOT]
 
 ```text
 stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
-                              [--discovery-mode {folders,flat-files,env-files,env,auto}]
+                              [--discovery-mode {folders,flat-files,env-files,single,env,auto}]
                               [--environments ENVIRONMENTS] [--workflow-runfile WORKFLOW_RUNFILE]
                               [--workflow-env-file WORKFLOW_ENV_FILE]
                               [--workflow-validation-report-format WORKFLOW_VALIDATION_REPORT_FORMAT]
@@ -719,7 +719,7 @@ stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
 | Argument | Description |
 | - | - |
 | `--gitops-root` | Relative path to the GitOps root folder. |
-| `--discovery-mode` | Environment discovery mode. Use folders, flat-files, or env-files (env is an alias for env-files). Choices: `folders`, `flat-files`, `env-files`, `env`, `auto`. |
+| `--discovery-mode` | Environment discovery mode. Use single, folders, flat-files, or env-files (env is an alias for env-files). Choices: `folders`, `flat-files`, `env-files`, `single`, `env`, `auto`. |
 | `--environments` | Optional comma-separated environment names to target manually. |
 | `--workflow-runfile` | Optional runfile path to validate for CI invocations. |
 | `--workflow-env-file` | Env file path to validate for CI invocations. Use /dev/null to represent deterministic no-env-file mode. |
@@ -730,7 +730,7 @@ stacksmith ci validate [-h] [--gitops-root GITOPS_ROOT]
 
 ```text
 stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
-                             [--discovery-mode {folders,flat-files,env-files,env,auto}]
+                             [--discovery-mode {folders,flat-files,env-files,single,env,auto}]
                              [--environments ENVIRONMENTS] [--event-name EVENT_NAME]
                              [--changed-path CHANGED_PATH] [--base-ref BASE_REF] [--before BEFORE]
                              [--after AFTER]
@@ -748,7 +748,7 @@ stacksmith ci prepare [-h] [--gitops-root GITOPS_ROOT]
 | Argument | Description |
 | - | - |
 | `--gitops-root` | Relative path to the GitOps root folder. |
-| `--discovery-mode` | Environment discovery mode. Use folders, flat-files, or env-files (env is an alias for env-files). Choices: `folders`, `flat-files`, `env-files`, `env`, `auto`. |
+| `--discovery-mode` | Environment discovery mode. Use single, folders, flat-files, or env-files (env is an alias for env-files). Choices: `folders`, `flat-files`, `env-files`, `single`, `env`, `auto`. |
 | `--environments` | Optional comma-separated environment names to target manually. |
 | `--event-name` | Optional caller event name used for event-aware selection. |
 | `--changed-path` | Changed repository path used for selection simulation. Repeatable. |
