@@ -368,6 +368,7 @@ def build_ci_execution_argv(
     manifest: CiExecutionManifest,
     environment: str,
     phase: str = "",
+    summary_format: str = "table",
 ) -> list[str]:
     """Build Stacksmith command arguments for one CI manifest environment.
 
@@ -375,6 +376,7 @@ def build_ci_execution_argv(
         manifest: Provider-neutral CI execution manifest.
         environment: Environment row to execute.
         phase: Optional lifecycle phase override.
+    summary_format: Console summary format for plan and apply phases.
 
     Returns:
         Stacksmith command arguments for the selected environment.
@@ -450,6 +452,8 @@ def build_ci_execution_argv(
             f".stacksmith-ci/{row.environment}/reviewed.tfplan",
             "--save-plan-summary-json",
             f".stacksmith-ci/{row.environment}/plan-summary.json",
+            "--plan-summary",
+            summary_format,
             "--save-redacted-plan-json",
             (
                 f".stacksmith-ci/{row.environment}/"

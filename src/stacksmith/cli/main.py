@@ -22,7 +22,7 @@ from stacksmith.cli.args import (
     get_default_stack_refs,
 )
 from stacksmith.enums import MergeMode
-from stacksmith.utils import parse_bool
+from stacksmith.utils import parse_bool, stacksmith_env
 lazy from stacksmith.loading import load_runfiles, load_test_manifests
 lazy from stacksmith.models import (
     ExecutionPreview,
@@ -1267,6 +1267,11 @@ def _execute_ci_manifest(
     manifest: CiExecutionManifest, environment: str, phase: str = ""
 ) -> int:
     execution_phase = resolve_ci_execution_phase(manifest, phase)
+    summary_format = stacksmith_env("CI_SUMMARY_FORMAT", "table")
+    if summary_format not in {"table", "detailed", "none"}:
+        raise StacksmithError(
+            "STACKSMITH_CI_SUMMARY_FORMAT must be table, detailed, or none."
+        )
     if manifest.env_file != "/dev/null":
         load_env_files([Path(manifest.env_file)])
     original_directory = Path.cwd()
@@ -1298,7 +1303,9 @@ def _execute_ci_manifest(
             execution_plan_context_path(reviewed_plan).unlink(missing_ok=True)
             reviewed_plan.with_suffix(".receipt.json").unlink(missing_ok=True)
         execution_args = build_parser().parse_args(
-            build_ci_execution_argv(manifest, environment, execution_phase)
+            build_ci_execution_argv(
+                manifest, environment, execution_phase, summary_format
+            )
         )
         debug_enabled = is_debug_enabled(execution_args)
         _configure_logging(

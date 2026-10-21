@@ -177,6 +177,7 @@ def apply_execution_plan(
     *,
     destroy: bool = False,
     no_cas: bool = False,
+    summary_format: str = "table",
 ) -> int:
     """Apply a reviewed binary plan with its original generated configuration.
 
@@ -186,6 +187,7 @@ def apply_execution_plan(
         report: Applied-change report destination.
         destroy: Whether the binary contains an infrastructure destroy plan.
         no_cas: Whether to disable Terragrunt CAS.
+        summary_format: Console summary format for the apply phase.
 
     Returns:
         Process-style apply exit code.
@@ -210,7 +212,7 @@ def apply_execution_plan(
         report,
         {context.stack_name: context.components},
         "destroy" if destroy else "apply",
-        "table",
+        summary_format,
         {"reviewed_plan_sha256": context.plan_sha256},
     ) as summary:
         summary.exit_code = run_terragrunt(

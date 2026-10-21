@@ -294,6 +294,8 @@ def test_prepare_ci_execution_supports_comma_delimited_tags(tmp_path: Path):
     assert argv[argv.index("--tag") + 1] == "web"
     assert argv[argv.index("--tag") + 3] == "api"
     assert argv[argv.index("--tag") + 5] == "backend"
+    quiet_argv = build_ci_execution_argv(manifest, "dev", summary_format="none")
+    assert quiet_argv[quiet_argv.index("--plan-summary") + 1] == "none"
 
 
 def test_prepare_ci_execution_default_tags_are_empty_and_not_emitted(

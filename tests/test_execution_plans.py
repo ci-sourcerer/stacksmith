@@ -42,6 +42,8 @@ def test_apply_consumes_binary_and_restores_reviewed_configuration(
     (saved_plan.parent / "stacksmith.tf.json").write_text("changed after preview")
     runner = Mock(return_value=0)
     monkeypatch.setattr(execution_plans, "run_terragrunt", runner)
+    summary_session = Mock(wraps=execution_plans.apply_summary_session)
+    monkeypatch.setattr(execution_plans, "apply_summary_session", summary_session)
 
     assert (
         execution_plans.apply_execution_plan(
@@ -49,10 +51,12 @@ def test_apply_consumes_binary_and_restores_reviewed_configuration(
             "invocation",
             saved_plan.parent / "apply-summary.json",
             destroy=destroy,
+            summary_format="none",
         )
         == 0
     )
 
+    assert summary_session.call_args.args[4] == "none"
     assert runner.call_count == 1
     assert runner.call_args.args == (
         ["apply", str(saved_plan.resolve())],
