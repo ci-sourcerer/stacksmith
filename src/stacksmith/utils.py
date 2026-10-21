@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -314,7 +315,7 @@ def clone_git_repo(
     Args:
         repo_url: Repository URL to clone.
         dest: Directory where the clone should be written.
-        ref: Optional branch or tag to check out.
+        ref: Optional branch, tag, or full commit SHA to check out.
         env: Optional environment overrides for the git process.
 
     Returns:
@@ -331,6 +332,8 @@ def clone_git_repo(
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)
+    if ref and re.fullmatch(r"[0-9a-fA-F]{40}", ref):
+        return _clone_git_commit(repo_url, dest, ref, env)
 
     cmd = [
         "git",
@@ -342,7 +345,24 @@ def clone_git_repo(
         str(dest),
     ]
     LOGGER.debug("Cloning git repo: {cmd}", cmd=" ".join(cmd))
-    return subprocess.run(cmd, env=env, capture_output=True, text=True, check=True)
+    return subprocess.run(
+        cmd, env=env, capture_output=True, text=True, check=False, shell=False
+    )
+
+
+def _clone_git_commit(repo_url, dest, ref, env):
+    for command in (
+        ["git", "init", str(dest)],
+        ["git", "-C", str(dest), "remote", "add", "origin", repo_url],
+        ["git", "-C", str(dest), "fetch", "--depth", "1", "origin", ref],
+        ["git", "-C", str(dest), "checkout", "--detach", "FETCH_HEAD"],
+    ):
+        result = subprocess.run(
+            command, env=env, capture_output=True, text=True, check=False, shell=False
+        )
+        if result.returncode:
+            return result
+    return result
 
 
 def resolve_git_env(host: str, auth_config: dict[str, Any] | None) -> dict[str, str]:

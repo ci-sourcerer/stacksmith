@@ -200,7 +200,7 @@ class TestResolveModuleDir:
 
         call_count = {"count": 0}
 
-        def _run(cmd, env=None, capture_output=None, text=None, check=None):
+        def _run(cmd, env=None, capture_output=None, text=None, check=None, shell=None):
             call_count["count"] += 1
             clone_dir.mkdir(parents=True, exist_ok=True)
             (module_dir / "variables.tf").write_text(
