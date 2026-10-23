@@ -185,7 +185,10 @@ def test_generates_after_apply_operation_module():
     assert module["spec"]["stream_output"] is False
 
 
-def test_empty_operation_selection_generates_state_only_root(tmp_path: Path):
+@pytest.mark.parametrize("has_operations", [False, True])
+def test_empty_operation_selection_generates_state_only_root(
+    tmp_path: Path, has_operations: bool
+):
     stack = StackDefinition.model_validate(
         {
             "name": "application",
@@ -197,6 +200,8 @@ def test_empty_operation_selection_generates_state_only_root(tmp_path: Path):
             },
         }
     )
+    if not has_operations:
+        stack.operations.clear()
 
     output_path = write_operations_tf_json(
         stack,
@@ -205,7 +210,29 @@ def test_empty_operation_selection_generates_state_only_root(tmp_path: Path):
         operation_names=[],
     )
 
-    assert json.loads(output_path.read_text(encoding="utf-8"))["module"] == {}
+    assert json.loads(output_path.read_text(encoding="utf-8")) == {
+        "terraform": {
+            "required_version": "= 1.11.6",
+            "backend": {
+                "local": {
+                    "path": "../.state/application/operations/terraform.tfstate",
+                }
+            },
+        }
+    }
+    assert not (tmp_path / ".stacksmith-operation-runner").exists()
+
+
+def test_no_operations_generates_state_only_root(tmp_path: Path):
+    assert set(
+        json.loads(
+            write_operations_tf_json(
+                StackDefinition.model_validate({"name": "application"}),
+                _config(),
+                tmp_path,
+            ).read_text(encoding="utf-8")
+        )
+    ) == {"terraform"}
     assert not (tmp_path / ".stacksmith-operation-runner").exists()
 
 
@@ -530,6 +557,31 @@ def test_skips_operation_runner_assets_when_no_operations_are_generated(tmp_path
 
     write_tf_json(stack, _config(), {}, tmp_path)
 
+    assert not (tmp_path / ".stacksmith-operation-runner").exists()
+
+
+def test_empty_operation_selection_removes_existing_runner_assets(tmp_path: Path):
+    stack = StackDefinition.model_validate(
+        {
+            "name": "application",
+            "operations": {
+                "deploy_app": {
+                    "use": "deploy",
+                    "with": {"release_tag": "1.2.3"},
+                }
+            },
+        }
+    )
+    write_operations_tf_json(stack, _config(), tmp_path)
+    assert (tmp_path / ".stacksmith-operation-runner" / "main.tf").exists()
+
+    assert set(
+        json.loads(
+            write_operations_tf_json(
+                stack, _config(), tmp_path, operation_names=[]
+            ).read_text(encoding="utf-8")
+        )
+    ) == {"terraform"}
     assert not (tmp_path / ".stacksmith-operation-runner").exists()
 
 

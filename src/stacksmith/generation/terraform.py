@@ -73,13 +73,12 @@ def operation_module_name(name: str) -> str:
 def _write_operation_runner_assets(output_dir: Path, tf_json: dict[str, Any]) -> None:
     runner_names = {
         module["spec"]["runner"]
-        for module in tf_json["module"].values()
+        for module in tf_json.get("module", {}).values()
         if module.get("source") == "./.stacksmith-operation-runner"
     }
-    required_assets = {
-        "main.tf",
-        *(f"{runner_name}.py" for runner_name in runner_names),
-    }
+    required_assets = {f"{runner_name}.py" for runner_name in runner_names}
+    if runner_names:
+        required_assets.add("main.tf")
     operation_runner_dir = output_dir / ".stacksmith-operation-runner"
 
     for asset_name in _OPERATION_RUNNER_ASSETS:
@@ -607,8 +606,9 @@ def generate_tf_json(
             root,
             provider_source_formatter_options=provider_source_options,
         ),
-        "module": modules,
     }
+    if modules:
+        doc["module"] = modules
     output_blocks = build_stack_output_blocks(
         stack,
         config,
@@ -709,8 +709,9 @@ def generate_operations_tf_json(
     )
     doc: dict[str, Any] = {
         "terraform": _generate_operations_terraform_block(config, stack, root),
-        "module": modules,
     }
+    if modules:
+        doc["module"] = modules
     if _has_bridge_output_reference(modules):
         doc["data"] = _generate_operations_infrastructure_state_data(
             config,

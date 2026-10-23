@@ -20,6 +20,7 @@ from stacksmith.models import (
     ModuleInputSpec,
     ModuleMapping,
     ModulePropertySpec,
+    StackDefinition,
     ToolConfig,
     TransformSpec,
     ValidationSpec,
@@ -91,6 +92,37 @@ def _load_shared_example_config():
 
 
 class TestGenerateTfJson:
+    @pytest.mark.parametrize("outputs", [{}, {"release": {"value": "1.2.3"}}])
+    def test_stack_without_components_omits_empty_labeled_blocks(
+        self, tmp_path: Path, outputs: dict
+    ):
+        generated = json.loads(
+            write_tf_json(
+                StackDefinition.model_validate({"name": "empty", "outputs": outputs}),
+                ToolConfig.model_validate(
+                    {
+                        "backend": {"data": {"type": "local", "path": ".state"}},
+                        "default_module_mapping": {
+                            "source": {"source": "local", "data": {"path": "./unused"}}
+                        },
+                    }
+                ),
+                {},
+                tmp_path,
+            ).read_text(encoding="utf-8")
+        )
+
+        assert generated["terraform"]["backend"] == {
+            "local": {"path": ".state/empty/terraform.tfstate"}
+        }
+        for block_type in ("module", "provider", "data", "variable"):
+            assert block_type not in generated
+        if outputs:
+            assert generated["output"]["release"]["value"] == "1.2.3"
+        else:
+            assert "output" not in generated
+        assert not (tmp_path / ".stacksmith-operation-runner").exists()
+
     def test_generate_tf_json_passes_formatter_options(
         self, sample_stack_yaml: Path, sample_config_yaml: Path
     ):
