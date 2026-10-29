@@ -1,0 +1,1693 @@
+import argparse
+import contextlib
+import importlib.util
+import json
+import logging
+import os
+import shlex
+import subprocess
+import sys
+import tempfile
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+lazy import hashlib
+
+from loguru import logger as LOGGER
+lazy from rich.console import Console
+lazy from rich.table import Table
+
+from stacksmith.cli.args import (
+    get_default_run_file,
+    get_default_stack_refs,
+)
+from stacksmith.enums import MergeMode
+from stacksmith.utils import parse_bool, stacksmith_env
+lazy from stacksmith.loading import load_runfiles, load_test_manifests
+lazy from stacksmith.models import (
+    ExecutionPreview,
+    FileReference,
+    MergeConfig,
+    MergePolicy,
+    StacksmithTestManifest,
+)
+lazy from stacksmith.remote import (
+    is_remote_url,
+    remote_resolution_mode,
+    resolve_if_remote,
+)
+lazy from stacksmith.testing import StacksmithTestGenerator, find_untested_policies
+
+from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME, TEST_FILE_CANDIDATES
+from ..enums import (
+    ExecutionPreviewFormat,
+    InspectOutputFormat,
+    TerragruntAction,
+    ValidationReportFormat,
+)
+from ..exceptions import StacksmithConfigError, StacksmithError
+from ..input_parsing import parse_operation_names
+from ..utils import load_env_files
+from .args import (
+    get_env_file_paths,
+    is_debug_enabled,
+    is_quiet_enabled,
+    parse_input_layers,
+)
+from .parser import build_parser
+lazy from ..api import (
+    destroy_stack_operations,
+    discover_deployments,
+    generate_stack,
+    inspect_associations,
+    inspect_cache_diagnostics,
+    inspect_configuration,
+    inspect_dependency_graph,
+    inspect_modules,
+    load_runtime_config,
+    lock_stack,
+    plan_stack_operations,
+    prepare_ci_execution,
+    redact_plan_file,
+    run_all_stacks,
+    run_stack_action,
+    run_stack_operations,
+    validate_ci_inputs,
+    validate_stack,
+)
+lazy from ..change_reports import validation_report_path_context
+lazy from ..ci.adapters import (
+    load_ci_execution_manifest,
+    manifest_output_json,
+    prepare_ci_manifest_from_env,
+    resolve_ci_environment,
+    resolve_ci_execution_manifest_path,
+    resolve_validation_report_output,
+    temporary_ci_ssh_key,
+    write_github_output_manifest,
+)
+lazy from ..ci.contracts import (
+    CiExecutionManifest,
+    build_ci_execution_argv,
+    resolve_ci_execution_phase,
+)
+lazy from ..ci.reporting import clear_ci_execution_reports, write_ci_execution_report
+lazy from ..execution_plans import (
+    apply_execution_plan,
+    bind_execution_plan,
+    execution_plan_context_path,
+    transfer_execution_plan,
+)
+lazy from ..formatters import compact_json
+lazy from ..graph import render_execution_preview_dot, render_execution_preview_mermaid
+lazy from ..inspector import format_json, format_table
+lazy from ..provenance import ACTIVE_TRACE, ResolutionTrace
+
+_RUNTIME_LOCK_REQUIRE_ENV = "STACKSMITH_REQUIRE_LOCKFILE"
+
+
+def _make_category_filter(name: str, root_level_no: int):
+    def _filter(record: dict) -> bool:
+        if (
+            (record.get("extra") or {}).get("logger_name") or record.get("name")
+        ) != name:
+            return False
+        return record.get("level", {}).get("no", 0) < root_level_no
+
+    return _filter
+
+
+class _InterceptHandler(logging.Handler):
+    def __init__(self, category_levels: dict[str, int] | None, root_level: int):
+        super().__init__()
+        self._category_levels = category_levels or {}
+        self._root_level = root_level
+
+    def emit(self, record: logging.LogRecord) -> None:
+        effective = self._category_levels.get(record.name, self._root_level)
+        if record.levelno < effective:
+            return
+
+        try:
+            level = LOGGER.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        frame, depth = logging.currentframe(), 2
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        LOGGER.bind(logger_name=record.name).opt(
+            depth=depth, exception=record.exc_info
+        ).log(level, record.getMessage())
+
+
+def _configure_logging(
+    debug: bool = False,
+    quiet: bool = False,
+    category_levels: dict[str, int] | None = None,
+) -> None:
+    if category_levels is None:
+        category_levels = {}
+
+    # Root/global threshold
+    if quiet:
+        root_level = logging.ERROR
+    elif debug:
+        root_level = logging.DEBUG
+    else:
+        root_level = logging.INFO
+
+    # Primary sink enforces the global/root threshold
+    LOGGER.remove()
+    LOGGER.add(
+        sys.stderr,
+        level=logging.getLevelName(root_level),
+        colorize=True,
+        backtrace=debug,
+        diagnose=debug,
+        format="<green>{time:HH:mm:ss.SSS}</green> <level>{level: <6}</level> {message}",
+    )
+
+    # For categories that request more-verbose levels than the root, add
+    # dedicated sinks that only allow records for that category and only for
+    # levels below the root threshold (to avoid duplicate output).
+    for cat_name, cat_level in (category_levels or {}).items():
+        if cat_level >= root_level:
+            # No special sink needed; _InterceptHandler will drop below-threshold
+            # records for this category.
+            continue
+
+        LOGGER.add(
+            sys.stderr,
+            level=logging.getLevelName(cat_level),
+            filter=_make_category_filter(cat_name, root_level),
+            colorize=True,
+            backtrace=debug,
+            diagnose=debug,
+            format="<green>{time:HH:mm:ss.SSS}</green> <level>{level: <6}</level> {message}",
+        )
+
+    # Forward standard-library logging into Loguru using a dedicated handler
+    # that knows about category level overrides.
+    logging.basicConfig(
+        handlers=[_InterceptHandler(category_levels, root_level)], level=0
+    )
+
+
+def _parse_log_flags(raw: list[str] | None) -> dict[str, int]:
+    mapping = {}
+    if not raw:
+        return mapping
+    for entry in raw:
+        if "=" not in entry:
+            LOGGER.warning(
+                "Ignoring malformed --log entry %r; expected 'category=LEVEL'",
+                entry,
+            )
+            continue
+        name, level = entry.split("=", 1)
+        name = name.strip()
+        level_name = level.strip().upper()
+        if not name:
+            LOGGER.warning(
+                "Ignoring malformed --log entry with empty category: %r", entry
+            )
+            continue
+        if level_name.isdigit():
+            try:
+                level_number = int(level_name)
+            except ValueError:
+                LOGGER.warning(
+                    "Invalid numeric log level %r for category %r; ignoring",
+                    level_name,
+                    name,
+                )
+                continue
+        else:
+            level_number = logging._nameToLevel.get(level_name)
+            if level_number is None:
+                LOGGER.warning(
+                    "Unknown log level %r for category %r; ignoring",
+                    level_name,
+                    name,
+                )
+                continue
+        mapping[name] = level_number
+    return mapping
+
+
+def _ordered_input_layers(args: argparse.Namespace) -> list[tuple[str, object]] | None:
+    return parse_input_layers(getattr(args, "input_layers", None))
+
+
+def _runfile_cache_dir(args: argparse.Namespace) -> Path:
+    build_dir = getattr(args, "build_dir", None)
+    if build_dir is not None:
+        return build_dir / CACHE_DIR_NAME
+
+    if getattr(args, "command", None) == "run-all":
+        return getattr(args, "root", Path.cwd()) / STACKSMITH_DIR_NAME / CACHE_DIR_NAME
+    return Path.cwd() / STACKSMITH_DIR_NAME / CACHE_DIR_NAME
+
+
+def _load_runfile_if_present(args: argparse.Namespace):
+    run_file_refs = list(getattr(args, "runfile", None) or [])
+    if not run_file_refs:
+        default_run_file = get_default_run_file()
+        if default_run_file:
+            run_file_refs = [default_run_file]
+
+    if not run_file_refs:
+        return None
+
+    resolved_paths = []
+    for run_file_ref in run_file_refs:
+        if is_remote_url(run_file_ref):
+            resolved_paths.append(
+                resolve_if_remote(run_file_ref, _runfile_cache_dir(args))
+            )
+        else:
+            resolved_paths.append(Path(run_file_ref).expanduser())
+
+    return load_runfiles(resolved_paths)
+
+
+def _apply_runfile(args: argparse.Namespace) -> argparse.Namespace:
+    if getattr(args, "_runfile_applied", False):
+        return args
+
+    with remote_resolution_mode(getattr(args, "offline", False)):
+        runfile = _load_runfile_if_present(args)
+    if runfile is None:
+        args.merge_rules = []
+        args._runfile_applied = True
+        return args
+
+    cli_merge_mode = getattr(args, "merge_mode", None)
+    if cli_merge_mode is None and runfile.merge_mode is not None:
+        args.merge_mode = runfile.merge_mode.value
+    args.merge_rules = [] if cli_merge_mode is not None else runfile.merge_rules
+
+    args.config = [*runfile.configs, *(getattr(args, "config", None) or [])] or None
+
+    run_layers = [("vars", item) for item in runfile.vars]
+    if run_layers:
+        args.input_layers = run_layers + list(getattr(args, "input_layers", None) or [])
+
+    if hasattr(args, "stack"):
+        stack_refs = [*runfile.stacks, *(getattr(args, "stack", None) or [])]
+        args.stack = stack_refs or None
+
+    args._runfile_applied = True
+    return args
+
+
+def _stack_arg(
+    args: argparse.Namespace,
+) -> Path | str | FileReference | list[Path | str | FileReference]:
+    _apply_runfile(args)
+    stack_refs: list[Path | str | FileReference] = list(
+        getattr(args, "stack", None) or []
+    )
+    if getattr(args, "stack_file", None) is not None:
+        stack_refs.append(args.stack_file)
+    if not stack_refs:
+        stack_refs = get_default_stack_refs()
+    return stack_refs[0] if len(stack_refs) == 1 else stack_refs
+
+
+def _run_all_stack_args(
+    args: argparse.Namespace,
+) -> list[Path | str | FileReference] | None:
+    _apply_runfile(args)
+    stack_refs = list(getattr(args, "stack", None) or [])
+    return stack_refs or None
+
+
+def _merge_mode_arg(args: argparse.Namespace) -> MergeConfig:
+    _apply_runfile(args)
+    default = MergeMode(getattr(args, "merge_mode", None) or MergeMode.DEEP.value)
+    if getattr(args, "merge_rules", None):
+        return MergePolicy(default=default, rules=args.merge_rules)
+    return default
+
+
+def _vars_arg(args: argparse.Namespace) -> list[str] | None:
+    raw_layers = getattr(args, "input_layers", None)
+    if raw_layers and any(kind == "vars" for kind, _ in raw_layers):
+        return []
+    return getattr(args, "vars_file", None)
+
+
+def _validation_report_format(args: argparse.Namespace) -> ValidationReportFormat:
+    return ValidationReportFormat(
+        getattr(args, "validation_report_format", ValidationReportFormat.JSON.value)
+    )
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    report = validate_stack(
+        _stack_arg(args),
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        merge_mode=_merge_mode_arg(args),
+        validation_report_format=_validation_report_format(args),
+    )
+    return report["exit_code"]
+
+
+def _cmd_generate(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    if not (args.locked or args.offline):
+        _ensure_command_lockfile(args)
+    _enforce_runtime_lock_policy("generate", args)
+    generate_stack(
+        _stack_arg(args),
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        use_local_modules=args.use_local_modules,
+        merge_mode=_merge_mode_arg(args),
+        lockfile=getattr(args, "lockfile", None),
+        locked=getattr(args, "locked", False),
+        offline=getattr(args, "offline", False),
+        runfiles=_runfile_refs_for_lock(args),
+    )
+    return 0
+
+
+def _runfile_refs_for_lock(
+    args: argparse.Namespace,
+) -> list[Path | str | FileReference]:
+    runfile_refs: list[Path | str | FileReference] = list(
+        getattr(args, "runfile", None) or []
+    )
+    if not runfile_refs and (default_runfile := get_default_run_file()):
+        runfile_refs.append(default_runfile)
+    return runfile_refs
+
+
+def _cmd_lock(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    summary = _lock_stack_from_args(args, check=args.check)
+    print(compact_json(summary, sort_keys=True))
+    if args.check and not summary["in_sync"]:
+        LOGGER.error(
+            "Lockfile check failed: {path} does not match current resolved inputs.",
+            path=summary["lockfile_path"],
+        )
+        return 2
+    return 0
+
+
+def _lock_stack_from_args(
+    args: argparse.Namespace,
+    *,
+    check: bool,
+    overwrite: bool = True,
+) -> dict[str, Any]:
+    return lock_stack(
+        _stack_arg(args),
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        runfiles=_runfile_refs_for_lock(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        merge_mode=_merge_mode_arg(args),
+        lockfile=getattr(args, "lockfile", None),
+        check=check,
+        overwrite=overwrite,
+    )
+
+
+def _ensure_command_lockfile(args: argparse.Namespace) -> None:
+    summary = _lock_stack_from_args(args, check=False, overwrite=False)
+    if summary["lockfile_exists"]:
+        if not summary["in_sync"]:
+            raise StacksmithConfigError(
+                f"Lockfile mismatch: {summary['lockfile_path']} does not match "
+                "resolved inputs. Run 'stacksmith lock' to update it."
+            )
+    else:
+        LOGGER.info(
+            "Created Stacksmith lockfile at {path}.",
+            path=summary["lockfile_path"],
+        )
+    args.locked = True
+
+
+def _enforce_runtime_lock_policy(
+    command_name: str,
+    args: argparse.Namespace,
+) -> None:
+    locked = bool(getattr(args, "locked", False))
+    require_lockfile = parse_bool(os.getenv(_RUNTIME_LOCK_REQUIRE_ENV))
+
+    if require_lockfile and not locked:
+        raise StacksmithConfigError(
+            f"{_RUNTIME_LOCK_REQUIRE_ENV}=1 requires --locked for '{command_name}' runs."
+        )
+
+
+def _default_test_manifest_paths(config_paths: list[Path]) -> list[Path]:
+    manifest_paths: list[Path] = []
+    for config_path in config_paths:
+        for filename in TEST_FILE_CANDIDATES:
+            candidate = config_path.parent / filename
+            if candidate.is_file() and candidate not in manifest_paths:
+                manifest_paths.append(candidate)
+                break
+    return manifest_paths
+
+
+def _resolve_test_manifest_path(path: Path) -> Path:
+    candidate = path.expanduser()
+    if candidate.is_dir():
+        for filename in TEST_FILE_CANDIDATES:
+            manifest = candidate / filename
+            if manifest.is_file():
+                return manifest
+        raise StacksmithConfigError(
+            "No tests manifest was found in directory "
+            f"'{candidate}'. Expected one of: {TEST_FILE_CANDIDATES}."
+        )
+
+    if candidate.suffix.lower() not in {".yaml", ".yml", ".json"}:
+        raise StacksmithConfigError(
+            "Test manifest paths must be YAML or JSON files with one of the "
+            "following extensions: .yaml, .yml, .json"
+        )
+    if not candidate.is_file():
+        raise StacksmithConfigError(f"Test manifest not found: {candidate}")
+
+    return candidate
+
+
+def _resolve_test_manifest_paths(test_paths: list[Path]) -> list[Path]:
+    manifests: list[Path] = []
+    for path in test_paths:
+        manifest = _resolve_test_manifest_path(path)
+        if manifest not in manifests:
+            manifests.append(manifest)
+    return manifests
+
+
+def _write_generated_test_module(
+    generated_source: str, cache_dir: Path, dump_tests_path: Path | None
+) -> tuple[Path, contextlib.AbstractContextManager[object]]:
+    if dump_tests_path is not None:
+        dump_tests_path.parent.mkdir(parents=True, exist_ok=True)
+        dump_tests_path.write_text(generated_source, encoding="utf-8")
+        return dump_tests_path, contextlib.nullcontext()
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir = tempfile.TemporaryDirectory(prefix="stacksmith-tests-", dir=cache_dir)
+    module_path = Path(temp_dir.name) / "test_stacksmith_generated.py"
+    module_path.write_text(generated_source, encoding="utf-8")
+    return module_path, temp_dir
+
+
+def _split_test_paths_and_pytest_args(
+    paths_and_args: list[Path],
+) -> tuple[list[Path], list[str]]:
+    for index, path_or_arg in enumerate(paths_and_args):
+        if str(path_or_arg).startswith("-"):
+            return paths_and_args[:index], [str(arg) for arg in paths_and_args[index:]]
+    return paths_and_args, []
+
+
+def _pytest_merge_args(merge_mode: MergeConfig) -> list[str]:
+    if isinstance(merge_mode, MergePolicy):
+        return [
+            "--stacksmith-merge-mode",
+            merge_mode.default.value,
+            "--stacksmith-merge-rules-json",
+            json.dumps(
+                [
+                    rule.model_dump(mode="json", exclude_none=True)
+                    for rule in merge_mode.rules
+                ]
+            ),
+        ]
+    return ["--stacksmith-merge-mode", merge_mode.value]
+
+
+def _cmd_test(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    merge_mode = _merge_mode_arg(args)
+    cache_dir, config_paths, config = load_runtime_config(
+        args.config,
+        args.build_dir,
+        no_cache=args.no_cache,
+        merge_mode=merge_mode,
+    )
+    specified_test_paths, forwarded_pytest_args = _split_test_paths_and_pytest_args(
+        args.test_path
+    )
+    manifest_paths = (
+        _resolve_test_manifest_paths(specified_test_paths)
+        if specified_test_paths
+        else _default_test_manifest_paths(config_paths)
+    )
+    if not manifest_paths:
+        raise StacksmithConfigError(
+            "No tests manifest was found beside the selected config layers. "
+            "Create tests.yaml beside stacksmith-config.yaml or pass one or more "
+            "manifest paths after the Stacksmith options."
+        )
+    if importlib.util.find_spec("pytest") is None:
+        raise StacksmithConfigError(
+            "pytest is required for 'stacksmith test'. Install pytest in the active "
+            "Python environment."
+        )
+
+    test_manifest: StacksmithTestManifest = load_test_manifests(
+        manifest_paths,
+        merge_mode=merge_mode,
+    )
+    generated_module = StacksmithTestGenerator(test_manifest).generate_pytest_module()
+    if generated_module.test_count == 0:
+        raise StacksmithConfigError("No test cases were generated from test manifests.")
+
+    if untested := find_untested_policies(config, test_manifest):
+        LOGGER.info(
+            "Policies without manifest cases: {policies}", policies=", ".join(untested)
+        )
+
+    dump_tests_path = (
+        args.dump_tests.expanduser().resolve() if args.dump_tests is not None else None
+    )
+    generated_test_path, manager = _write_generated_test_module(
+        generated_module.source,
+        cache_dir,
+        dump_tests_path,
+    )
+
+    LOGGER.info(
+        "Generated {count} test(s) from {manifests} manifest file(s)",
+        count=generated_module.test_count,
+        manifests=len(manifest_paths),
+    )
+
+    pytest_args = [str(generated_test_path)]
+    for config_path in config_paths:
+        pytest_args.extend(["--stacksmith-config", str(config_path)])
+    pytest_args.extend(
+        [
+            "--stacksmith-cache-dir",
+            str(cache_dir),
+            *_pytest_merge_args(merge_mode),
+            *forwarded_pytest_args,
+        ]
+    )
+    with manager:
+        return subprocess.run(
+            [sys.executable, "-m", "pytest", *pytest_args], check=False, shell=False
+        ).returncode
+
+
+def _cmd_info_modules_and_policies(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    component_types = args.component_type if args.component_type else None
+    results, plan_validations = inspect_modules(
+        config=args.config,
+        component_types=component_types,
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        merge_mode=_merge_mode_arg(args),
+    )
+
+    _emit_info_ci_output(
+        InspectOutputFormat(args.format or InspectOutputFormat.TABLE.value),
+        json_text_factory=lambda: format_json(results, details=not args.basic),
+        table_renderer=lambda: format_table(
+            results,
+            details=True,
+            basic=args.basic,
+            plan_validations=plan_validations,
+        ),
+    )
+
+    return 0
+
+
+def _cmd_info_associations(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    payload = inspect_associations(
+        _stack_arg(args),
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        merge_mode=_merge_mode_arg(args),
+    )
+    _emit_info_ci_output(
+        InspectOutputFormat(args.format),
+        json_text_factory=lambda: _format_info_ci_json(payload),
+        table_renderer=lambda: _render_associations_table(payload),
+    )
+    return 0
+
+
+def _cmd_terragrunt_action(args: argparse.Namespace, action: str) -> int:
+    _apply_runfile(args)
+    if action == TerragruntAction.INIT.value and not (args.locked or args.offline):
+        _ensure_command_lockfile(args)
+    _enforce_runtime_lock_policy(action, args)
+    return run_stack_action(
+        action,
+        _stack_arg(args),
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        auto_approve=args.auto_approve,
+        destroy=args.destroy,
+        use_local_modules=args.use_local_modules,
+        tags=args.tag,
+        tag_expr=args.tag_expr,
+        save_plan_json=getattr(args, "save_plan_json", None),
+        save_redacted_plan_json=getattr(args, "save_redacted_plan_json", None),
+        save_plan_summary_json=getattr(args, "save_plan_summary_json", None),
+        plan_summary=getattr(args, "plan_summary", "table"),
+        save_apply_summary_json=getattr(args, "save_apply_summary_json", None),
+        apply_summary=getattr(args, "apply_summary", "table"),
+        out=getattr(args, "out", None),
+        plan=getattr(args, "plan", None),
+        strict_validation_warnings=args.strict_validation_warnings,
+        fail_on_changes=getattr(args, "fail_on_changes", False),
+        no_cas=getattr(args, "no_cas", False),
+        merge_mode=_merge_mode_arg(args),
+        validation_report_format=_validation_report_format(args),
+        lockfile=getattr(args, "lockfile", None),
+        locked=getattr(args, "locked", False),
+        offline=getattr(args, "offline", False),
+        runfiles=_runfile_refs_for_lock(args),
+        skip_after_apply=getattr(args, "no_after_apply", False),
+    )
+
+
+def _cmd_operation_run(args: argparse.Namespace) -> int:
+    """Run approved native operations from the selected stack."""
+    _apply_runfile(args)
+    result = run_stack_operations(
+        _stack_arg(args),
+        (parse_operation_names(args.operation_names) if args.operation_names else None),
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        no_cas=args.no_cas,
+        force_rerun=args.force_rerun,
+        merge_mode=_merge_mode_arg(args),
+    )
+    print(compact_json(result, sort_keys=True))
+    return int(result["exit_code"])
+
+
+def _cmd_operation_plan(args: argparse.Namespace) -> int:
+    """Plan approved native operations from the selected stack."""
+    _apply_runfile(args)
+    result = plan_stack_operations(
+        _stack_arg(args),
+        (parse_operation_names(args.operation_names) if args.operation_names else None),
+        after_apply_only=args.after_apply,
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        no_cas=args.no_cas,
+        force_rerun=args.force_rerun,
+        destroy=args.destroy,
+        merge_mode=_merge_mode_arg(args),
+    )
+    print(compact_json(result, sort_keys=True))
+    return int(result["exit_code"])
+
+
+def _cmd_operation_destroy(args: argparse.Namespace) -> int:
+    """Destroy the complete isolated operation state for the selected stack."""
+    _apply_runfile(args)
+    result = destroy_stack_operations(
+        _stack_arg(args),
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        no_cas=args.no_cas,
+        auto_approve=args.auto_approve,
+        merge_mode=_merge_mode_arg(args),
+    )
+    print(compact_json(result, sort_keys=True))
+    return int(result["exit_code"])
+
+
+def _render_environment_preview_table(payload: dict[str, object]) -> None:
+    console = Console(stderr=True)
+    console.print()
+    console.print("[bold]Stacksmith Deployments[/bold]")
+    deployments = payload.get("deployments", [])
+    if not deployments:
+        console.print("[dim]No Stacksmith deployments were discovered.[/dim]")
+        return
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("Location")
+    table.add_column("Structure")
+    table.add_column("Environments")
+    table.add_column("Source lockfiles")
+    for deployment in deployments:
+        table.add_row(
+            deployment["gitops_root"] or "Repository root",
+            deployment["discovery_mode"],
+            ", ".join(deployment["all_environments"]),
+            deployment["source_lockfiles"]["status"],
+        )
+    console.print(table)
+
+
+def _render_execution_preview_table(
+    preview: ExecutionPreview,
+    verbose: bool = False,
+) -> None:
+    console = Console(stderr=True)
+    console.print()
+    console.print("[bold]Dependency and Execution Preview[/bold]")
+    console.print(
+        f"  [cyan]Root:[/cyan] {preview.root}    "
+        f"[cyan]Action:[/cyan] {preview.action.value}"
+    )
+
+    summary = Table(show_header=True, header_style="bold cyan")
+    summary.add_column("Metric")
+    summary.add_column("Value")
+    summary.add_row("Execution order", " → ".join(preview.execution_order) or "none")
+    summary.add_row("Selected stacks", str(len(preview.execution_order)))
+    summary.add_row("Excluded stacks", str(len(preview.excluded_stacks)))
+    summary.add_row("Would clean", "yes" if preview.would_clean else "no")
+    console.print(summary)
+
+    stacks = Table(show_header=True, header_style="bold cyan")
+    stacks.add_column("Order")
+    stacks.add_column("Stack")
+    if verbose:
+        stacks.add_column("Description", overflow="fold")
+    stacks.add_column("Path")
+    stacks.add_column("Dependencies")
+    stacks.add_column("State key")
+    stacks.add_column("Selected components")
+    stacks.add_column("Build directory")
+    stacks.add_column("Command")
+    for stack in preview.stacks:
+        dependencies = []
+        for dependency in stack.dependencies:
+            suffix = (
+                f" [mock: {', '.join(dependency.mock_output_keys)}]"
+                if dependency.uses_mock_outputs
+                else ""
+            )
+            dependencies.append(f"{dependency.name}{suffix}")
+        selected_components = ", ".join(stack.selected_components) or "-"
+        if verbose and stack.selected_components:
+            selected_component_descriptions = [
+                f"{name}: {stack.component_descriptions[name]}"
+                for name in stack.selected_components
+                if name in stack.component_descriptions
+            ]
+            if selected_component_descriptions:
+                selected_components = (
+                    f"{selected_components}\n"
+                    f"[dim]{'; '.join(selected_component_descriptions)}[/dim]"
+                )
+        row = [
+            (
+                str(stack.execution_position)
+                if stack.execution_position is not None
+                else "-"
+            ),
+            stack.name,
+        ]
+        if verbose:
+            row.append(stack.description or "")
+        row.extend(
+            [
+                str(stack.source_path),
+                ", ".join(dependencies) or "-",
+                stack.state_key,
+                selected_components,
+                str(stack.build_directory),
+                (
+                    shlex.join(stack.command)
+                    if stack.command
+                    else stack.skip_reason or "skipped"
+                ),
+            ]
+        )
+        stacks.add_row(
+            *row,
+        )
+    console.print(stacks)
+
+    if preview.excluded_stacks:
+        excluded = Table(show_header=True, header_style="bold yellow")
+        excluded.add_column("Excluded stack")
+        if verbose:
+            excluded.add_column("Description", overflow="fold")
+        excluded.add_column("Path")
+        excluded.add_column("Reason")
+        for stack in preview.excluded_stacks:
+            row = [stack.name]
+            if verbose:
+                row.append(stack.description or "")
+            row.extend([str(stack.source_path), stack.reason])
+            excluded.add_row(*row)
+        console.print(excluded)
+
+
+def _emit_execution_preview(
+    preview: ExecutionPreview,
+    output_format: ExecutionPreviewFormat,
+    verbose: bool = False,
+) -> None:
+    if output_format == ExecutionPreviewFormat.TABLE:
+        _render_execution_preview_table(preview, verbose=verbose)
+        return
+    if output_format == ExecutionPreviewFormat.JSON:
+        print(
+            compact_json(
+                preview.model_dump(mode="json"),
+                sort_keys=True,
+            )
+        )
+        return
+    if output_format == ExecutionPreviewFormat.DOT:
+        print(render_execution_preview_dot(preview))
+        return
+    print(render_execution_preview_mermaid(preview))
+
+
+def _render_ci_validation_table(payload: dict[str, object]) -> None:
+    console = Console(stderr=True)
+    console.print()
+    console.print("[bold]CI Validation[/bold]")
+
+    summary_values = (
+        payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    )
+    summary_table = Table(show_header=True, header_style="bold cyan")
+    summary_table.add_column("Metric")
+    summary_table.add_column("Value")
+    summary_table.add_row("Status", str(payload.get("status", "")))
+    summary_table.add_row("Exit code", str(payload.get("exit_code", "")))
+    summary_table.add_row("Checks passed", str(summary_values.get("pass", "")))
+    summary_table.add_row("Checks failed", str(summary_values.get("fail", "")))
+    summary_table.add_row("Total checks", str(summary_values.get("total", "")))
+    console.print(summary_table)
+
+    results_table = Table(show_header=True, header_style="bold cyan")
+    results_table.add_column("Check")
+    results_table.add_column("Status")
+    results_table.add_column("Message")
+    results_table.add_column("Detail")
+    for row in payload.get("results", []):
+        if isinstance(row, dict):
+            name = str(row.get("name", ""))
+            status = str(row.get("status", ""))
+            message = str(row.get("message", ""))
+            detail = row.get("detail")
+        else:
+            name = ""
+            status = ""
+            message = str(row)
+            detail = None
+        detail_text = json.dumps(detail, sort_keys=True) if detail is not None else ""
+        results_table.add_row(
+            name,
+            status,
+            message,
+            detail_text,
+        )
+    console.print(results_table)
+
+
+def _render_cache_diagnostics_table(
+    payload: dict[str, object],
+    verbose: bool = False,
+) -> None:
+    console = Console(stderr=True)
+    console.print()
+    console.print("[bold]Stacksmith Diagnostics[/bold]")
+
+    summary = Table(show_header=True, header_style="bold cyan")
+    summary.add_column("Field")
+    summary.add_column("Value")
+    summary.add_row("Stack name", str(payload.get("stack_name", "")))
+    if verbose:
+        summary.add_row("Stack description", str(payload.get("stack_description", "")))
+    summary.add_row("Stack file", str(payload.get("stack_file", "")))
+    if verbose:
+        summary.add_row(
+            "Config description", str(payload.get("config_description", ""))
+        )
+    summary.add_row(
+        "Config paths",
+        ", ".join(str(path) for path in payload.get("config_paths", [])),
+    )
+    summary.add_row("Build directory", str(payload.get("build_directory", "")))
+    summary.add_row(
+        "Remote cache directory", str(payload.get("remote_cache_directory", ""))
+    )
+    summary.add_row("Vendor directory", str(payload.get("vendor_directory", "")))
+    console.print(summary)
+
+    cache_rows = payload.get("remote_cache_entries", [])
+    if payload.get("remote_cache_exists", False):
+        cache_table = Table(show_header=True, header_style="bold cyan")
+        cache_table.add_column("Remote Cache Entry")
+        cache_table.add_column("Type")
+        if verbose:
+            cache_table.add_column("Description", overflow="fold")
+        for row in cache_rows:
+            cache_row = [str(row.get("name", "")), str(row.get("type", ""))]
+            if verbose:
+                cache_row.append(str(row.get("description", "")))
+            cache_table.add_row(*cache_row)
+        console.print(cache_table)
+    else:
+        console.print("[yellow]Remote cache not found.[/yellow]")
+
+    if payload.get("vendor_directory_exists", False):
+        manifest_path = payload.get("vendor_manifest_path")
+        if manifest_path:
+            console.print(f"[cyan]Vendor manifest:[/cyan] {manifest_path}")
+
+        vendored_modules_table = Table(show_header=True, header_style="bold cyan")
+        vendored_modules_table.add_column("Module Key")
+        if verbose:
+            vendored_modules_table.add_column("Module Type")
+            vendored_modules_table.add_column("Description", overflow="fold")
+        vendored_modules_table.add_column("Source")
+        vendored_modules_table.add_column("Version")
+        for row in payload.get("vendored_modules", []):
+            module_row = [str(row.get("key", ""))]
+            if verbose:
+                module_row.extend(
+                    [
+                        str(row.get("module_type", "")),
+                        str(row.get("description", "")),
+                    ]
+                )
+            module_row.extend(
+                [
+                    str(row.get("source", "")),
+                    str(row.get("version", "")),
+                ]
+            )
+            vendored_modules_table.add_row(*module_row)
+        console.print(vendored_modules_table)
+
+        vendor_dirs = payload.get("vendor_directories", [])
+        vendor_dirs_table = Table(show_header=True, header_style="bold cyan")
+        vendor_dirs_table.add_column("Vendored module directories")
+        for name in vendor_dirs:
+            vendor_dirs_table.add_row(str(name))
+        console.print(vendor_dirs_table)
+    else:
+        console.print("[yellow]Vendor directory not found.[/yellow]")
+
+
+def _emit_info_ci_output(
+    output_format: InspectOutputFormat,
+    json_text_factory: Callable[[], str],
+    table_renderer: Callable[[], None],
+) -> None:
+    if output_format == InspectOutputFormat.JSON:
+        print(json_text_factory())
+        return
+    table_renderer()
+
+
+def _format_info_ci_json(payload: Any) -> str:
+    return compact_json(payload, sort_keys=True)
+
+
+def _render_associations_table(payload: dict[str, Any]) -> None:
+    console = Console(stderr=True)
+    console.print(f"[bold]Managed associations for {payload['stack']}[/bold]")
+
+    rules_table = Table(show_header=True, show_lines=True, header_style="bold cyan")
+    rules_table.add_column("Rule", overflow="fold")
+    rules_table.add_column("Status")
+    rules_table.add_column("Producers", overflow="fold")
+    rules_table.add_column("Consumers", overflow="fold")
+    rules_table.add_column("Excluded", overflow="fold")
+    rules_table.add_column("Bindings", overflow="fold")
+    rules_table.add_column("Reason", overflow="fold")
+    for rule in payload["rules"]:
+        rules_table.add_row(
+            rule["name"],
+            rule["status"],
+            ", ".join(rule["producers"]["matched"]) or "—",
+            ", ".join(rule["consumers"]["matched"]) or "—",
+            ", ".join(rule["disabled_components"]) or "—",
+            "\n".join(
+                f"{binding['output']} → {binding['property']} ({binding['merge']})"
+                for binding in rule["bindings"]
+            ),
+            rule["reason"] or "",
+        )
+    console.print(rules_table)
+
+    if not payload["applications"]:
+        console.print("[dim]No association bindings were applied.[/dim]")
+        return
+
+    applications_table = Table(
+        title="Applied bindings",
+        show_lines=True,
+        header_style="bold green",
+    )
+    applications_table.add_column("Rule", overflow="fold")
+    applications_table.add_column("Producers", overflow="fold")
+    applications_table.add_column("Consumer", overflow="fold")
+    applications_table.add_column("Property", overflow="fold")
+    applications_table.add_column("Merge")
+    for application in payload["applications"]:
+        applications_table.add_row(
+            application["rule"],
+            ", ".join(application["producers"]),
+            application["consumer"],
+            application["property"],
+            application["merge"],
+        )
+    console.print(applications_table)
+
+
+def _cmd_ci_environments(args: argparse.Namespace) -> int:
+    payload = discover_deployments(
+        gitops_root=args.gitops_root,
+        discovery_mode=args.discovery_mode,
+        environments=args.environments,
+        event_name=args.event_name,
+        changed_paths=args.changed_path,
+        base_ref=args.base_ref,
+        before=args.before,
+        after=args.after,
+    )
+    _emit_info_ci_output(
+        InspectOutputFormat(args.format),
+        json_text_factory=lambda: _format_info_ci_json(payload),
+        table_renderer=lambda: _render_environment_preview_table(payload),
+    )
+    return 0
+
+
+def _cmd_info_graph(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    _emit_execution_preview(
+        inspect_dependency_graph(
+            args.root,
+            action=args.action,
+            config=args.config,
+            vars_file=_vars_arg(args),
+            input_layers=_ordered_input_layers(args),
+            build_dir=args.build_dir,
+            no_cache=args.no_cache,
+            include_tags=args.include_tag,
+            exclude_tags=args.exclude_tag,
+            tags=args.tag,
+            tag_expr=args.tag_expr,
+            destroy=args.destroy,
+            no_cas=args.no_cas,
+            stacks=_run_all_stack_args(args),
+            merge_mode=_merge_mode_arg(args),
+        ),
+        ExecutionPreviewFormat(args.format),
+        verbose=args.verbose,
+    )
+    return 0
+
+
+def _cmd_ci_validate(args: argparse.Namespace) -> int:
+    report = validate_ci_inputs(
+        gitops_root=args.gitops_root,
+        discovery_mode=args.discovery_mode,
+        runfile=args.workflow_runfile,
+        env_file=args.workflow_env_file,
+        validation_report_format=args.workflow_validation_report_format,
+    )
+    _emit_info_ci_output(
+        InspectOutputFormat(args.format),
+        json_text_factory=lambda: _format_info_ci_json(report),
+        table_renderer=lambda: _render_ci_validation_table(report),
+    )
+    return report["exit_code"]
+
+
+def _cmd_ci_prepare(args: argparse.Namespace) -> int:
+    manifest = prepare_ci_execution(
+        command=args.ci_execution_command,
+        operation_names=args.operation_names,
+        tags=args.tags,
+        config_ref=args.config_ref,
+        workdir=args.workdir,
+        env_file=args.env_file,
+        stacksmith_args_json=args.stacksmith_args_json,
+        debug=args.debug,
+        no_cas=args.no_cas,
+        locked=args.locked,
+        offline=args.offline,
+        lockfile=args.lockfile,
+        force_rerun=args.force_rerun,
+        validation_report_format=args.validation_report_format,
+        fail_on_changes=args.fail_on_changes,
+        strict_validation_warnings=args.strict_validation_warnings,
+        gitops_root=args.gitops_root,
+        discovery_mode=args.discovery_mode,
+        environments=args.environments,
+        event_name=args.event_name,
+        changed_paths=args.changed_path,
+        base_ref=args.base_ref,
+        before=args.before,
+        after=args.after,
+        ref_name=args.ref_name,
+        default_branch=args.default_branch,
+        is_primary_branch=(
+            None
+            if args.is_primary_branch is None
+            else parse_bool(args.is_primary_branch)
+        ),
+        skip_branch_validation=args.skip_branch_validation,
+    )
+    _emit_info_ci_output(
+        InspectOutputFormat(args.format),
+        json_text_factory=lambda: manifest_output_json(manifest),
+        table_renderer=lambda: _render_environment_preview_table(
+            {
+                "gitops_root": args.gitops_root,
+                "discovery_mode": args.discovery_mode,
+                "common_runfile": (
+                    manifest.matrix[0].runfile if manifest.matrix else ""
+                ),
+                "all_environments": [row.environment for row in manifest.matrix],
+                "selected_environments": [row.environment for row in manifest.matrix],
+                "changed_paths": args.changed_path or [],
+                "matrix": [row.model_dump() for row in manifest.matrix],
+            }
+        ),
+    )
+    return 0
+
+
+def _cmd_ci_prepare_from_env(args: argparse.Namespace) -> int:
+    with temporary_ci_ssh_key("prepare"):
+        manifest = prepare_ci_manifest_from_env()
+    if args.manifest_file is not None:
+        args.manifest_file.parent.mkdir(parents=True, exist_ok=True)
+        args.manifest_file.write_text(manifest_output_json(manifest), encoding="utf-8")
+
+    if args.provider == "github-actions":
+        output_path = args.github_output or (
+            Path(os.environ["GITHUB_OUTPUT"]) if os.getenv("GITHUB_OUTPUT") else None
+        )
+        if output_path is None:
+            raise StacksmithError(
+                "GITHUB_OUTPUT is required for provider github-actions"
+            )
+        write_github_output_manifest(manifest, output_path)
+        return 0
+
+    print(manifest_output_json(manifest))
+    return 0
+
+
+def _cmd_ci_execute(args: argparse.Namespace) -> int:
+    manifest = load_ci_execution_manifest(args.manifest)
+    return _run_ci_execute(
+        manifest,
+        args.environment,
+        resolve_validation_report_output(
+            getattr(args, "validation_report_output", None),
+            manifest,
+            args.environment,
+            args.phase,
+        ),
+        args.phase,
+    )
+
+
+def _ci_plan_binding(manifest: CiExecutionManifest, environment: str) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "manifest": manifest.model_dump(mode="json"),
+                "environment": environment,
+                "revision": os.getenv("GITHUB_SHA") or os.getenv("GIT_COMMIT", ""),
+                "run": os.getenv("STACKSMITH_CI_EXECUTION_ID")
+                or os.getenv("BUILD_TAG", ""),
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+
+
+def _execute_ci_manifest(
+    manifest: CiExecutionManifest, environment: str, phase: str = ""
+) -> int:
+    execution_phase = resolve_ci_execution_phase(manifest, phase)
+    summary_format = stacksmith_env("CI_SUMMARY_FORMAT", "table")
+    if summary_format not in {"table", "detailed", "none"}:
+        raise StacksmithError(
+            "STACKSMITH_CI_SUMMARY_FORMAT must be table, detailed, or none."
+        )
+    if manifest.env_file != "/dev/null":
+        load_env_files([Path(manifest.env_file)])
+    original_directory = Path.cwd()
+    original_max_parallel_operations = os.environ.get(
+        "STACKSMITH_MAX_PARALLEL_OPERATIONS"
+    )
+    try:
+        os.environ["STACKSMITH_MAX_PARALLEL_OPERATIONS"] = str(
+            manifest.max_parallel_operations
+        )
+        os.chdir(manifest.workdir)
+        reviewed_plan = Path(f".stacksmith-ci/{environment}/reviewed.tfplan")
+        if execution_phase in {"apply", "destroy"}:
+            try:
+                return apply_execution_plan(
+                    reviewed_plan,
+                    _ci_plan_binding(manifest, environment),
+                    reviewed_plan.parent / "apply-summary.json",
+                    destroy=execution_phase == "destroy",
+                    no_cas=manifest.no_cas,
+                )
+            finally:
+                reviewed_plan.unlink(missing_ok=True)
+                execution_plan_context_path(reviewed_plan).unlink(missing_ok=True)
+        if execution_phase == "plan":
+            reviewed_plan.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+            reviewed_plan.parent.chmod(0o700)
+            reviewed_plan.unlink(missing_ok=True)
+            execution_plan_context_path(reviewed_plan).unlink(missing_ok=True)
+            reviewed_plan.with_suffix(".receipt.json").unlink(missing_ok=True)
+        execution_args = build_parser().parse_args(
+            build_ci_execution_argv(
+                manifest, environment, execution_phase, summary_format
+            )
+        )
+        debug_enabled = is_debug_enabled(execution_args)
+        _configure_logging(
+            debug=debug_enabled,
+            quiet=is_quiet_enabled(execution_args),
+            category_levels=_parse_log_flags(getattr(execution_args, "log", None)),
+        )
+        if debug_enabled:
+            LOGGER.info(
+                "Configured modules and policies for CI environment '{environment}'.",
+                environment=environment,
+            )
+        if execution_phase == "plan-operation":
+            return _cmd_operation_plan(execution_args)
+        if execution_phase == "operation":
+            if execution_args.operation_command == "destroy":
+                return _cmd_operation_destroy(execution_args)
+            return _cmd_operation_run(execution_args)
+        if execution_phase == "test":
+            return _cmd_test(execution_args)
+        exit_code = _cmd_terragrunt_action(execution_args, execution_phase)
+        if execution_phase == "plan" and exit_code == 0:
+            bind_execution_plan(reviewed_plan, _ci_plan_binding(manifest, environment))
+        return exit_code
+    finally:
+        os.chdir(original_directory)
+        if original_max_parallel_operations is None:
+            os.environ.pop("STACKSMITH_MAX_PARALLEL_OPERATIONS", None)
+        else:
+            os.environ["STACKSMITH_MAX_PARALLEL_OPERATIONS"] = (
+                original_max_parallel_operations
+            )
+
+
+def _run_ci_execute(
+    manifest: CiExecutionManifest,
+    environment: str,
+    validation_report_output: Path | None,
+    phase: str = "",
+) -> int:
+    execution_phase = resolve_ci_execution_phase(manifest, phase)
+    exit_code = 1
+    try:
+        clear_ci_execution_reports(manifest, environment, execution_phase)
+        if execution_phase != "plan" or validation_report_output is None:
+            exit_code = _execute_ci_manifest(manifest, environment, phase)
+        else:
+            validation_report_output.unlink(missing_ok=True)
+            validation_report_output.parent.mkdir(parents=True, exist_ok=True)
+            with (
+                validation_report_output.open("w", encoding="utf-8") as output_stream,
+                contextlib.redirect_stdout(output_stream),
+                validation_report_path_context(validation_report_output),
+            ):
+                exit_code = _execute_ci_manifest(manifest, environment, phase)
+        return exit_code
+    except KeyboardInterrupt:
+        exit_code = 130
+        raise
+    finally:
+        write_ci_execution_report(
+            manifest,
+            environment,
+            execution_phase,
+            exit_code,
+            validation_report_output,
+        )
+
+
+def _cmd_ci_execute_from_env(args: argparse.Namespace) -> int:
+    manifest_path, temporary_manifest_path = resolve_ci_execution_manifest_path(
+        args.manifest_file
+    )
+    environment = resolve_ci_environment(args.environment)
+    try:
+        with temporary_ci_ssh_key(environment):
+            manifest = load_ci_execution_manifest(manifest_path)
+            phase = args.phase or os.getenv("STACKSMITH_CI_PHASE", "")
+            return _run_ci_execute(
+                manifest,
+                environment,
+                resolve_validation_report_output(
+                    args.validation_report_output,
+                    manifest,
+                    environment,
+                    phase,
+                ),
+                phase,
+            )
+    finally:
+        if temporary_manifest_path is not None:
+            temporary_manifest_path.unlink(missing_ok=True)
+
+
+def _cmd_ci_plan_bundle(args: argparse.Namespace) -> int:
+    manifest_path, temporary_manifest_path = resolve_ci_execution_manifest_path(
+        args.manifest_file
+    )
+    try:
+        manifest = load_ci_execution_manifest(manifest_path)
+        environment = resolve_ci_environment(args.environment)
+        if manifest.command not in {"apply", "destroy"}:
+            raise StacksmithError("Plan transfer requires an apply or destroy manifest")
+        transfer_execution_plan(
+            Path(manifest.workdir) / ".stacksmith-ci" / environment / "reviewed.tfplan",
+            _ci_plan_binding(manifest, environment),
+            decrypt=args.mode == "open",
+        )
+        return 0
+    finally:
+        if temporary_manifest_path is not None:
+            temporary_manifest_path.unlink(missing_ok=True)
+
+
+def _cmd_ci_redact_plan(args: argparse.Namespace) -> int:
+    if args.output is not None and args.output.resolve() == args.input.resolve():
+        raise ValueError(
+            "--output must differ from the input path; use --in-place to replace it."
+        )
+    redact_plan_file(
+        args.input,
+        args.input if args.in_place else args.output,
+    )
+    return 0
+
+
+def _cmd_diagnose(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    payload = inspect_cache_diagnostics(
+        _stack_arg(args),
+        config=args.config,
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        merge_mode=_merge_mode_arg(args),
+    )
+    _emit_info_ci_output(
+        InspectOutputFormat(args.format),
+        json_text_factory=lambda: _format_info_ci_json(payload),
+        table_renderer=lambda: _render_cache_diagnostics_table(
+            payload,
+            verbose=args.verbose,
+        ),
+    )
+    return 0
+
+
+def _cmd_run_all(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    if (
+        not getattr(args, "dry_run", False)
+        and getattr(args, "format", ExecutionPreviewFormat.TABLE.value)
+        != ExecutionPreviewFormat.TABLE.value
+    ):
+        LOGGER.error("--format is only supported for run-all with --dry-run")
+        return 1
+    if args.action == TerragruntAction.INIT.value and (
+        args.tag is not None or args.tag_expr is not None
+    ):
+        LOGGER.error(
+            "--tag and --tag-expr are only supported for run-all plan/apply/destroy"
+        )
+        return 1
+    if args.action != TerragruntAction.PLAN.value and args.save_plan_json is not None:
+        LOGGER.error("--save-plan-json is only supported for run-all plan")
+        return 1
+    if (
+        args.action != TerragruntAction.PLAN.value
+        and getattr(args, "save_redacted_plan_json", None) is not None
+    ):
+        LOGGER.error("--save-redacted-plan-json is only supported for run-all plan")
+        return 1
+    if args.action != TerragruntAction.PLAN.value and getattr(
+        args, "fail_on_changes", False
+    ):
+        LOGGER.error("--fail-on-changes is only supported for run-all plan")
+        return 1
+    if (
+        args.action != TerragruntAction.PLAN.value
+        and _validation_report_format(args) != ValidationReportFormat.JSON
+    ):
+        LOGGER.error("--validation-report-format is only supported for run-all plan")
+        return 1
+
+    result = run_all_stacks(
+        args.action,
+        args.root,
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        include_tags=args.include_tag,
+        exclude_tags=args.exclude_tag,
+        clean=args.clean,
+        auto_approve=args.auto_approve,
+        destroy=args.destroy,
+        use_local_modules=args.use_local_modules,
+        tags=args.tag,
+        tag_expr=args.tag_expr,
+        save_plan_json=args.save_plan_json,
+        save_redacted_plan_json=getattr(args, "save_redacted_plan_json", None),
+        save_plan_summary_json=getattr(args, "save_plan_summary_json", None),
+        plan_summary=getattr(args, "plan_summary", "table"),
+        save_apply_summary_json=getattr(args, "save_apply_summary_json", None),
+        apply_summary=getattr(args, "apply_summary", "table"),
+        out=getattr(args, "out", None),
+        plan=getattr(args, "plan", None),
+        strict_validation_warnings=args.strict_validation_warnings,
+        fail_on_changes=getattr(args, "fail_on_changes", False),
+        no_cas=getattr(args, "no_cas", False),
+        stacks=_run_all_stack_args(args),
+        merge_mode=_merge_mode_arg(args),
+        validation_report_format=_validation_report_format(args),
+        dry_run=getattr(args, "dry_run", False),
+    )
+    if isinstance(result, ExecutionPreview):
+        _emit_execution_preview(
+            result,
+            ExecutionPreviewFormat(
+                getattr(args, "format", ExecutionPreviewFormat.TABLE.value)
+            ),
+            verbose=False,
+        )
+        return 0
+    return result
+
+
+def main() -> None:
+    """CLI entry point."""
+    parser = build_parser()
+    args = parser.parse_args()
+    if args.command == "author":
+        from .authoring import run_authoring
+
+        sys.exit(run_authoring(args))
+    if not (
+        args.command == "ci"
+        and args.ci_command
+        in {"execute", "execute-from-env", "prepare-from-env", "redact-plan"}
+    ):
+        env_files = get_env_file_paths()
+        if env_files:
+            load_env_files(env_files)
+    debug_enabled = is_debug_enabled(args)
+    quiet_enabled = is_quiet_enabled(args)
+
+    category_levels = _parse_log_flags(getattr(args, "log", None))
+    _configure_logging(
+        debug=debug_enabled,
+        quiet=quiet_enabled,
+        category_levels=category_levels,
+    )
+
+    try:
+        match args.command:
+            case "validate":
+                exit_code = _cmd_validate(args)
+                if exit_code != 0:
+                    exit_code = 3  # Validation failure
+            case "generate":
+                exit_code = _cmd_generate(args)
+                if exit_code != 0:
+                    exit_code = 6  # Module/configuration error
+            case "lock":
+                exit_code = _cmd_lock(args)
+            case "test":
+                exit_code = _cmd_test(args)
+            case "info":
+                match args.info_command:
+                    case "modules-and-policies":
+                        exit_code = _cmd_info_modules_and_policies(args)
+                    case "explain" | "effective":
+                        exit_code = _cmd_info_configuration(args)
+                    case "associations":
+                        exit_code = _cmd_info_associations(args)
+                    case "diagnose":
+                        exit_code = _cmd_diagnose(args)
+                    case "graph":
+                        exit_code = _cmd_info_graph(args)
+                    case _:
+                        parser.print_help(sys.stderr)
+                        exit_code = 1
+            case "ci":
+                match args.ci_command:
+                    case "environments":
+                        exit_code = _cmd_ci_environments(args)
+                    case "validate":
+                        exit_code = _cmd_ci_validate(args)
+                    case "prepare":
+                        exit_code = _cmd_ci_prepare(args)
+                    case "execute":
+                        exit_code = _cmd_ci_execute(args)
+                    case "prepare-from-env":
+                        exit_code = _cmd_ci_prepare_from_env(args)
+                    case "execute-from-env":
+                        exit_code = _cmd_ci_execute_from_env(args)
+                    case "redact-plan":
+                        exit_code = _cmd_ci_redact_plan(args)
+                    case "plan-bundle":
+                        exit_code = _cmd_ci_plan_bundle(args)
+                    case _:
+                        parser.print_help(sys.stderr)
+                        exit_code = 1
+            case "operation":
+                match args.operation_command:
+                    case "plan":
+                        exit_code = _cmd_operation_plan(args)
+                    case "run":
+                        exit_code = _cmd_operation_run(args)
+                    case "destroy":
+                        exit_code = _cmd_operation_destroy(args)
+                    case _:
+                        parser.print_help(sys.stderr)
+                        exit_code = 1
+            case command if command in {action.value for action in TerragruntAction}:
+                exit_code = _cmd_terragrunt_action(args, command)
+                if exit_code != 0:
+                    exit_code = 5  # Terragrunt action failed
+            case "run-all":
+                exit_code = _cmd_run_all(args)
+                if exit_code != 0:
+                    exit_code = 5  # Terragrunt action failed
+            case _:
+                parser.print_help(sys.stderr)
+                exit_code = 1
+    except FileNotFoundError as exc:
+        LOGGER.error("{exc}", exc=exc)
+        exit_code = 4
+    except StacksmithError as exc:
+        LOGGER.error("{exc}", exc=exc)
+        exit_code = 6
+    except (ValueError, RuntimeError) as exc:
+        LOGGER.error("{exc}", exc=exc)
+        exit_code = 6
+    except KeyboardInterrupt:
+        LOGGER.warning("Aborted.")
+        exit_code = 130
+
+    sys.exit(exit_code)
+
+
+def _cmd_info_configuration(args: argparse.Namespace) -> int:
+    with ACTIVE_TRACE.set(ResolutionTrace()):
+        return _inspect_configuration_args(args)
+
+
+def _inspect_configuration_args(args: argparse.Namespace) -> int:
+    _apply_runfile(args)
+    payload = inspect_configuration(
+        _stack_arg(args),
+        config=args.config,
+        vars_file=_vars_arg(args),
+        input_layers=_ordered_input_layers(args),
+        build_dir=args.build_dir,
+        no_cache=args.no_cache,
+        merge_mode=_merge_mode_arg(args),
+        query=getattr(args, "query", None),
+        show_values=args.show_values,
+    )
+    if args.info_command == "effective":
+        payload = payload["effective"]
+    _emit_info_ci_output(
+        InspectOutputFormat(args.format),
+        json_text_factory=lambda: _format_info_ci_json(payload),
+        table_renderer=lambda: _render_configuration_table(payload),
+    )
+    return 0
+
+
+def _render_configuration_table(payload: dict[str, Any]) -> None:
+    table = Table("Address", "Action", "Source", "Output name", "Value / decision")
+    if "events" in payload:
+        for event in payload["events"]:
+            table.add_row(
+                event["path"],
+                event["action"],
+                event["source"],
+                event.get("output_name", ""),
+                json.dumps(event.get("value")) + " " + event.get("decision", ""),
+            )
+    else:
+        for name, value in payload.items():
+            table.add_row(name, "effective", "", "", json.dumps(value, indent=2))
+    Console().print(table)

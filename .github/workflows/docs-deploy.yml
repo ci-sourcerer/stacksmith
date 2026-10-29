@@ -1,0 +1,34 @@
+name: docs-deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/docs-deploy.yml'
+      - 'docs/**'
+      - 'zensical.toml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'scripts/update_cli_reference.py'
+      - 'src/stacksmith/cli/**'
+  workflow_dispatch:
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  docs:
+    uses: ci-sourcerer/common-python-tasks/.github/workflows/docs.yml@v0.12.1
+    with:
+      python_version: '3.15'
+      dependency_group: dev
+      generated_docs_check_task: docs-cli-reference-check
+      deploy_github_pages: true
+      artifact_name: stacksmith-docs
+    permissions:
+      contents: read
+      deployments: write
+      pages: write
+      id-token: write

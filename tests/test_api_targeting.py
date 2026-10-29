@@ -1,0 +1,1517 @@
+import json
+import shutil
+from io import StringIO
+from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
+import yaml
+from loguru import logger as LOGGER
+
+from stacksmith import api, discovery
+from stacksmith.enums import MergeMode
+from stacksmith.exceptions import StacksmithConfigError
+from stacksmith.loading import load_config, load_stack
+from stacksmith.models import ComponentDefinition, DefaultModuleMapping, StackDefinition
+from stacksmith.targeting import (
+    build_terragrunt_args,
+    compile_tag_expression,
+    compute_stack_target_modules,
+    extract_tag_references,
+)
+from stacksmith.validation_reports import parse_validation_report_csv
+from stacksmith.validations import PlanValidationOutcome
+
+
+def _parse_validation_output(output, report_format):
+    return (
+        json.loads(output)
+        if report_format == "json"
+        else parse_validation_report_csv(output)
+    )
+
+
+@pytest.mark.parametrize(
+    ("merge_mode", "explicit", "expected_loads"),
+    [
+        (MergeMode.DEEP, False, 1),
+        (MergeMode.OVERRIDE, False, 2),
+        (MergeMode.OVERRIDE, True, 1),
+    ],
+)
+def test_prepare_all_stacks_reuses_matching_metadata(
+    monkeypatch, tmp_path, sample_config_yaml, merge_mode, explicit, expected_loads
+):
+    stack_file = tmp_path / "stack.yaml"
+    stack_file.write_text(
+        "name: example\ncomponents:\n  item:\n    type: example\n"
+        "    properties:\n      value: '{{ inputs.answer }}'\n"
+    )
+    vars_file = tmp_path / "vars.yaml"
+    vars_file.write_text("answer: resolved\n")
+    calls = []
+    original = api.load_stack_metadata
+
+    def load_metadata(*args, **kwargs):
+        calls.append(kwargs.get("merge_mode", MergeMode.DEEP))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(api, "load_stack_metadata", load_metadata)
+    monkeypatch.setattr(discovery, "load_stack_metadata", load_metadata)
+    prepared = api._prepare_all_stacks(
+        tmp_path,
+        load_config(sample_config_yaml),
+        str(vars_file),
+        None,
+        None,
+        stack_refs=[stack_file] if explicit else None,
+        merge_mode=merge_mode,
+    )
+    assert len(calls) == expected_loads
+    assert (
+        prepared.stacks["example"].components["item"].properties["value"] == "resolved"
+    )
+
+
+def _build_stack(
+    stack_name: str,
+    component_name: str,
+    component_type: str,
+    tags: set[str],
+) -> StackDefinition:
+    return StackDefinition(
+        name=stack_name,
+        components={
+            component_name: ComponentDefinition(
+                type=component_type,
+                tags=tags,
+                properties={},
+            )
+        },
+    )
+
+
+def _setup_run_stack_action_mocks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+    component_tags: set[str],
+) -> dict[str, object]:
+    stack = load_stack(sample_stack_yaml)
+    config = load_config(sample_config_yaml)
+    stack.components["my-bucket"].tags = component_tags
+    calls = {}
+
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
+    monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
+
+    def _fake_generate_single_stack(*args, **kwargs):
+        calls["generated"] = True
+        return tmp_path / ".stacksmith"
+
+    def _fake_run_terragrunt(args, working_dir, **kwargs):
+        calls["terragrunt"] = (args, working_dir)
+        calls["terragrunt_kwargs"] = kwargs
+        return 0
+
+    monkeypatch.setattr(api, "_generate_single_stack", _fake_generate_single_stack)
+    monkeypatch.setattr(api, "run_terragrunt", _fake_run_terragrunt)
+    return calls
+
+
+def test_generate_stack_logs_paths_as_strings(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    stack_file = tmp_path / "stack.yaml"
+    config = load_config(sample_config_yaml)
+    stack = _build_stack("sample", "bucket", "aws_s3_bucket", set())
+
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(
+        api, "_enforce_lock_policy_for_inputs", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        api,
+        "_prepare_stack_definition",
+        lambda *args, **kwargs: (stack, {}),
+    )
+    monkeypatch.setattr(
+        api,
+        "_generate_single_stack",
+        lambda *args, **kwargs: tmp_path / ".stacksmith",
+    )
+
+    buffer = StringIO()
+    sink_id = LOGGER.add(buffer, level="DEBUG")
+    try:
+        api.generate_stack([stack_file], config=[sample_config_yaml])
+        log_text = buffer.getvalue()
+        assert "PosixPath(" not in log_text
+        assert str(stack_file) in log_text
+        assert str(sample_config_yaml) in log_text
+    finally:
+        LOGGER.remove(sink_id)
+
+
+def _setup_run_all_stacks_mocks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+    stack_dirs: dict[str, Path],
+    stacks: dict[str, StackDefinition],
+) -> dict[str, object]:
+    config = load_config(sample_config_yaml)
+    calls = {}
+
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(
+        api,
+        "_generate_all_stacks",
+        lambda *args, **kwargs: (
+            tmp_path / ".stacksmith",
+            stack_dirs,
+            stacks,
+            {name: config for name in stacks},
+        ),
+    )
+
+    def _fake_run_terragrunt_all_ordered(action, stack_build_dirs, **kwargs):
+        calls["run"] = (action, stack_build_dirs, kwargs)
+        return 0
+
+    monkeypatch.setattr(
+        api,
+        "run_terragrunt_all_ordered",
+        _fake_run_terragrunt_all_ordered,
+    )
+    return calls
+
+
+def test_apply_plan_path_is_relative_to_callers_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    assert build_terragrunt_args("apply", plan_file=Path("saved/plan.tfplan")) == [
+        "apply",
+        str(tmp_path / "saved/plan.tfplan"),
+    ]
+
+
+def test_compile_tag_expression_rejects_invalid_syntax():
+    with pytest.raises(StacksmithConfigError, match="Invalid --tag-expr"):
+        compile_tag_expression("contains(tags")
+
+
+def test_extract_tag_references_supports_dot_style():
+    assert extract_tag_references("tag.prod") == {"prod"}
+    assert extract_tag_references("tag.experimental && contains(tags, 'prod')") == {
+        "experimental"
+    }
+
+
+def test_compile_tag_expression_rejects_bracket_style_syntax():
+    with pytest.raises(StacksmithConfigError, match="Invalid --tag-expr"):
+        compile_tag_expression("tag['prod']")
+
+
+def test_compute_stack_target_modules_uses_effective_tag_union(
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+):
+    stack = load_stack(sample_stack_yaml)
+    config = load_config(sample_config_yaml)
+
+    stack.components["my-bucket"].tags = {"prod"}
+    config.module_mappings["aws_s3_bucket"].tags = {"shared"}
+
+    expression = compile_tag_expression(
+        "contains(tags, 'prod') && contains(tags, 'shared')"
+    )
+    targets = compute_stack_target_modules(stack, config, expression)
+
+    assert targets == ["module.my-bucket"]
+
+
+def test_compute_stack_target_modules_uses_default_mapping_tags(
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+):
+    stack = load_stack(sample_stack_yaml)
+    config = load_config(sample_config_yaml)
+    stack.components["my-bucket"].type = "convention-bucket"
+    stack.components["my-bucket"].tags = {"prod"}
+    config.default_module_mapping = DefaultModuleMapping.model_validate(
+        {
+            "source": {
+                "source": "git",
+                "data": {
+                    "repo": "https://github.com/org/{{ component.type }}.git",
+                    "ref": "latest",
+                },
+            },
+            "tags": ["shared"],
+        }
+    )
+
+    expression = compile_tag_expression(
+        "contains(tags, 'prod') && contains(tags, 'shared')"
+    )
+
+    assert compute_stack_target_modules(stack, config, expression) == [
+        "module.my-bucket"
+    ]
+
+
+def test_compute_stack_target_modules_filters_with_dot_style_tag_expression(
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+):
+    stack = load_stack(sample_stack_yaml)
+    config = load_config(sample_config_yaml)
+
+    stack.components["my-bucket"].tags = {"prod", "shared"}
+
+    expression = compile_tag_expression("tag.prod && tag.shared")
+    targets = compute_stack_target_modules(stack, config, expression)
+
+    assert targets == ["module.my-bucket"]
+
+
+def test_compute_stack_target_modules_requires_boolean_results(
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+):
+    stack = load_stack(sample_stack_yaml)
+    config = load_config(sample_config_yaml)
+
+    stack.components["my-bucket"].tags = {"prod"}
+
+    expression = compile_tag_expression("tag.prod && tag.shared")
+    with pytest.raises(StacksmithConfigError, match="must evaluate to a boolean"):
+        compute_stack_target_modules(stack, config, expression)
+
+
+def test_compute_stack_target_modules_filters_with_required_tags(
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+):
+    stack = load_stack(sample_stack_yaml)
+    config = load_config(sample_config_yaml)
+
+    stack.components["my-bucket"].tags = {"prod", "shared"}
+
+    targets = compute_stack_target_modules(
+        stack,
+        config,
+        required_tags={"prod", "shared"},
+    )
+
+    assert targets == ["module.my-bucket"]
+
+
+def test_run_stack_action_appends_targets(
+    monkeypatch,
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+):
+    calls = _setup_run_stack_action_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_stack_yaml,
+        sample_config_yaml,
+        {"prod"},
+    )
+
+    exit_code = api.run_stack_action(
+        "plan",
+        sample_stack_yaml,
+        tag_expr="contains(tags, 'prod')",
+    )
+
+    assert exit_code == 0
+    assert calls["generated"] is True
+    assert calls["terragrunt"] == (
+        ["plan", "-target", "module.my-bucket"],
+        tmp_path / ".stacksmith",
+    )
+
+
+def test_run_stack_action_supports_direct_tag_expression(
+    monkeypatch,
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+):
+    calls = _setup_run_stack_action_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_stack_yaml,
+        sample_config_yaml,
+        {"prod"},
+    )
+
+    exit_code = api.run_stack_action(
+        "plan",
+        sample_stack_yaml,
+        tag_expr="tag.prod && tag.experimental == `false`",
+    )
+
+    assert exit_code == 0
+    assert calls["terragrunt"] == (
+        ["plan", "-target", "module.my-bucket"],
+        tmp_path / ".stacksmith",
+    )
+
+
+def test_run_stack_action_supports_simple_tag_selectors(
+    monkeypatch,
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+):
+    calls = _setup_run_stack_action_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_stack_yaml,
+        sample_config_yaml,
+        {"prod", "web"},
+    )
+
+    exit_code = api.run_stack_action(
+        "plan",
+        sample_stack_yaml,
+        tags=["prod", "web"],
+    )
+
+    assert exit_code == 0
+    assert calls["generated"] is True
+    assert calls["terragrunt"] == (
+        ["plan", "-target", "module.my-bucket"],
+        tmp_path / ".stacksmith",
+    )
+
+
+def test_run_stack_action_no_cache_implies_no_cas(
+    monkeypatch,
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+):
+    calls = _setup_run_stack_action_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_stack_yaml,
+        sample_config_yaml,
+        {"prod"},
+    )
+
+    exit_code = api.run_stack_action(
+        "plan",
+        sample_stack_yaml,
+        no_cache=True,
+    )
+
+    assert exit_code == 0
+    assert calls["terragrunt_kwargs"]["no_cas"] is True
+
+
+def test_run_stack_action_combines_tags_and_expression_with_and_semantics(
+    monkeypatch,
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+):
+    calls = _setup_run_stack_action_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_stack_yaml,
+        sample_config_yaml,
+        {"prod", "web"},
+    )
+
+    exit_code = api.run_stack_action(
+        "plan",
+        sample_stack_yaml,
+        tags=["prod"],
+        tag_expr="contains(tags, 'web')",
+    )
+
+    assert exit_code == 0
+    assert calls["generated"] is True
+    assert calls["terragrunt"] == (
+        ["plan", "-target", "module.my-bucket"],
+        tmp_path / ".stacksmith",
+    )
+
+
+def test_generate_stack_returns_output_path(
+    monkeypatch,
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+):
+    config = load_config(sample_config_yaml)
+    stack = load_stack(sample_stack_yaml)
+    calls = {}
+    warnings = []
+    monkeypatch.delenv("STACKSMITH_WARN_ON_UNLOCKED", raising=False)
+    monkeypatch.setattr(
+        api.LOGGER,
+        "warning",
+        lambda message, *args, **kwargs: warnings.append(message),
+    )
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(
+        api,
+        "_load_stack_definition",
+        lambda *args, **kwargs: stack,
+    )
+
+    def _fake_generate_single_stack(loaded_stack, loaded_config, *args, **kwargs):
+        calls["stack"] = loaded_stack
+        calls["config"] = loaded_config
+        return tmp_path / ".stacksmith"
+
+    monkeypatch.setattr(
+        api,
+        "_generate_single_stack",
+        _fake_generate_single_stack,
+    )
+
+    output_dir = api.generate_stack(sample_stack_yaml)
+
+    assert output_dir == tmp_path / ".stacksmith"
+    assert calls == {"stack": stack, "config": config}
+    assert any("without lockfile enforcement" in warning for warning in warnings)
+
+
+def test_generate_stack_renders_component_template_before_generation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    stack_file = tmp_path / "stack.yaml"
+    stack_file.write_text(
+        "name: workers\n"
+        "components:\n"
+        "{% for name in inputs.workers %}\n"
+        "  '{{ name }}':\n"
+        "    type: aws_s3_bucket\n"
+        "    properties:\n"
+        "      bucket: {{ name | tojson }}\n"
+        "{% endfor %}\n",
+        encoding="utf-8",
+    )
+    config = load_config(sample_config_yaml)
+    generated = {}
+    warnings = []
+    monkeypatch.setenv("STACKSMITH_WARN_ON_UNLOCKED", "0")
+    monkeypatch.setattr(
+        api.LOGGER,
+        "warning",
+        lambda message, *args, **kwargs: warnings.append(message),
+    )
+
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(
+        api,
+        "resolve_inputs",
+        lambda *args, **kwargs: {"workers": ["blue", "green"]},
+    )
+
+    def _fake_generate_single_stack(stack, *_args, **_kwargs):
+        generated["stack"] = stack
+        return tmp_path / ".stacksmith"
+
+    monkeypatch.setattr(api, "_generate_single_stack", _fake_generate_single_stack)
+
+    api.generate_stack(stack_file)
+
+    assert set(generated["stack"].components) == {"blue", "green"}
+    assert generated["stack"].components["blue"].properties["bucket"] == "blue"
+    assert warnings == []
+
+
+def test_generate_stack_exposes_git_repository_to_stack_templates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    stack_file = tmp_path / "stack.yaml"
+    stack_file.write_text(
+        "name: repository-tag\n"
+        "components:\n"
+        "  bucket:\n"
+        "    type: aws_s3_bucket\n"
+        "    properties:\n"
+        "      tags:\n"
+        "        repository: '{{ env.git_repository }}'\n",
+        encoding="utf-8",
+    )
+    config = load_config(sample_config_yaml)
+    generated = {}
+
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(
+        api,
+        "get_current_git_repository",
+        lambda path: "https://github.com/example/iac.git",
+    )
+    monkeypatch.setattr(
+        api,
+        "_generate_single_stack",
+        lambda stack, *_args, **_kwargs: generated.setdefault("stack", stack),
+    )
+
+    api.generate_stack(stack_file)
+
+    assert generated["stack"].components["bucket"].properties["tags"] == {
+        "repository": "https://github.com/example/iac.git"
+    }
+
+
+def test_run_all_stacks_uses_stack_specific_target_args(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    matched = _build_stack("matched", "bucket", "aws_s3_bucket", {"prod"})
+    skipped = _build_stack("skipped", "instance", "aws_ec2_instance", set())
+
+    stack_dirs = {
+        "matched": tmp_path / "matched",
+        "skipped": tmp_path / "skipped",
+    }
+    stacks = {"matched": matched, "skipped": skipped}
+
+    calls = _setup_run_all_stacks_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_config_yaml,
+        stack_dirs,
+        stacks,
+    )
+
+    exit_code = api.run_all_stacks(
+        "plan",
+        tmp_path,
+        tag_expr="contains(tags, 'prod')",
+    )
+
+    assert exit_code == 0
+    assert calls["run"][0] == ["plan"]
+    assert calls["run"][1] == {"matched": tmp_path / "matched"}
+    assert calls["run"][2]["stack_args_by_name"] == {
+        "matched": ["plan", "-target", "module.bucket"]
+    }
+
+
+@pytest.mark.parametrize(
+    ("action", "option", "runner_option"),
+    [("plan", "out", "save_plan_binary"), ("apply", "plan", "plan_directory")],
+)
+def test_run_all_forwards_execution_plan_directory(
+    monkeypatch, tmp_path, sample_config_yaml, action, option, runner_option
+):
+    calls = _setup_run_all_stacks_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_config_yaml,
+        {"demo": tmp_path / "demo"},
+        {"demo": _build_stack("demo", "bucket", "aws_s3_bucket", set())},
+    )
+    assert api.run_all_stacks(action, tmp_path, **{option: tmp_path / "plans"}) == 0
+    assert calls["run"][2][runner_option] == tmp_path / "plans"
+
+
+def test_run_all_stacks_supports_simple_tag_selectors(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    matched = _build_stack("matched", "bucket", "aws_s3_bucket", {"prod"})
+
+    calls = _setup_run_all_stacks_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_config_yaml,
+        {"matched": tmp_path / "matched"},
+        {"matched": matched},
+    )
+
+    exit_code = api.run_all_stacks(
+        "plan",
+        tmp_path,
+        tags=["prod"],
+    )
+
+    assert exit_code == 0
+    assert calls["run"][0] == ["plan"]
+    assert calls["run"][1] == {"matched": tmp_path / "matched"}
+    assert calls["run"][2]["stack_args_by_name"] == {
+        "matched": ["plan", "-target", "module.bucket"]
+    }
+
+
+def test_run_all_stacks_no_cache_implies_no_cas(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    matched = _build_stack("matched", "bucket", "aws_s3_bucket", {"prod"})
+
+    calls = _setup_run_all_stacks_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_config_yaml,
+        {"matched": tmp_path / "matched"},
+        {"matched": matched},
+    )
+
+    exit_code = api.run_all_stacks(
+        "plan",
+        tmp_path,
+        no_cache=True,
+    )
+
+    assert exit_code == 0
+    assert calls["run"][2]["no_cas"] is True
+
+
+def test_run_all_stacks_rejects_tag_selectors_for_init(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    config = load_config(sample_config_yaml)
+
+    def _fake_load_runtime_config(*args, **kwargs):
+        return tmp_path / ".cache", [sample_config_yaml], config
+
+    monkeypatch.setattr(api, "load_runtime_config", _fake_load_runtime_config)
+
+    with pytest.raises(ValueError, match="--tag and --tag-expr"):
+        api.run_all_stacks("init", tmp_path, tags=["prod"])
+
+
+def test_run_all_stacks_passes_explicit_stack_refs_to_generator(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    config = load_config(sample_config_yaml)
+    calls = {}
+
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+
+    def _fake_generate_all_stacks(*args, **kwargs):
+        calls["generate"] = (args, kwargs)
+        return tmp_path / ".stacksmith", {}, {}, {}
+
+    monkeypatch.setattr(api, "_generate_all_stacks", _fake_generate_all_stacks)
+    monkeypatch.setattr(
+        api,
+        "run_terragrunt_all_ordered",
+        lambda action, stack_build_dirs, **kwargs: 0,
+    )
+
+    exit_code = api.run_all_stacks(
+        "apply",
+        tmp_path,
+        stacks=["./network/stack.yaml", "./app/stack.yaml"],
+    )
+
+    assert exit_code == 0
+    assert calls["generate"][1]["stack_refs"] == [
+        "./network/stack.yaml",
+        "./app/stack.yaml",
+    ]
+
+
+def test_validate_stack_emits_single_json_report_block(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    config = load_config(sample_config_yaml)
+    stack = _build_stack("sample", "bucket", "aws_s3_bucket", set())
+
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
+    monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
+    monkeypatch.setattr(api, "load_stack_metadata", lambda *args, **kwargs: stack)
+    monkeypatch.setattr(api, "resolve_inputs", lambda *args, **kwargs: {"ok": True})
+
+    report = api.validate_stack(tmp_path / "stack.yaml")
+
+    assert report["exit_code"] == 0
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+    assert payload == report
+    assert output == (f"{json.dumps(report, indent=2, sort_keys=True)}\n")
+    assert report["command"] == "validate"
+    assert report["status"] == "pass"
+    assert report["summary"] == {"pass": 1, "warn": 0, "fail": 0}
+
+
+@pytest.mark.parametrize("report_format", ["json", "csv"])
+def test_validate_stack_emits_report_when_requested(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+    capsys: pytest.CaptureFixture[str],
+    report_format,
+):
+    config = load_config(sample_config_yaml)
+    stack = _build_stack("sample", "bucket", "aws_s3_bucket", set())
+
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
+    monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
+    monkeypatch.setattr(api, "load_stack_metadata", lambda *args, **kwargs: stack)
+    monkeypatch.setattr(api, "resolve_inputs", lambda *args, **kwargs: {"ok": True})
+
+    report = api.validate_stack(
+        tmp_path / "stack.yaml",
+        validation_report_format=report_format,
+    )
+
+    assert report["exit_code"] == 0
+    payload = _parse_validation_output(capsys.readouterr().out, report_format)
+    assert payload == report
+    assert payload["command"] == "validate"
+    assert payload["status"] == "pass"
+
+
+@pytest.mark.parametrize("report_format", ["json", "csv"])
+def test_validate_stack_var_validation_failure_emits_report(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+    capsys: pytest.CaptureFixture[str],
+    report_format,
+):
+    config = load_config(sample_config_yaml)
+    stack = _build_stack("sample", "bucket", "aws_s3_bucket", set())
+
+    monkeypatch.setattr(
+        api,
+        "load_runtime_config",
+        lambda *args, **kwargs: (tmp_path / ".cache", [sample_config_yaml], config),
+    )
+    monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
+    monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
+    monkeypatch.setattr(api, "load_stack_metadata", lambda *args, **kwargs: stack)
+    monkeypatch.setattr(
+        api,
+        "resolve_inputs",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ValueError(
+                "Input 'region' failed config validation: region must be us-east-1"
+            )
+        ),
+    )
+
+    report = api.validate_stack(
+        tmp_path / "stack.yaml",
+        validation_report_format=report_format,
+    )
+
+    assert report["exit_code"] == 1
+    payload = _parse_validation_output(capsys.readouterr().out, report_format)
+    assert payload == report
+    assert payload["status"] == "fail"
+    assert payload["results"][0]["status"] == "fail"
+    assert "Input 'region' failed config validation" in payload["results"][0]["message"]
+
+
+def test_validate_stack_failure_logs_are_concise(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+):
+    config = load_config(sample_config_yaml)
+    stack = _build_stack("sample", "bucket", "aws_s3_bucket", set())
+    buffer = StringIO()
+    sink_id = LOGGER.add(buffer, level="ERROR")
+
+    try:
+        monkeypatch.setattr(
+            api,
+            "load_runtime_config",
+            lambda *args, **kwargs: (
+                tmp_path / ".cache",
+                [sample_config_yaml],
+                config,
+            ),
+        )
+        monkeypatch.setattr(api, "_find_stack_file", lambda path: path)
+        monkeypatch.setattr(api, "load_stack", lambda *args, **kwargs: stack)
+        monkeypatch.setattr(
+            api,
+            "resolve_inputs",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                ValueError(
+                    "Input 'region' failed config validation: region must be us-east-1"
+                )
+            ),
+        )
+
+        report = api.validate_stack(tmp_path / "stack.yaml")
+        assert report["exit_code"] == 1
+
+        log_text = buffer.getvalue()
+        assert "see validation report for details" in log_text
+        assert "Input 'region' failed config validation" not in log_text
+    finally:
+        LOGGER.remove(sink_id)
+
+
+def test_run_stack_action_plan_emits_single_json_report_block(
+    monkeypatch,
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    calls = _setup_run_stack_action_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_stack_yaml,
+        sample_config_yaml,
+        {"prod"},
+    )
+
+    def _fake_run_terragrunt(args, working_dir, **kwargs):
+        kwargs["plan_validation_results"].append(
+            api.PlanValidationResult(
+                name="warn_rule",
+                status=PlanValidationOutcome.WARN,
+                message="policy warning — plan values: redacted",
+                stack_name="my-stack",
+            )
+        )
+        calls["terragrunt"] = (args, working_dir)
+        return 0
+
+    monkeypatch.setattr(api, "run_terragrunt", _fake_run_terragrunt)
+
+    exit_code = api.run_stack_action(
+        "plan",
+        sample_stack_yaml,
+        tag_expr="contains(tags, 'prod')",
+    )
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    report = payload
+    assert report["command"] == "plan"
+    assert report["status"] == "warn"
+    assert report["summary"] == {"pass": 0, "warn": 1, "fail": 0}
+    assert len(report["results"]) == 1
+
+
+@pytest.mark.parametrize("report_format", ["json", "csv"])
+def test_run_stack_action_plan_emits_report_when_requested(
+    monkeypatch,
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+    capsys: pytest.CaptureFixture[str],
+    report_format,
+):
+    calls = _setup_run_stack_action_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_stack_yaml,
+        sample_config_yaml,
+        {"prod"},
+    )
+
+    def _fake_run_terragrunt(args, working_dir, **kwargs):
+        kwargs["plan_validation_results"].append(
+            api.PlanValidationResult(
+                name="warn_rule",
+                status=PlanValidationOutcome.WARN,
+                message="policy warning — plan values: redacted",
+                stack_name="my-stack",
+            )
+        )
+        calls["terragrunt"] = (args, working_dir)
+        return 0
+
+    monkeypatch.setattr(api, "run_terragrunt", _fake_run_terragrunt)
+
+    exit_code = api.run_stack_action(
+        "plan",
+        sample_stack_yaml,
+        tag_expr="contains(tags, 'prod')",
+        validation_report_format=report_format,
+    )
+
+    assert exit_code == 0
+    report = _parse_validation_output(capsys.readouterr().out, report_format)
+    assert report["command"] == "plan"
+    assert report["status"] == "warn"
+    assert report["results"][0]["name"] == "warn_rule"
+    assert report["results"][0]["message"] == "policy warning"
+    assert report["results"][0]["detail"] == "plan values: redacted"
+
+
+def test_run_all_plan_emits_single_json_report_block(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    matched = _build_stack("matched", "bucket", "aws_s3_bucket", {"prod"})
+    stack_dirs = {"matched": tmp_path / "matched"}
+    stacks = {"matched": matched}
+    _setup_run_all_stacks_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_config_yaml,
+        stack_dirs,
+        stacks,
+    )
+
+    def _fake_run_terragrunt_all_ordered(action, stack_build_dirs, **kwargs):
+        kwargs["plan_validation_results"].append(
+            api.PlanValidationResult(
+                name="fail_rule",
+                status=PlanValidationOutcome.FAIL,
+                message="policy failure — plan values: redacted",
+                stack_name="matched",
+            )
+        )
+        return 1
+
+    monkeypatch.setattr(
+        api, "run_terragrunt_all_ordered", _fake_run_terragrunt_all_ordered
+    )
+
+    exit_code = api.run_all_stacks("plan", tmp_path)
+
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    report = payload
+    assert report["command"] == "run-all plan"
+    assert report["status"] == "fail"
+    assert report["summary"] == {"pass": 0, "warn": 0, "fail": 1}
+    assert report["stack_count"] == 1
+
+
+@pytest.mark.parametrize("report_format", ["json", "csv"])
+def test_run_all_plan_emits_report_when_requested(
+    monkeypatch,
+    tmp_path: Path,
+    sample_config_yaml: Path,
+    capsys: pytest.CaptureFixture[str],
+    report_format,
+):
+    matched = _build_stack("matched", "bucket", "aws_s3_bucket", {"prod"})
+    stack_dirs = {"matched": tmp_path / "matched"}
+    stacks = {"matched": matched}
+    _setup_run_all_stacks_mocks(
+        monkeypatch,
+        tmp_path,
+        sample_config_yaml,
+        stack_dirs,
+        stacks,
+    )
+
+    def _fake_run_terragrunt_all_ordered(action, stack_build_dirs, **kwargs):
+        kwargs["plan_validation_results"].append(
+            api.PlanValidationResult(
+                name="fail_rule",
+                status=PlanValidationOutcome.FAIL,
+                message="policy failure — plan values: redacted",
+                stack_name="matched",
+            )
+        )
+        return 1
+
+    monkeypatch.setattr(
+        api, "run_terragrunt_all_ordered", _fake_run_terragrunt_all_ordered
+    )
+
+    exit_code = api.run_all_stacks(
+        "plan",
+        tmp_path,
+        validation_report_format=report_format,
+    )
+
+    assert exit_code == 1
+    report = _parse_validation_output(capsys.readouterr().out, report_format)
+    assert report["command"] == "run-all plan"
+    assert report["status"] == "fail"
+    assert report["results"][0]["name"] == "fail_rule"
+    assert report["results"][0]["message"] == "policy failure"
+    assert report["results"][0]["detail"] == "plan values: redacted"
+
+
+def test_lock_stack_writes_lockfile(
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+) -> None:
+    lockfile = tmp_path / "stacksmith.lock.yaml"
+
+    summary = api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        lockfile=lockfile,
+    )
+
+    assert summary["in_sync"] is True
+    assert summary["artifact_count"] >= 2
+    payload = yaml.safe_load(lockfile.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 2
+    assert payload["context"]["stack_references"]
+    assert payload["context"]["config_references"]
+
+
+@pytest.mark.parametrize("remote_config", [False, True])
+def test_lockfile_survives_checkout_and_cache_relocation(
+    monkeypatch, tmp_path, sample_stack_yaml, sample_config_yaml, remote_config
+):
+    from stacksmith import remote
+
+    original = tmp_path / "developer"
+    original.mkdir()
+    shutil.copyfile(sample_stack_yaml, original / "stack.yaml")
+    shutil.copyfile(sample_config_yaml, original / "config.yaml")
+    (original / "vars.yaml").write_text("environment: production\n")
+    (original / "run.yaml").write_text("description: portable invocation\n")
+    monkeypatch.setattr(
+        remote.requests,
+        "get",
+        Mock(
+            return_value=Mock(status_code=200, content=sample_config_yaml.read_bytes())
+        ),
+    )
+    api.lock_stack(
+        original / "stack.yaml",
+        config=[
+            "https://example.invalid/config.yaml"
+            if remote_config
+            else str(original / "config.yaml")
+        ],
+        input_layers=[("vars", str(original / "vars.yaml"))],
+        runfiles=[original / "run.yaml"],
+        build_dir=tmp_path / "original-cache",
+        lockfile=original / "stacksmith.lock.yaml",
+    )
+    shutil.copytree(original, tmp_path / "ci-checkout")
+    monkeypatch.chdir(tmp_path / "ci-checkout")
+    assert (
+        api.lock_stack(
+            "stack.yaml",
+            config=[
+                "https://example.invalid/config.yaml"
+                if remote_config
+                else "config.yaml"
+            ],
+            input_layers=[("vars", "vars.yaml")],
+            runfiles=["run.yaml"],
+            build_dir=tmp_path / "new-cache",
+            lockfile=Path("stacksmith.lock.yaml"),
+            check=True,
+        )["in_sync"]
+        is True
+    )
+    Path("vars.yaml").write_text("environment: changed\n")
+    assert (
+        api.lock_stack(
+            "stack.yaml",
+            config=[
+                "https://example.invalid/config.yaml"
+                if remote_config
+                else "config.yaml"
+            ],
+            input_layers=[("vars", "vars.yaml")],
+            runfiles=["run.yaml"],
+            build_dir=tmp_path / "new-cache",
+            lockfile=Path("stacksmith.lock.yaml"),
+            check=True,
+        )["in_sync"]
+        is False
+    )
+
+
+def test_lock_stack_check_reports_mismatch_without_writing(
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+    sample_values_yaml: Path,
+) -> None:
+    lockfile = tmp_path / "stacksmith.lock.yaml"
+
+    api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        lockfile=lockfile,
+    )
+    summary = api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        vars_file=[str(sample_values_yaml)],
+        lockfile=lockfile,
+        check=True,
+    )
+
+    assert summary["check"] is True
+    assert summary["in_sync"] is False
+
+
+def test_lock_stack_overwrite_false_preserves_existing_mismatch(
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+    sample_values_yaml: Path,
+) -> None:
+    lockfile = tmp_path / "stacksmith.lock.yaml"
+    api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        lockfile=lockfile,
+    )
+    original_lockfile = lockfile.read_text(encoding="utf-8")
+
+    summary = api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        vars_file=[str(sample_values_yaml)],
+        lockfile=lockfile,
+        overwrite=False,
+    )
+
+    assert summary["in_sync"] is False
+    assert lockfile.read_text(encoding="utf-8") == original_lockfile
+
+
+def test_generate_stack_locked_enforces_matching_lockfile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+    sample_values_yaml: Path,
+) -> None:
+    lockfile = tmp_path / "stacksmith.lock.yaml"
+    warnings = []
+    monkeypatch.delenv("STACKSMITH_WARN_ON_UNLOCKED", raising=False)
+    monkeypatch.setattr(
+        api.LOGGER,
+        "warning",
+        lambda message, *args, **kwargs: warnings.append(message),
+    )
+    api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        vars_file=[str(sample_values_yaml)],
+        lockfile=lockfile,
+    )
+
+    output_dir = api.generate_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        vars_file=[str(sample_values_yaml)],
+        build_dir=tmp_path / "build",
+        locked=True,
+        lockfile=lockfile,
+    )
+
+    assert output_dir.exists()
+    assert warnings == []
+
+
+def test_generate_stack_locked_raises_on_mismatch(
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+    sample_values_yaml: Path,
+) -> None:
+    lockfile = tmp_path / "stacksmith.lock.yaml"
+    api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        lockfile=lockfile,
+    )
+
+    with pytest.raises(StacksmithConfigError, match="Lockfile mismatch"):
+        api.generate_stack(
+            sample_stack_yaml,
+            config=[str(sample_config_yaml)],
+            vars_file=[str(sample_values_yaml)],
+            build_dir=tmp_path / "build",
+            locked=True,
+            lockfile=lockfile,
+        )
+
+
+def test_generate_stack_offline_rejects_no_cache(
+    tmp_path: Path,
+    sample_stack_yaml: Path,
+    sample_config_yaml: Path,
+) -> None:
+    lockfile = tmp_path / "stacksmith.lock.yaml"
+    api.lock_stack(
+        sample_stack_yaml,
+        config=[str(sample_config_yaml)],
+        lockfile=lockfile,
+    )
+
+    with pytest.raises(
+        StacksmithConfigError, match="cannot be combined with --no-cache"
+    ):
+        api.generate_stack(
+            sample_stack_yaml,
+            config=[str(sample_config_yaml)],
+            build_dir=tmp_path / "build",
+            offline=True,
+            no_cache=True,
+            lockfile=lockfile,
+        )
+
+
+def test_plan_writes_default_aggregate_report(
+    monkeypatch, tmp_path, sample_stack_yaml, sample_config_yaml, capsys
+):
+    from stacksmith import runner
+
+    _setup_run_stack_action_mocks(
+        monkeypatch, tmp_path, sample_stack_yaml, sample_config_yaml, {"prod"}
+    )
+    monkeypatch.setattr(api, "run_terragrunt", runner.run_terragrunt)
+    monkeypatch.setattr(runner, "_TOOL_VERSION_CHECKED", True)
+    monkeypatch.setattr(runner, "_run_terragrunt_streaming", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(runner, "_run_terragrunt_capture_text", _aggregate_plan_result)
+    (tmp_path / ".stacksmith").mkdir()
+    assert (
+        api.run_stack_action(
+            "plan",
+            sample_stack_yaml,
+            config=[str(sample_config_yaml)],
+            build_dir=tmp_path / ".stacksmith",
+            tags=["prod"],
+            plan_summary="detailed",
+        )
+        == 0
+    )
+    report = json.loads((tmp_path / ".stacksmith" / "plan-summary.json").read_text())
+    assert report["complete"] is True
+    assert report["totals"]["create"] == 1
+    assert report["stacks"][0]["plan"]["resources"][0]["component"] == "my-bucket"
+    assert report["stacks"][0]["selected_components"] == ["my-bucket"]
+    assert report["stacks"][0]["targets"] == ["module.my-bucket"]
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["exit_code"] == 0
+    assert "Plan summary — complete" in captured.err
+    validation_report = json.loads(captured.out)
+    assert report["run_id"] == validation_report["run_id"]
+    assert report["validation_status"] == validation_report["status"]
+    assert validation_report["plan_summary_path"] == str(
+        tmp_path / ".stacksmith" / "plan-summary.json"
+    )
+    assert validation_report["plan_complete"] is True
+    assert validation_report["change_totals"] == {
+        "create": 1,
+        "update": 0,
+        "replace": 0,
+        "destroy": 0,
+        "resources": 1,
+        "outputs": 0,
+    }
+    assert "Validation: pass" in captured.err
+    assert "Validation report: stdout" in captured.err
+
+
+def test_emit_validation_report_pretty_prints_json(capsys):
+    api._emit_validation_report(
+        {
+            "command": "plan",
+            "status": "pass",
+            "summary": {"pass": 1, "warn": 0, "fail": 0},
+        }
+    )
+
+    output = capsys.readouterr().out
+    assert output.startswith('{\n  "command": "plan"')
+    assert '\n  "status": "pass"' in output
+
+
+def _aggregate_plan_result(*args, **kwargs):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        returncode=0,
+        stderr="",
+        stdout=json.dumps(
+            {
+                "format_version": "1.0",
+                "resource_changes": [
+                    {
+                        "address": "module.my-bucket.aws_s3_bucket.bucket",
+                        "type": "aws_s3_bucket",
+                        "change": {"actions": ["create"]},
+                    }
+                ],
+            }
+        ),
+    )
+
+
+@pytest.mark.parametrize("action", ["apply", "destroy", "init"])
+def test_rejects_plan_summary_destination_for_non_plan_actions(tmp_path, action):
+    with pytest.raises(ValueError, match="only supported for plan"):
+        api.run_stack_action(
+            action,
+            tmp_path / "stack.yaml",
+            save_plan_summary_json=tmp_path / "report.json",
+        )
+    with pytest.raises(ValueError, match="only supported for plan"):
+        api.run_all_stacks(
+            action, tmp_path, save_plan_summary_json=tmp_path / "report.json"
+        )
+
+
+def test_dry_run_rejects_plan_summary_destination(tmp_path):
+    with pytest.raises(ValueError, match="--dry-run"):
+        api.run_all_stacks(
+            "plan",
+            tmp_path,
+            dry_run=True,
+            save_plan_summary_json=tmp_path / "report.json",
+        )
+
+
+def _aggregate_apply_result(cmd, working_dir, auth_config=None):
+    Path(
+        next(
+            argument.split("=", 1)[1]
+            for argument in cmd
+            if argument.startswith("-json-into=")
+        )
+    ).write_text(
+        "\n".join(
+            json.dumps(event)
+            for event in [
+                {"type": "version", "ui": "1.0"},
+                {
+                    "type": "apply_start",
+                    "hook": {
+                        "action": "create",
+                        "resource": {
+                            "addr": "module.my-bucket.aws_s3_bucket.bucket",
+                            "resource_type": "aws_s3_bucket",
+                        },
+                    },
+                },
+                {
+                    "type": "apply_complete",
+                    "hook": {
+                        "action": "create",
+                        "resource": {
+                            "addr": "module.my-bucket.aws_s3_bucket.bucket",
+                            "resource_type": "aws_s3_bucket",
+                        },
+                    },
+                },
+                {"type": "change_summary", "changes": {"operation": "apply", "add": 1}},
+            ]
+        )
+    )
+    return 0
+
+
+def test_apply_writes_default_report(
+    monkeypatch, tmp_path, sample_stack_yaml, sample_config_yaml
+):
+    from stacksmith import runner
+
+    _setup_run_stack_action_mocks(
+        monkeypatch, tmp_path, sample_stack_yaml, sample_config_yaml, {"prod"}
+    )
+    monkeypatch.setattr(api, "run_terragrunt", runner.run_terragrunt)
+    monkeypatch.setattr(runner, "_TOOL_VERSION_CHECKED", True)
+    monkeypatch.setattr(runner, "_supports_json_event_file", lambda executable: True)
+    monkeypatch.setattr(runner, "_run_terragrunt_streaming", _aggregate_apply_result)
+    assert (
+        api.run_stack_action(
+            "apply",
+            sample_stack_yaml,
+            config=[str(sample_config_yaml)],
+            build_dir=tmp_path / ".stacksmith",
+            apply_summary="none",
+            skip_after_apply=True,
+        )
+        == 0
+    )
+    report = json.loads((tmp_path / ".stacksmith" / "apply-summary.json").read_text())
+    assert report["complete"] is True
+    assert report["totals"]["create"] == 1
+    assert not (tmp_path / ".stacksmith" / "plan-summary.json").exists()
+
+
+@pytest.mark.parametrize("action", ["plan", "init"])
+def test_rejects_apply_summary_destination_for_other_actions(tmp_path, action):
+    with pytest.raises(ValueError, match="only supported for apply and destroy"):
+        api.run_stack_action(
+            action,
+            tmp_path / "stack.yaml",
+            save_apply_summary_json=tmp_path / "report.json",
+        )
+    with pytest.raises(ValueError, match="only supported for apply and destroy"):
+        api.run_all_stacks(
+            action, tmp_path, save_apply_summary_json=tmp_path / "report.json"
+        )
+
+
+def test_dry_run_rejects_apply_summary_destination(tmp_path):
+    with pytest.raises(ValueError, match="--dry-run"):
+        api.run_all_stacks(
+            "apply",
+            tmp_path,
+            dry_run=True,
+            save_apply_summary_json=tmp_path / "report.json",
+        )

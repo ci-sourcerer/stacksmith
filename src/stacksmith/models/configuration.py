@@ -1,0 +1,1172 @@
+import re
+from collections.abc import Mapping
+from pathlib import Path, PurePosixPath
+from typing import Annotated, Any, Literal
+
+import jmespath
+from jmespath import exceptions as jmespath_exceptions
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from ..enums import MergeMode
+from ..templating import contains_jinja_template
+
+_GIT_REPO_PREFIXES = ("https://", "http://", "ssh://", "git://", "git@")
+
+
+class LocalReferenceData(BaseModel):
+    """Local file reference payload."""
+
+    path: str
+
+    @model_validator(mode="after")
+    def _validate_path(self) -> LocalReferenceData:
+        if not self.path.strip():
+            raise ValueError("Local reference path must be a non-empty string")
+        return self
+
+
+class GitReferenceData(BaseModel):
+    """Git file reference payload."""
+
+    repo: str
+    path: str
+    ref: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_git_fields(self) -> GitReferenceData:
+        if not self.repo.strip():
+            raise ValueError("Git reference repo must be a non-empty string")
+        if not self.repo.startswith(_GIT_REPO_PREFIXES):
+            raise ValueError(
+                "Git reference repo must start with one of https://, http://, ssh://, git://, or git@"
+            )
+        if not self.path.strip():
+            raise ValueError("Git reference path must be a non-empty string")
+        return self
+
+
+class HttpReferenceData(BaseModel):
+    """HTTP file reference payload."""
+
+    url: str
+
+    @model_validator(mode="after")
+    def _validate_url(self) -> HttpReferenceData:
+        if not self.url.startswith(("http://", "https://")):
+            raise ValueError("HTTP reference url must start with http:// or https://")
+        return self
+
+
+class LocalReference(BaseModel):
+    """Structured local file reference."""
+
+    description: str | None = None
+    source: Literal["local"]
+    data: LocalReferenceData
+
+
+class GitReference(BaseModel):
+    """Structured git file reference."""
+
+    description: str | None = None
+    source: Literal["git"]
+    data: GitReferenceData
+
+
+class HttpReference(BaseModel):
+    """Structured HTTP file reference."""
+
+    description: str | None = None
+    source: Literal["http"]
+    data: HttpReferenceData
+
+
+class InlineReference(BaseModel):
+    """Structured inline variable values."""
+
+    description: str | None = None
+    source: Literal["inline"]
+    data: dict[str, Any]
+
+
+type FileReference = Annotated[
+    LocalReference | GitReference | HttpReference,
+    Field(discriminator="source"),
+]
+
+type VariableReference = Annotated[
+    LocalReference | GitReference | HttpReference | InlineReference,
+    Field(discriminator="source"),
+]
+
+
+class MergeRule(BaseModel):
+    """Address-aware merge strategy selected with a JMESPath predicate."""
+
+    description: str | None = None
+    select: str
+    mode: MergeMode
+
+    @field_validator("select")
+    @classmethod
+    def _validate_select(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Merge rule selector must be a non-empty string")
+        try:
+            jmespath.compile(value)
+        except jmespath_exceptions.JMESPathError as exc:
+            raise ValueError(f"Invalid merge rule selector: {exc}") from exc
+        return value
+
+
+class MergePolicy(BaseModel):
+    """Effective default and address-aware rules for layered values."""
+
+    default: MergeMode = MergeMode.DEEP
+    rules: list[MergeRule] = Field(default_factory=list)
+
+
+type MergeConfig = str | MergeMode | MergePolicy
+
+
+def render_file_reference(reference: FileReference | str | Path) -> str:
+    """Render a file reference to a path/URL string for resolution routines.
+
+    Args:
+        reference: File reference object, string, or `Path`.
+
+    Raises:
+        ValueError: If the reference type is unsupported.
+
+    Returns:
+        Path or URL string corresponding to the file reference.
+    """
+    if isinstance(reference, Path):
+        return str(reference)
+    if isinstance(reference, str):
+        return reference
+
+    match reference:
+        case LocalReference(data=data):
+            return data.path
+        case HttpReference(data=data):
+            return data.url
+        case GitReference(data=data):
+            suffix = f"@{data.ref}" if data.ref else ""
+            return f"git+{data.repo}//{data.path}{suffix}"
+
+    raise ValueError(f"Unsupported file reference: {reference!r}")
+
+
+def is_file_reference_remote(reference: FileReference | str | Path) -> bool:
+    """Return `True` for git/http file references.
+
+    Args:
+        reference: File reference object, string, or `Path`.
+
+    Returns:
+        `True` if the reference is a remote git/http file reference, `False` otherwise.
+    """
+    if isinstance(reference, (Path, str)):
+        normalized = str(reference)
+        return normalized.startswith(
+            ("http://", "https://", "git+https://", "git+ssh://")
+        )
+    return reference.source in {"git", "http"}
+
+
+class RegistrySourceData(BaseModel):
+    """Registry-backed module/provider source payload."""
+
+    address: str
+    version: str
+
+    @model_validator(mode="after")
+    def _validate_registry_fields(self) -> RegistrySourceData:
+        if not self.address.strip():
+            raise ValueError("Registry source address must be a non-empty string")
+        if any(char.isspace() for char in self.address):
+            raise ValueError("Registry source address must not contain whitespace")
+        if "/" not in self.address:
+            raise ValueError(
+                "Registry source address must use '<namespace>/<name>' format"
+            )
+        if not self.version.strip():
+            raise ValueError("Registry source version must be a non-empty string")
+        return self
+
+
+class ModuleGitSourceData(BaseModel):
+    """Git-backed module source payload."""
+
+    repo: str
+    ref: str
+    path: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_module_git_fields(self) -> ModuleGitSourceData:
+        if not self.repo.strip():
+            raise ValueError("Git module source repo must be a non-empty string")
+        if not self.repo.startswith(_GIT_REPO_PREFIXES):
+            raise ValueError(
+                "Git module source repo must start with one of https://, http://, ssh://, git://, or git@"
+            )
+        if not self.ref.strip():
+            raise ValueError("Git module source ref must be a non-empty string")
+        if self.path is not None and not self.path.strip():
+            raise ValueError("Git module source path must be non-empty when provided")
+        return self
+
+
+class RegistrySourceReference(BaseModel):
+    """Structured registry source reference."""
+
+    source: Literal["registry"]
+    data: RegistrySourceData
+
+
+class ModuleGitSourceReference(BaseModel):
+    """Structured git module source reference."""
+
+    source: Literal["git"]
+    data: ModuleGitSourceData
+
+
+class LocalModuleSourceReference(BaseModel):
+    """Structured local module source reference."""
+
+    source: Literal["local"]
+    data: LocalReferenceData
+
+
+type ModuleSourceReference = Annotated[
+    RegistrySourceReference | ModuleGitSourceReference | LocalModuleSourceReference,
+    Field(discriminator="source"),
+]
+
+
+def _render_local_module_path(
+    path: str,
+    options: Mapping[str, Any] | None = None,
+    *,
+    expand_user: bool = False,
+) -> str:
+    package_path, separator, module_path = path.partition("//")
+    local_path = Path(package_path)
+    if expand_user:
+        local_path = local_path.expanduser()
+    if options is not None and options.get("base_path") is not None:
+        base_path = Path(options["base_path"])
+        if not local_path.is_absolute():
+            local_path = (base_path / local_path).resolve()
+    return f"{local_path}{separator}{module_path}"
+
+
+class RegistrySourceTemplateData(BaseModel):
+    """Template-capable registry module source payload."""
+
+    address: str
+    version: str
+
+    @model_validator(mode="after")
+    def _validate_registry_fields(self) -> RegistrySourceTemplateData:
+        if not self.address.strip():
+            raise ValueError("Registry source address must be a non-empty string")
+        if not self.version.strip():
+            raise ValueError("Registry source version must be a non-empty string")
+        if not contains_jinja_template(self.address):
+            RegistrySourceData(address=self.address, version=self.version)
+        return self
+
+
+class ModuleGitSourceTemplateData(BaseModel):
+    """Template-capable Git module source payload."""
+
+    repo: str
+    ref: str
+    path: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_module_git_fields(self) -> ModuleGitSourceTemplateData:
+        if not self.repo.strip():
+            raise ValueError("Git module source repo must be a non-empty string")
+        if not contains_jinja_template(self.repo) and not self.repo.startswith(
+            _GIT_REPO_PREFIXES
+        ):
+            raise ValueError(
+                "Git module source repo must start with one of https://, http://, ssh://, git://, or git@"
+            )
+        if not self.ref.strip():
+            raise ValueError("Git module source ref must be a non-empty string")
+        if self.path is not None and not self.path.strip():
+            raise ValueError("Git module source path must be non-empty when provided")
+        return self
+
+
+class RegistrySourceTemplateReference(BaseModel):
+    """Template-capable structured registry module source reference."""
+
+    source: Literal["registry"]
+    data: RegistrySourceTemplateData
+
+
+class ModuleGitSourceTemplateReference(BaseModel):
+    """Template-capable structured Git module source reference."""
+
+    source: Literal["git"]
+    data: ModuleGitSourceTemplateData
+
+
+class LocalModuleSourceTemplateReference(BaseModel):
+    """Template-capable structured local module source reference."""
+
+    source: Literal["local"]
+    data: LocalReferenceData
+
+
+type ModuleSourceTemplateReference = Annotated[
+    RegistrySourceTemplateReference
+    | ModuleGitSourceTemplateReference
+    | LocalModuleSourceTemplateReference,
+    Field(discriminator="source"),
+]
+
+
+def render_module_source_identity(
+    source: ModuleSourceReference, options: Mapping[str, Any] | None = None
+) -> tuple[str, str]:
+    """Return canonical (source, version/ref) tuple for cache and vendoring keys.
+
+    Args:
+        source: Structured module source reference.
+        options: Optional rendering options.
+
+    Raises:
+        ValueError: If the module source type is unsupported.
+
+    Returns:
+        Tuple of (source, version/ref) strings.
+    """
+    match source:
+        case RegistrySourceReference(data=data):
+            return data.address, data.version
+        case ModuleGitSourceReference(data=data):
+            in_repo_path = f"//{data.path}" if data.path else ""
+            return f"{data.repo}{in_repo_path}", data.ref
+        case LocalModuleSourceReference(data=data):
+            return _render_local_module_path(
+                data.path, options, expand_user=True
+            ), "local"
+
+    raise ValueError(f"Unsupported module source: {source!r}")
+
+
+def render_module_source_fields(
+    source: ModuleSourceReference, options: Mapping[str, Any] | None = None
+) -> dict[str, str]:
+    """Render OpenTofu module source fields from structured source data.
+
+    Args:
+        source: Structured module source reference.
+        options: Optional rendering options.
+
+    Raises:
+        ValueError: If the module source type is unsupported.
+
+    Returns:
+        Dictionary of OpenTofu module source fields.
+    """
+    match source:
+        case RegistrySourceReference(data=data):
+            return {"source": data.address, "version": data.version}
+        case ModuleGitSourceReference(data=data):
+            module_path = f"//{data.path}" if data.path else ""
+            git_source = f"git::{data.repo}{module_path}"
+            query_suffix = f"ref={data.ref}"
+            return {
+                "source": (
+                    f"{git_source}&{query_suffix}"
+                    if "?" in git_source
+                    else f"{git_source}?{query_suffix}"
+                )
+            }
+        case LocalModuleSourceReference(data=data):
+            return {"source": _render_local_module_path(data.path, options)}
+
+    raise ValueError(f"Unsupported module source: {source!r}")
+
+
+class ProviderSourceReference(BaseModel):
+    """Structured provider source reference."""
+
+    source: Literal["registry"]
+    data: RegistrySourceData
+
+
+def render_provider_source_fields(
+    source: ProviderSourceReference, options: Mapping[str, Any] | None = None
+) -> dict[str, str]:
+    """Render provider source/version fields for required_providers blocks.
+
+    Args:
+        source: Structured provider source reference.
+        options: Optional rendering options.
+
+    Returns:
+        Dictionary of provider source fields.
+    """
+    return {
+        "source": source.data.address,
+        "version": source.data.version,
+    }
+
+
+class ValidationSpec(BaseModel):
+    """Reusable validation rule defined as inline code or a local script."""
+
+    description: str | None = None
+    inline: str | None = None
+    script: FileReference | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> ValidationSpec:
+        if (self.inline is None) == (self.script is None):
+            raise ValueError(
+                "Exactly one of 'inline' or 'script' must be set for a validation"
+            )
+        return self
+
+
+class TransformSpec(BaseModel):
+    """Reusable value transform rule defined as Python or Jinja."""
+
+    description: str | None = None
+    inline: str | None = None
+    script: FileReference | None = None
+    jinja: str | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> TransformSpec:
+        if (
+            sum(source is not None for source in (self.inline, self.script, self.jinja))
+            != 1
+        ):
+            raise ValueError(
+                "Exactly one of 'inline', 'script', or 'jinja' must be set for a transform"
+            )
+        return self
+
+
+class ModulePropertySpec(BaseModel):
+    """Combined per-property module configuration."""
+
+    description: str | None = None
+    mapped_to: str | None = None
+    default: Any | None = None
+    transform: TransformSpec | None = None
+    validation: ValidationSpec | None = None
+    auto_inject_inputs: bool | None = None
+
+
+_COMPONENT_OUTPUT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+class ModuleInputSpec(BaseModel):
+    """Typed input declaration generated into modules by input sets."""
+
+    type: str
+    description: str | None = None
+    sensitive: bool = False
+    nullable: bool | None = None
+    default: Any | None = None
+
+    @field_validator("type")
+    @classmethod
+    def _validate_type(cls, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise ValueError("Module input spec type must be a non-empty string")
+        return normalized_value
+
+
+class ModuleInputSet(BaseModel):
+    """Reusable set of resolved inputs required by module mappings."""
+
+    description: str | None = None
+    inputs: dict[str, ModuleInputSpec]
+
+    @field_validator("inputs")
+    @classmethod
+    def _validate_inputs(
+        cls, values: dict[str, ModuleInputSpec]
+    ) -> dict[str, ModuleInputSpec]:
+        normalized_values = {
+            name.strip(): specification for name, specification in values.items()
+        }
+        invalid_values = [
+            name
+            for name in normalized_values
+            if not _COMPONENT_OUTPUT_NAME_RE.fullmatch(name)
+        ]
+        if invalid_values:
+            raise ValueError(
+                "Module input set values must contain only letters, numbers, "
+                f"and underscores: {', '.join(invalid_values)}"
+            )
+        if not normalized_values:
+            raise ValueError("Module input sets must include at least one input")
+        return normalized_values
+
+
+class ModuleOutputSpec(BaseModel):
+    """Public component output mapped from an underlying module output."""
+
+    description: str | None = None
+    mapped_from: str | None = None
+    transform: TransformSpec | None = None
+
+    @model_validator(mode="after")
+    def _validate_mapped_from(self) -> ModuleOutputSpec:
+        if self.mapped_from is not None and not _COMPONENT_OUTPUT_NAME_RE.fullmatch(
+            self.mapped_from
+        ):
+            raise ValueError(
+                "Module output 'mapped_from' must be an identifier containing "
+                "only letters, numbers, and underscores"
+            )
+        return self
+
+
+class AssociationEndpointSpec(BaseModel):
+    """Component selector used by a managed association rule."""
+
+    select: str
+
+    @field_validator("select")
+    @classmethod
+    def _validate_select(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Association selectors must be non-empty")
+        try:
+            jmespath.compile(value)
+        except jmespath_exceptions.JMESPathError as exc:
+            raise ValueError(f"Invalid association selector: {exc}") from exc
+        return value
+
+
+class AssociationProducerSpec(AssociationEndpointSpec):
+    """Producer selector and required match cardinality."""
+
+    cardinality: Literal[
+        "exactly_one",
+        "zero_or_one",
+        "one_or_more",
+        "zero_or_more",
+    ] = "exactly_one"
+
+
+class AssociationBindingSpec(BaseModel):
+    """Mapping from a producer output to a consumer property."""
+
+    output: str
+    property: str
+    merge: Literal["append", "set_if_absent"] = "set_if_absent"
+
+    @field_validator("output")
+    @classmethod
+    def _validate_output(cls, value: str) -> str:
+        normalized_value = value.strip()
+        if not _COMPONENT_OUTPUT_NAME_RE.fullmatch(normalized_value):
+            raise ValueError(
+                "Association binding outputs must contain only letters, numbers, "
+                "and underscores"
+            )
+        return normalized_value
+
+    @field_validator("property")
+    @classmethod
+    def _validate_property(cls, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise ValueError("Association binding properties must be non-empty")
+        return normalized_value
+
+
+class AssociationRule(BaseModel):
+    """Organization-managed wiring between existing stack components."""
+
+    description: str | None = None
+    producers: AssociationProducerSpec
+    consumers: AssociationEndpointSpec
+    bindings: list[AssociationBindingSpec]
+
+    @field_validator("bindings")
+    @classmethod
+    def _validate_bindings(
+        cls, values: list[AssociationBindingSpec]
+    ) -> list[AssociationBindingSpec]:
+        if not values:
+            raise ValueError("Association rules must include at least one binding")
+        properties = [value.property for value in values]
+        if len(set(properties)) != len(properties):
+            raise ValueError(
+                "Association rules cannot bind the same consumer property more than once"
+            )
+        return values
+
+
+class BackendConfig(BaseModel):
+    """Backend configuration with explicit backend type and freeform settings."""
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str
+
+    @model_validator(mode="after")
+    def _type_is_set(self) -> BackendConfig:
+        if not self.type.strip():
+            raise ValueError("Backend 'type' must be a non-empty string")
+        return self
+
+    @property
+    def config(self) -> dict[str, Any]:
+        """Return the active backend provider configuration."""
+        return self.model_dump(exclude={"type"})
+
+    def config_with_state_key(
+        self, state_key: str, *, operation_state: bool = False
+    ) -> dict[str, Any]:
+        """Return backend settings for infrastructure or isolated operations.
+
+        Args:
+            state_key: Default state key derived from the stack.
+            operation_state: Whether an explicit key needs an operations namespace.
+
+        Returns:
+            Backend settings with the selected state location.
+        """
+        config = dict(self.config)
+        if self.type == "local":
+            path = config.get("path")
+            if isinstance(path, str) and not path.endswith(state_key):
+                config["path"] = str(Path(path).joinpath(state_key))
+        elif "key" in config:
+            if not config["key"]:
+                config["key"] = state_key
+            elif operation_state:
+                config["key"] = str(
+                    PurePosixPath(config["key"]).parent
+                    / "operations"
+                    / PurePosixPath(config["key"]).name
+                )
+        elif self.type in {"s3", "azurerm", "gcs", "oss"}:
+            config.setdefault("key", state_key)
+        return config
+
+
+class BackendSpec(BaseModel):
+    """Platform-owned backend policy defined as data or executable code."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    inline: str | None = None
+    script: FileReference | None = None
+    data: BackendConfig | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> BackendSpec:
+        if (
+            sum(source is not None for source in (self.inline, self.script, self.data))
+            != 1
+        ):
+            raise ValueError(
+                "Exactly one of 'inline', 'script', or 'data' must be set for a backend"
+            )
+        return self
+
+    @property
+    def static_backend(self) -> BackendConfig:
+        """Return the static backend or explain why backend resolution is required."""
+        if self.data is None:
+            raise ValueError("Backend must be resolved before it can be generated")
+        return self.data
+
+    @property
+    def type(self) -> str:
+        """Return the selected backend type for static backend policies."""
+        return self.static_backend.type
+
+    @property
+    def config(self) -> dict[str, Any]:
+        """Return static backend settings without the backend type."""
+        return self.static_backend.config
+
+    def config_with_state_key(
+        self, state_key: str, *, operation_state: bool = False
+    ) -> dict[str, Any]:
+        """Return resolved backend settings for the selected state.
+
+        Args:
+            state_key: Default state key derived from the stack.
+            operation_state: Whether to isolate operations from an explicit key.
+
+        Returns:
+            Backend settings with the selected state location.
+
+        Raises:
+            ValueError: If the backend has not been resolved.
+        """
+        return self.static_backend.config_with_state_key(
+            state_key, operation_state=operation_state
+        )
+
+
+class ToolDownloadSpec(BaseModel):
+    """Tool download metadata for missing binaries."""
+
+    url_template: str
+    sha256: str | None = None
+    sha256_url_template: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_url_template(self) -> ToolDownloadSpec:
+        if not self.url_template.strip():
+            raise ValueError("Tool download url_template must be a non-empty string")
+        return self
+
+
+class ToolBinaryConfig(BaseModel):
+    """Tool binary resolution settings."""
+
+    version: str
+    download: ToolDownloadSpec | None = None
+
+    @model_validator(mode="after")
+    def _validate_version(self) -> ToolBinaryConfig:
+        if not self.version.strip():
+            raise ValueError("Tool version must be a non-empty string")
+        return self
+
+
+class ToolsConfig(BaseModel):
+    """Configured tool binary settings for OpenTofu and Terragrunt."""
+
+    tofu: ToolBinaryConfig
+    terragrunt: ToolBinaryConfig
+
+
+class ProviderConfigSpec(BaseModel):
+    """Reusable provider config rule defined as inline code, script, or data."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    inline: str | None = None
+    script: FileReference | None = None
+    data: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> ProviderConfigSpec:
+        if (
+            sum(source is not None for source in (self.inline, self.script, self.data))
+            != 1
+        ):
+            raise ValueError(
+                "Exactly one of 'inline', 'script', or 'data' must be set for a provider config"
+            )
+        if self.data is not None and not self.data:
+            raise ValueError("Provider config 'data' must not be empty")
+        return self
+
+
+_PROVIDER_INSTANCE_REFERENCE_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
+
+
+def parse_provider_instance_reference(reference: str) -> tuple[str, str]:
+    """Parse a provider instance reference in `<provider>.<instance>` format."""
+    normalized = reference.strip()
+    if not _PROVIDER_INSTANCE_REFERENCE_RE.fullmatch(normalized):
+        raise ValueError("Provider reference must use '<provider>.<instance>' format")
+    provider_name, instance_name = normalized.split(".", 1)
+    return provider_name, instance_name
+
+
+class ProviderInstance(BaseModel):
+    """Single provider instance configuration."""
+
+    description: str | None = None
+    alias: str | None = None
+    config: ProviderConfigSpec | None = None
+
+
+class ProviderFamily(BaseModel):
+    """Provider source/version with optional named instances."""
+
+    description: str | None = None
+    source: ProviderSourceReference
+    instances: dict[str, ProviderInstance] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_instances(self) -> ProviderFamily:
+        if "default" in self.instances and self.instances["default"].alias is not None:
+            raise ValueError("Provider default instance must not define an alias")
+
+        aliases = set()
+        for instance_name, instance in self.instances.items():
+            if instance_name == "default":
+                continue
+            if not instance.alias:
+                raise ValueError(
+                    f"Provider instance '{instance_name}' must define an alias"
+                )
+            if instance.alias in aliases:
+                raise ValueError(
+                    f"Provider alias '{instance.alias}' is duplicated in one family"
+                )
+            aliases.add(instance.alias)
+        return self
+
+
+class _ModuleMappingBase(BaseModel):
+    """Shared module mapping fields."""
+
+    description: str | None = None
+    source: ModuleSourceReference
+    auto_inject_inputs: bool = False
+    required_input_sets: list[str] = Field(default_factory=list)
+    auto_expose_outputs: bool = False
+    tags: set[str] = Field(default_factory=set)
+    properties: dict[str, ModulePropertySpec] = Field(default_factory=dict)
+    outputs: dict[str, ModuleOutputSpec] = Field(default_factory=dict)
+    providers: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("required_input_sets")
+    @classmethod
+    def _validate_required_input_sets(cls, values: list[str]) -> list[str]:
+        normalized_values = [value.strip() for value in values]
+        if any(not value for value in normalized_values):
+            raise ValueError("Required module input set names must be non-empty")
+        if len(set(normalized_values)) != len(normalized_values):
+            raise ValueError("Required module input set names must be unique")
+        return normalized_values
+
+    @model_validator(mode="after")
+    def _validate_output_names(self) -> _ModuleMappingBase:
+        invalid_names = sorted(
+            name
+            for name in self.outputs
+            if not _COMPONENT_OUTPUT_NAME_RE.fullmatch(name)
+        )
+        if invalid_names:
+            raise ValueError(
+                "Public component output names must contain only letters, "
+                f"numbers, and underscores: {', '.join(invalid_names)}"
+            )
+        return self
+
+
+class ModuleMapping(_ModuleMappingBase):
+    """Mapping from an abstract resource type to a concrete OpenTofu module."""
+
+
+class DefaultModuleMapping(_ModuleMappingBase):
+    """Fallback module mapping with a template-capable source."""
+
+    source: ModuleSourceTemplateReference
+
+
+class InputSpec(BaseModel):
+    """Sensitivity metadata for an ordinary Stacksmith input."""
+
+    description: str | None = None
+    secret: bool = False
+
+
+class OperationInputSpec(BaseModel):
+    """Input contract for a native Stacksmith operation."""
+
+    description: str | None = None
+    required: bool = False
+    secret: bool = False
+
+
+class OperationOutputMaskingSpec(BaseModel):
+    """Literal masking rules for streamed local operation output."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    literals: list[str] = Field(default_factory=list)
+    inputs: list[str] = Field(default_factory=list)
+
+    @field_validator("literals", "inputs")
+    @classmethod
+    def _normalize_non_empty_unique_values(cls, values: list[str]) -> list[str]:
+        normalized_values = [value.strip() for value in values]
+        if any(not value for value in normalized_values):
+            raise ValueError("Operation output masking values must be non-empty")
+        if len(set(normalized_values)) != len(normalized_values):
+            raise ValueError("Operation output masking values must be unique")
+        return normalized_values
+
+
+class LocalOperationEnvironmentInputs(BaseModel):
+    """Input-name controls for automatic local operation environments."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    overrides: dict[str, str] = Field(default_factory=dict)
+    exclude: list[str] = Field(default_factory=list)
+
+    @field_validator("overrides")
+    @classmethod
+    def _validate_overrides(cls, overrides: dict[str, str]) -> dict[str, str]:
+        if any(
+            not name.strip() or not input_name.strip()
+            for name, input_name in overrides.items()
+        ):
+            raise ValueError("Operation environment overrides must be non-empty")
+        return overrides
+
+    @field_validator("exclude")
+    @classmethod
+    def _validate_exclude(cls, exclude: list[str]) -> list[str]:
+        if any(not input_name.strip() for input_name in exclude):
+            raise ValueError("Operation environment exclusions must be non-empty")
+        if len(set(exclude)) != len(exclude):
+            raise ValueError("Operation environment exclusions must be unique")
+        return exclude
+
+
+class LocalOperationEnvironment(BaseModel):
+    """Automatic environment policy for a local operation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["auto"]
+    inputs: LocalOperationEnvironmentInputs = Field(
+        default_factory=LocalOperationEnvironmentInputs
+    )
+
+
+class LocalOperationDefinition(BaseModel):
+    """Config-owned local process operation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    runner: Literal["local"]
+    description: str | None = None
+    trigger: Literal["manual", "after_apply"] = "manual"
+    command: list[str]
+    working_directory: str | None = None
+    stream_output: bool = False
+    output_masking: OperationOutputMaskingSpec = Field(
+        default_factory=OperationOutputMaskingSpec
+    )
+    environment: LocalOperationEnvironment | None = None
+    inputs: dict[str, OperationInputSpec] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_command(self) -> LocalOperationDefinition:
+        if not self.command or any(not argument.strip() for argument in self.command):
+            raise ValueError("Operation command must contain non-empty arguments")
+        environment_inputs = (
+            self.environment.inputs if self.environment is not None else None
+        )
+        unknown_inputs = sorted(
+            {
+                *(
+                    set(environment_inputs.overrides.values())
+                    if environment_inputs is not None
+                    else set()
+                ),
+                *(
+                    set(environment_inputs.exclude)
+                    if environment_inputs is not None
+                    else set()
+                ),
+            }
+            - set(self.inputs)
+        )
+        if unknown_inputs:
+            raise ValueError(
+                "Operation environment references undeclared inputs: "
+                f"{', '.join(unknown_inputs)}"
+            )
+        if environment_inputs is not None:
+            environment_names = {
+                input_name.upper(): input_name
+                for input_name in self.inputs
+                if input_name not in environment_inputs.exclude
+            }
+            for environment_name, input_name in environment_inputs.overrides.items():
+                environment_names = {
+                    name: value
+                    for name, value in environment_names.items()
+                    if value != input_name
+                }
+                if environment_name in environment_names:
+                    raise ValueError(
+                        "Operation environment names must be unique: "
+                        f"{environment_name}"
+                    )
+                environment_names[environment_name] = input_name
+        unknown_mask_inputs = sorted(set(self.output_masking.inputs) - set(self.inputs))
+        if unknown_mask_inputs:
+            raise ValueError(
+                "Operation output masking references undeclared inputs: "
+                f"{', '.join(unknown_mask_inputs)}"
+            )
+        return self
+
+
+class JenkinsOperationDefinition(BaseModel):
+    """Config-owned Jenkins build operation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    runner: Literal["jenkins"]
+    description: str | None = None
+    trigger: Literal["manual", "after_apply"] = "manual"
+    url: str
+    job_name: str
+    username_env: str
+    api_token_env: str
+    poll_interval_seconds: float = Field(default=5.0, gt=0)
+    timeout_seconds: int = Field(default=3600, ge=1)
+    parameters: dict[str, str] = Field(default_factory=dict)
+    inputs: dict[str, OperationInputSpec] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_fields(self) -> JenkinsOperationDefinition:
+        if not self.url.startswith(("http://", "https://")):
+            raise ValueError(
+                "Jenkins operation url must start with http:// or https://"
+            )
+        if not self.job_name.strip():
+            raise ValueError("Jenkins operation job_name must be non-empty")
+        unknown_inputs = sorted(set(self.parameters.values()) - set(self.inputs))
+        if unknown_inputs:
+            raise ValueError(
+                "Jenkins operation parameters reference undeclared inputs: "
+                f"{', '.join(unknown_inputs)}"
+            )
+        return self
+
+
+type OperationDefinition = Annotated[
+    LocalOperationDefinition | JenkinsOperationDefinition,
+    Field(discriminator="runner"),
+]
+
+
+class PlanValidation(BaseModel):
+    """Reserved future post-plan validation rule."""
+
+    description: str = ""
+    enabled: bool = True
+    rule: ValidationSpec
+
+
+class RemoteAuthEntry(BaseModel):
+    """Auth credentials for a single remote host."""
+
+    type: Literal["token", "basic", "ssh"]
+    token_env: str | None = None
+    username_env: str | None = None
+    password_env: str | None = None
+    ssh_key_path: str | None = None
+
+    def to_http_headers(self) -> dict[str, str]:
+        """Build HTTP headers from this auth entry."""
+        import os
+
+        match self.type:
+            case "token" if self.token_env:
+                token = os.getenv(self.token_env, "")
+                if token:
+                    return {"Authorization": f"Bearer {token}"}
+            case "basic" if self.username_env and self.password_env:
+                import requests.auth
+
+                username = os.getenv(self.username_env, "")
+                password = os.getenv(self.password_env, "")
+                if username and password:
+                    return {
+                        "Authorization": requests.auth._basic_auth_str(
+                            username, password
+                        )
+                    }
+        return {}
+
+
+RemoteAuthConfig = dict[str, RemoteAuthEntry]
+
+
+class ToolConfig(BaseModel):
+    """Complete tool configuration loaded from .config.yaml."""
+
+    description: str | None = None
+    backend: BackendSpec
+    tools: ToolsConfig | None = None
+    provider_mappings: dict[str, ProviderFamily] = Field(default_factory=dict)
+    module_input_sets: dict[str, ModuleInputSet] = Field(default_factory=dict)
+    required_module_input_sets: list[str] = Field(default_factory=list)
+    module_mappings: dict[str, ModuleMapping] = Field(default_factory=dict)
+    default_module_mapping: DefaultModuleMapping | None = None
+    associations: dict[str, AssociationRule] = Field(default_factory=dict)
+    operations: dict[str, OperationDefinition] = Field(default_factory=dict)
+    inputs: dict[str, InputSpec] = Field(default_factory=dict)
+    var_validations: dict[str, ValidationSpec] = Field(default_factory=dict)
+    plan_validations: dict[str, PlanValidation] = Field(default_factory=dict)
+    remote_auth: dict[str, RemoteAuthEntry] = Field(default_factory=dict)
+    source_path: Path | None = Field(default=None, exclude=True)
+
+    @field_validator("required_module_input_sets")
+    @classmethod
+    def _validate_required_module_input_sets(cls, values: list[str]) -> list[str]:
+        normalized_values = [value.strip() for value in values]
+        if any(not value for value in normalized_values):
+            raise ValueError("Required module input set names must be non-empty")
+        if len(set(normalized_values)) != len(normalized_values):
+            raise ValueError("Required module input set names must be unique")
+        return normalized_values
+
+    @model_validator(mode="after")
+    def _validate_module_provider_references(self) -> ToolConfig:
+        if not self.module_mappings and self.default_module_mapping is None:
+            raise ValueError(
+                "At least one module mapping or a default module mapping is required"
+            )
+
+        mappings = list(self.module_mappings.items())
+        if self.default_module_mapping is not None:
+            mappings.append(("default", self.default_module_mapping))
+
+        required_input_sets = set(self.required_module_input_sets)
+        for module_name, module in mappings:
+            required_input_sets.update(module.required_input_sets)
+            for child_provider_name, provider_reference in module.providers.items():
+                provider_name, instance_name = parse_provider_instance_reference(
+                    provider_reference
+                )
+                provider_family = self.provider_mappings.get(provider_name)
+                if provider_family is None:
+                    raise ValueError(
+                        f"Module '{module_name}' provider '{child_provider_name}' "
+                        f"references unknown provider family '{provider_name}'"
+                    )
+                if (
+                    instance_name != "default"
+                    and instance_name not in provider_family.instances
+                ):
+                    raise ValueError(
+                        f"Module '{module_name}' provider '{child_provider_name}' "
+                        f"references unknown provider instance '{provider_reference}'"
+                    )
+
+        unknown_input_sets = sorted(required_input_sets - set(self.module_input_sets))
+        if unknown_input_sets:
+            raise ValueError(
+                "Required module input sets reference unknown module_input_sets: "
+                f"{', '.join(unknown_input_sets)}"
+            )
+        return self

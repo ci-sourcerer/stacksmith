@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stacksmith.dev/schemas/vars.schema.json",
+  "title": "Stacksmith Variables",
+  "description": "Defines free-form input values resolved from one or more variable layers.",
+  "type": "object",
+  "additionalProperties": true
+}

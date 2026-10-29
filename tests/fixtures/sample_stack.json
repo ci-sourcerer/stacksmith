@@ -1,0 +1,20 @@
+{
+  "name": "my-stack",
+  "tags": ["networking", "storage"],
+  "components": {
+    "my-bucket": {
+      "type": "aws_s3_bucket",
+      "properties": {
+        "acl": "private",
+        "bucket": "{{ inputs.bucket_name }}"
+      }
+    },
+    "my-instance": {
+      "type": "aws_ec2_instance",
+      "properties": {
+        "ami": "ami-12345678",
+        "instance_type": "t2.micro"
+      }
+    }
+  }
+}

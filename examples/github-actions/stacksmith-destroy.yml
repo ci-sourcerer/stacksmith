@@ -1,0 +1,36 @@
+name: stacksmith-destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environments:
+        description: Comma-separated environment names to destroy.
+        required: true
+        type: string
+      gitops_root:
+        description: Relative path to the GitOps root folder.
+        required: false
+        type: string
+      discovery_mode:
+        description: "Discovery mode. Supported values: folders (default), flat-files, or env-files."
+        required: false
+        type: string
+      debug:
+        description: Enable debug logging and print configured modules and policies.
+        required: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  destroy:
+    uses: ci-sourcerer/stacksmith/.github/workflows/stacksmith-gitops-opinionated-reusable.yml@main
+    with:
+      command: destroy
+      environments: ${{ inputs.environments }}
+      gitops_root: ${{ inputs.gitops_root || vars.STACKSMITH_GITOPS_ROOT || '.' }}
+      discovery_mode: ${{ inputs.discovery_mode || vars.STACKSMITH_DISCOVERY_MODE || 'auto' }}
+      workdir: ${{ vars.STACKSMITH_WORKDIR || '.' }}
+      debug: ${{ inputs.debug || false }}
+    secrets: inherit

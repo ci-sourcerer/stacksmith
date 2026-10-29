@@ -1,0 +1,6 @@
+name: app-artifacts
+environment: dev
+aws_region: us-east-1
+instance_type: t3.micro
+subnet_id: subnet-07752008
+ssh_ingress_cidrs: 10.0.0.0/8

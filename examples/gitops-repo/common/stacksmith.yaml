@@ -1,0 +1,26 @@
+description: Layered platform and service invocation for the GitOps example.
+merge_mode: deep
+merge_rules:
+  - description: Replace the shared frontend values-file list in service overlays.
+    select: >-
+      scope == 'stack' &&
+      address == '/components/frontend_release/properties/values_files'
+    mode: override
+configs:
+  - source: local
+    data:
+      path: ../../shared-config-repo/stacksmith-base-config.yaml
+  - source: local
+    data:
+      path: ../../shared-config-repo/stacksmith-config.yaml
+stacks:
+  - source: local
+    data:
+      path: ../manifests/common/platform.stack.yaml
+  - source: local
+    data:
+      path: ../manifests/common/service.stack.yaml
+vars:
+  - source: inline
+    data:
+      id: 1234

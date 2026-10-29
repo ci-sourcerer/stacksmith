@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stacksmith.dev/schemas/vars.layer.schema.json",
+  "title": "Stacksmith Variables Layer",
+  "description": "Partial merge layer for Defines free-form input values resolved from one or more variable layers.",
+  "type": "object",
+  "additionalProperties": true,
+  "x-stacksmith-schema-profile": "layer"
+}

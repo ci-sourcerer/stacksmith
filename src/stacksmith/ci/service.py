@@ -1,0 +1,708 @@
+import logging
+import os
+import re
+import subprocess
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+from stacksmith.utils import parse_bool, stacksmith_env_int
+
+from ..backends import resolve_backend
+from ..constants import CACHE_DIR_NAME, STACKSMITH_DIR_NAME
+from ..enums import MergeMode, ValidationReportFormat
+from ..exceptions import StacksmithConfigError
+from ..input_parsing import parse_operation_names, parse_tag_names
+from ..loading import load_config, load_runfiles, load_stack_metadata
+from ..models import MergeConfig, MergePolicy, RunFile, StackDefinition, ToolConfig
+from ..remote import is_remote_url, resolve_references
+from ..variables import resolve_inputs
+from .contracts import (
+    CiExecutionManifest,
+    CiExecutionRow,
+    _ci_config_split,
+    parse_ci_stacksmith_args,
+    validate_ci_policy,
+)
+from .selection import evaluate_environment_selection, normalize_gitops_root
+
+LOGGER = logging.getLogger("stacksmith.ci")
+_DISCOVERY_EXCLUDED_DIRECTORIES = {
+    ".git",
+    ".stacksmith",
+    ".terraform",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "cache",
+    "caches",
+    "coverage",
+    "dist",
+    "generated",
+    "node_modules",
+    "out",
+    "target",
+    "vendor",
+}
+_RUNFILE_NAMES = {
+    "stacksmith.yaml",
+    "stacksmith.yml",
+    "stacksmith.json",
+    "stacksmith.common.yaml",
+    "stacksmith.common.yml",
+    "stacksmith.common.json",
+    "stacksmith.shared.yaml",
+    "stacksmith.shared.yml",
+    "stacksmith.shared.json",
+    "stacksmith.base.yaml",
+    "stacksmith.base.yml",
+    "stacksmith.base.json",
+    "stacksmith.defaults.yaml",
+    "stacksmith.defaults.yml",
+    "stacksmith.defaults.json",
+}
+_STACK_FILE_NAMES = {"stack.yaml", "stack.yml", "stack.json"}
+_FLAT_ENVIRONMENT_PATTERN = re.compile(
+    r"^stacksmith\.(?!common\.|shared\.|base\.|defaults\.)([^.]+)\.(yaml|yml|json)$"
+)
+
+
+@dataclass(frozen=True)
+class CiValidationCheckResult:
+    """Result for one `stacksmith ci validate` check."""
+
+    name: str
+    status: str
+    message: str
+    detail: dict[str, Any] | None = None
+
+
+def _ci_report_status(results: Sequence[CiValidationCheckResult]) -> str:
+    return "fail" if any(result.status == "fail" for result in results) else "pass"
+
+
+def _ci_report_summary(results: Sequence[CiValidationCheckResult]) -> dict[str, int]:
+    return {
+        "pass": sum(1 for result in results if result.status == "pass"),
+        "fail": sum(1 for result in results if result.status == "fail"),
+        "total": len(results),
+    }
+
+
+def _file_exists(path: str | None) -> bool:
+    return bool(path and Path(path).expanduser().exists())
+
+
+def _ci_config_reference(config_ref: str, workdir: str) -> str | Path:
+    config_path = Path(config_ref).expanduser()
+    if is_remote_url(config_ref) or config_path.is_absolute():
+        return config_ref
+    return Path(workdir).expanduser() / config_path
+
+
+def _ci_config_ref_key(config_ref: str | Path) -> str:
+    if isinstance(config_ref, Path):
+        return str(config_ref.resolve())
+    return config_ref
+
+
+def _ci_config_references(config_ref: str, workdir: str) -> list[str | Path]:
+    results = []
+    seen = set()
+    for candidate in _ci_config_split(config_ref.strip()):
+        resolved = _ci_config_reference(candidate, workdir)
+        key = _ci_config_ref_key(resolved)
+        if key in seen:
+            LOGGER.warning(
+                "CI config_ref %r is duplicated and will be ignored",
+                candidate,
+            )
+            continue
+        seen.add(key)
+        results.append(resolved)
+    return results
+
+
+def _ci_input_layers(
+    arguments: Sequence[str],
+    runfile: RunFile,
+    environment: str,
+) -> list[tuple[str, object]]:
+    layers: list[tuple[str, object]] = [("vars", value) for value in runfile.vars]
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in {"--var", "--vars"}:
+            if index + 1 >= len(arguments):
+                raise StacksmithConfigError(f"{argument} requires a value")
+            layers.append((argument.removeprefix("--"), arguments[index + 1]))
+            index += 2
+            continue
+        if argument.startswith("--var="):
+            layers.append(("var", argument.partition("=")[2]))
+        elif argument.startswith("--vars="):
+            layers.append(("vars", argument.partition("=")[2]))
+        index += 1
+    layers.append(("var", f"environment={environment}"))
+    return layers
+
+
+def _resolve_ci_inputs(
+    config: ToolConfig,
+    manifest: CiExecutionManifest,
+    row: CiExecutionRow,
+    runfile: RunFile,
+    cache_dir: Path,
+) -> dict[str, Any]:
+    return resolve_inputs(
+        input_layers=_ci_input_layers(
+            manifest.stacksmith_args,
+            runfile,
+            row.environment,
+        ),
+        config_validations=config.var_validations or None,
+        input_specs=config.inputs,
+        config_validation_base_path=(
+            config.source_path.parent if config.source_path is not None else None
+        ),
+        cache_dir=cache_dir,
+        auth_config=config.remote_auth or None,
+        merge_mode=_ci_merge_config(manifest.stacksmith_args, runfile),
+    )
+
+
+def _effective_ci_backends(
+    manifest: CiExecutionManifest, row: CiExecutionRow
+) -> list[tuple[str, str]]:
+    runfile = (
+        RunFile(stacks=[{"source": "local", "data": {"path": row.stack}}])
+        if row.stack
+        else load_runfiles(
+            [
+                Path(row.runfile).expanduser(),
+                *(
+                    [Path(row.environment_runfile).expanduser()]
+                    if row.environment_runfile
+                    else []
+                ),
+            ]
+        )
+    )
+    workdir_path = (
+        Path(manifest.workdir).expanduser() / STACKSMITH_DIR_NAME / CACHE_DIR_NAME
+    )
+
+    # Resolve all config references
+    ci_config_refs = _ci_config_references(manifest.config_ref, manifest.workdir)
+    all_config_refs = [*runfile.configs, *ci_config_refs]
+    resolved_refs = resolve_references(all_config_refs, workdir_path)
+
+    config = load_config(
+        resolved_refs,
+        merge_mode=_ci_merge_config(manifest.stacksmith_args, runfile),
+    )
+    stack_paths = resolve_references(runfile.stacks, workdir_path)
+    inputs = _resolve_ci_inputs(config, manifest, row, runfile, workdir_path)
+    if not stack_paths:
+        backend = resolve_backend(
+            config,
+            StackDefinition(name="<unspecified>"),
+            inputs,
+            cache_dir=workdir_path,
+        )
+        return [("<unspecified>", backend.type.lower())]
+
+    results = []
+    for stack_path in stack_paths:
+        stack = load_stack_metadata(stack_path)
+        backend = resolve_backend(config, stack, inputs, cache_dir=workdir_path)
+        results.append((stack.name, backend.type.lower()))
+    return results
+
+
+def _ci_merge_config(arguments: Sequence[str], runfile: RunFile) -> MergeConfig:
+    explicit_mode = None
+    for index, argument in enumerate(arguments):
+        if argument == "--merge-mode":
+            if index + 1 >= len(arguments):
+                raise StacksmithConfigError(
+                    "stacksmith_args_json is missing a value for --merge-mode"
+                )
+            explicit_mode = MergeMode(arguments[index + 1])
+        elif argument.startswith("--merge-mode="):
+            explicit_mode = MergeMode(argument.partition("=")[2])
+    if explicit_mode is not None:
+        return explicit_mode
+    if runfile.merge_rules:
+        return MergePolicy(
+            default=runfile.merge_mode or MergeMode.DEEP,
+            rules=runfile.merge_rules,
+        )
+    return runfile.merge_mode or MergeMode.DEEP
+
+
+def _validate_ci_backends(manifest: CiExecutionManifest) -> None:
+    if manifest.command == "test" or parse_bool(
+        os.getenv("STACKSMITH_CI_SKIP_BACKEND_VALIDATION")
+    ):
+        return
+
+    for row in manifest.matrix:
+        for stack_name, backend_type in _effective_ci_backends(manifest, row):
+            if backend_type == "local":
+                raise StacksmithConfigError(
+                    f"CI prepare rejected environment '{row.environment}' for stack "
+                    f"'{stack_name}': the local backend is not supported. Configure "
+                    "a remote backend for CI."
+                )
+
+
+def inspect_environments(
+    gitops_root: str = ".",
+    discovery_mode: str = "auto",
+    environments: str = "",
+    event_name: str = "",
+    changed_paths: Sequence[str] | None = None,
+    base_ref: str = "",
+    before: str = "",
+    after: str = "",
+) -> dict[str, Any]:
+    """Return GitOps environment-selection details for local preview/debugging.
+
+    Args:
+        gitops_root: Relative GitOps root path.
+        discovery_mode: Environment discovery mode.
+        environments: Optional comma-separated manual environment targets.
+        event_name: Caller event name for event-aware selection.
+        changed_paths: Optional explicit changed paths for selection simulation.
+        base_ref: Base branch for pull-request diff mode.
+        before: Previous commit SHA for push diff mode.
+        after: Current commit SHA for push diff mode.
+
+    Returns:
+        Structured environment-selection payload.
+    """
+    selection = evaluate_environment_selection(
+        gitops_root=gitops_root,
+        discovery_mode=discovery_mode,
+        manual_environments=environments,
+        event_name=event_name,
+        changed_paths=list(changed_paths) if changed_paths is not None else None,
+        base_ref=base_ref,
+        before=before,
+        after=after,
+    )
+    return {
+        "gitops_root": selection.gitops_root,
+        "discovery_mode": selection.discovery_mode,
+        "common_runfile": selection.common_runfile,
+        "all_environments": selection.all_environments,
+        "selected_environments": selection.selected_environments,
+        "changed_paths": selection.changed_paths,
+        "matrix": selection.matrix,
+    }
+
+
+def _deployment_candidate_directories() -> list[Path]:
+    candidates: set[Path] = set()
+    for root, directories, files in os.walk("."):
+        directories[:] = sorted(
+            directory
+            for directory in directories
+            if directory not in _DISCOVERY_EXCLUDED_DIRECTORIES
+            and not directory.startswith(".")
+        )
+        path = Path(root)
+        names = set(files)
+        if names.intersection(_RUNFILE_NAMES | _STACK_FILE_NAMES) or any(
+            _FLAT_ENVIRONMENT_PATTERN.fullmatch(name) for name in names
+        ):
+            candidates.add(path)
+        if "environments" in directories:
+            candidates.add(path)
+        if path.name == "common" and names.intersection(_RUNFILE_NAMES):
+            candidates.add(path.parent)
+
+    structured = {
+        candidate
+        for candidate in candidates
+        if (candidate / "environments").is_dir() or (candidate / "common").is_dir()
+    }
+    return sorted(
+        (
+            candidate
+            for candidate in candidates
+            if not any(
+                candidate == parent / "common"
+                or candidate.is_relative_to(parent / "environments")
+                for parent in structured
+            )
+        ),
+        key=lambda path: (len(path.parts), path.as_posix()),
+    )
+
+
+def _source_lockfile_coverage(matrix: list[dict[str, str]]) -> dict[str, Any]:
+    expected: dict[str, set[str]] = {}
+    for row in matrix:
+        source = row.get("stack") or row.get("runfile")
+        if not source:
+            continue
+        lockfile = (Path(source).parent / "stacksmith.lock.yaml").as_posix()
+        expected.setdefault(lockfile, set()).add(row["environment"])
+    present = sorted(path for path in expected if Path(path).is_file())
+    missing = sorted(path for path in expected if not Path(path).is_file())
+    status = (
+        "complete" if expected and not missing else "partial" if present else "missing"
+    )
+    return {
+        "status": status,
+        "present": present,
+        "missing": missing,
+        "missing_environments": sorted(
+            environment for path in missing for environment in expected[path]
+        ),
+    }
+
+
+def _deployment_candidate(
+    gitops_root: str,
+    discovery_mode: str,
+    selection: dict[str, Any],
+) -> dict[str, Any]:
+    primary_sources = {
+        row.get("stack") or row.get("runfile") for row in selection["matrix"]
+    }
+    if not primary_sources or any(
+        not source or not Path(source).is_file() for source in primary_sources
+    ):
+        raise ValueError("The discovered deployment does not have a usable runfile.")
+    return {
+        **selection,
+        "gitops_root": gitops_root,
+        "requested_discovery_mode": discovery_mode,
+        "source_lockfiles": _source_lockfile_coverage(selection["matrix"]),
+    }
+
+
+def discover_deployments(
+    gitops_root: str | None = None,
+    discovery_mode: str = "auto",
+    environments: str = "",
+    event_name: str = "",
+    changed_paths: Sequence[str] | None = None,
+    base_ref: str = "",
+    before: str = "",
+    after: str = "",
+) -> dict[str, Any]:
+    """Discover and inspect Stacksmith deployment roots in the current repository.
+
+    Args:
+        gitops_root: Optional explicit deployment root. Omit to search recursively.
+        discovery_mode: Requested discovery mode for each candidate.
+        environments: Optional comma-separated target environments.
+        event_name: Caller event name for event-aware selection.
+        changed_paths: Optional explicit changed paths.
+        base_ref: Base branch for pull-request selection.
+        before: Previous commit for push selection.
+        after: Current commit for push selection.
+
+    Returns:
+        Repository discovery envelope containing validated deployment candidates.
+
+    Raises:
+        ValueError: An explicitly requested root is not a valid deployment root.
+    """
+    roots = (
+        [Path(gitops_root)]
+        if gitops_root is not None
+        else _deployment_candidate_directories()
+    )
+    deployments = []
+    for root in roots:
+        normalized_root = normalize_gitops_root(root.as_posix())
+        try:
+            deployments.append(
+                _deployment_candidate(
+                    normalized_root,
+                    discovery_mode,
+                    inspect_environments(
+                        gitops_root=normalized_root,
+                        discovery_mode=discovery_mode,
+                        environments=environments,
+                        event_name=event_name,
+                        changed_paths=changed_paths,
+                        base_ref=base_ref,
+                        before=before,
+                        after=after,
+                    ),
+                )
+            )
+        except ValueError:
+            if gitops_root is not None:
+                raise
+    return {"deployments": deployments}
+
+
+def prepare_ci_execution(
+    *,
+    command: str,
+    operation_names: str = "",
+    tags: str = "",
+    config_ref: str,
+    workdir: str = ".",
+    env_file: str = "/dev/null",
+    stacksmith_args_json: str = "[]",
+    debug: bool = False,
+    no_cas: bool = False,
+    locked: bool = False,
+    offline: bool = False,
+    lockfile: str = "",
+    force_rerun: bool = False,
+    validation_report_format: str = ValidationReportFormat.JSON.value,
+    fail_on_changes: bool = False,
+    strict_validation_warnings: bool = False,
+    gitops_root: str = ".",
+    discovery_mode: str = "auto",
+    environments: str = "",
+    event_name: str = "",
+    changed_paths: Sequence[str] | None = None,
+    base_ref: str = "",
+    before: str = "",
+    after: str = "",
+    ref_name: str = "",
+    default_branch: str = "",
+    is_primary_branch: bool | None = None,
+    skip_branch_validation: bool = False,
+) -> CiExecutionManifest:
+    """Prepare one versioned, provider-neutral GitOps CI execution manifest.
+
+    Args:
+        command: Stacksmith command to execute.
+        operation_names: Comma-delimited stack-local operation names.
+        tags: Comma-delimited component tags used to target CI execution.
+        config_ref: Platform-managed Stacksmith config reference.
+        workdir: Working directory relative to the checked-out repository.
+        env_file: Environment file path, or `/dev/null` to disable implicit loading.
+        stacksmith_args_json: JSON array of additional safe Stacksmith arguments.
+        debug: Whether to enable debug logging and CI configuration inspection.
+        no_cas: Whether to disable content-addressable caching.
+        locked: Whether runtime inputs must match the Stacksmith lockfile.
+        offline: Whether locked remote inputs must resolve without network access.
+        lockfile: Optional explicit Stacksmith lockfile path.
+        force_rerun: Whether operations must force execution.
+        validation_report_format: Plan validation report format.
+        fail_on_changes: Whether plans fail when changes are detected.
+        strict_validation_warnings: Whether plan validation warnings fail a plan.
+        gitops_root: Relative GitOps root path.
+        discovery_mode: Environment discovery mode.
+        environments: Optional comma-separated manual environment targets.
+        event_name: Normalized provider event name.
+        changed_paths: Optional explicit changed paths for selection simulation.
+        base_ref: Pull-request target branch name.
+        before: Previous push commit SHA.
+        after: Current push commit SHA.
+        ref_name: Branch name for non-pull-request policy validation.
+        default_branch: Repository default branch name.
+        is_primary_branch: Provider primary-branch indicator when available.
+        skip_branch_validation: Whether branch policy should be skipped.
+
+    Returns:
+        A validated manifest that both CI providers can execute.
+
+    Raises:
+        StacksmithConfigError: If inputs or policy are invalid.
+    """
+    selected_operation_names = (
+        parse_operation_names(operation_names) if operation_names.strip() else []
+    )
+    selected_tags = parse_tag_names(tags) if tags.strip() else []
+    validate_ci_policy(
+        command=command,
+        operation_names=selected_operation_names,
+        event_name=event_name,
+        ref_name=ref_name,
+        base_ref=base_ref,
+        default_branch=default_branch,
+        is_primary_branch=is_primary_branch,
+        skip_branch_validation=skip_branch_validation,
+    )
+    selection = inspect_environments(
+        gitops_root=gitops_root,
+        discovery_mode=discovery_mode,
+        environments=environments,
+        event_name=event_name,
+        changed_paths=changed_paths,
+        base_ref=base_ref,
+        before=before,
+        after=after,
+    )
+    manifest = CiExecutionManifest(
+        command=command,
+        operation_names=selected_operation_names,
+        tags=selected_tags,
+        config_ref=config_ref,
+        workdir=workdir,
+        env_file=env_file,
+        stacksmith_args=parse_ci_stacksmith_args(stacksmith_args_json),
+        debug=debug,
+        no_cas=no_cas,
+        locked=locked,
+        offline=offline,
+        lockfile=lockfile,
+        force_rerun=force_rerun,
+        max_parallel_operations=stacksmith_env_int(
+            "MAX_PARALLEL_OPERATIONS", 10, minimum=1
+        ),
+        validation_report_format=validation_report_format,
+        fail_on_changes=fail_on_changes,
+        strict_validation_warnings=strict_validation_warnings,
+        matrix=[CiExecutionRow.model_validate(row) for row in selection["matrix"]],
+    )
+    _validate_ci_backends(manifest)
+    LOGGER.info(
+        "Prepared CI execution manifest for command=%s and environments=%s",
+        manifest.command,
+        [row.environment for row in manifest.matrix],
+    )
+    return manifest
+
+
+def validate_ci_inputs(
+    gitops_root: str = ".",
+    discovery_mode: str = "auto",
+    runfile: str | None = None,
+    env_file: str | None = None,
+    validation_report_format: str = ValidationReportFormat.JSON.value,
+) -> dict[str, Any]:
+    """Validate CI-oriented workflow inputs using an extensible check pipeline.
+
+    Args:
+        gitops_root: Relative GitOps root path.
+        discovery_mode: Environment discovery mode.
+        runfile: Optional explicit runfile path to validate.
+        env_file: Optional env file path to validate.
+        validation_report_format: Validation report output format.
+
+    Returns:
+        Structured check report suitable for future check expansion.
+    """
+    results: list[CiValidationCheckResult] = []
+
+    try:
+        discovery = inspect_environments(
+            gitops_root=gitops_root,
+            discovery_mode=discovery_mode,
+        )
+        results.append(
+            CiValidationCheckResult(
+                name="discovery",
+                status="pass",
+                message="Discovery mode and GitOps root are valid.",
+                detail={
+                    "discovery_mode": discovery["discovery_mode"],
+                    "gitops_root": discovery["gitops_root"],
+                    "common_runfile": discovery["common_runfile"],
+                    "environment_count": len(discovery["all_environments"]),
+                },
+            )
+        )
+    except (ValueError, subprocess.CalledProcessError) as exc:
+        results.append(
+            CiValidationCheckResult(
+                name="discovery",
+                status="fail",
+                message=str(exc),
+            )
+        )
+        discovery = None
+
+    if runfile:
+        exists = _file_exists(runfile)
+        results.append(
+            CiValidationCheckResult(
+                name="runfile_path",
+                status="pass" if exists else "fail",
+                message=(
+                    "Runfile path exists."
+                    if exists
+                    else f"Runfile path not found: {Path(runfile).expanduser()}"
+                ),
+                detail={"path": str(Path(runfile).expanduser())},
+            )
+        )
+    elif discovery is not None:
+        common_runfile_path = Path(
+            next(
+                (item["stack"] for item in discovery["matrix"] if item.get("stack")),
+                discovery["common_runfile"],
+            )
+        ).expanduser()
+        if not common_runfile_path.is_absolute() and not common_runfile_path.is_file():
+            common_runfile_path = (
+                Path(discovery["gitops_root"] or ".") / common_runfile_path
+            )
+        exists = common_runfile_path.is_file()
+        results.append(
+            CiValidationCheckResult(
+                name="common_runfile",
+                status="pass" if exists else "fail",
+                message=(
+                    "Discovered common runfile exists."
+                    if exists
+                    else f"Discovered common runfile not found: {common_runfile_path}"
+                ),
+                detail={"path": str(common_runfile_path)},
+            )
+        )
+
+    env_file_path = env_file or "/dev/null"
+    env_exists = env_file_path == "/dev/null" or _file_exists(env_file_path)
+    results.append(
+        CiValidationCheckResult(
+            name="env_file",
+            status="pass" if env_exists else "fail",
+            message=(
+                "Environment file configuration is valid."
+                if env_exists
+                else f"Environment file path not found: "
+                f"{Path(env_file_path).expanduser()}"
+            ),
+            detail={"path": env_file_path},
+        )
+    )
+
+    try:
+        results.append(
+            CiValidationCheckResult(
+                name="validation_report_format",
+                status="pass",
+                message="Validation report format is supported.",
+                detail={
+                    "format": ValidationReportFormat(validation_report_format).value
+                },
+            )
+        )
+    except ValueError:
+        results.append(
+            CiValidationCheckResult(
+                name="validation_report_format",
+                status="fail",
+                message=(
+                    "Unsupported validation report format "
+                    f"'{validation_report_format}'. Supported values: "
+                    f"{', '.join(item.value for item in ValidationReportFormat)}."
+                ),
+            )
+        )
+
+    status = _ci_report_status(results)
+    return {
+        "command": "ci validate",
+        "status": status,
+        "exit_code": 0 if status == "pass" else 1,
+        "summary": _ci_report_summary(results),
+        "results": [asdict(result) for result in results],
+    }

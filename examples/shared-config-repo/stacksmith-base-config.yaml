@@ -1,0 +1,12 @@
+description: Base platform configuration for the Stacksmith examples.
+
+backend:
+  data:
+    type: local
+    path: .stacksmith-state
+
+tools:
+  tofu:
+    version: "1.11.6"
+  terragrunt:
+    version: "1.0.6"

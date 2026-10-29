@@ -1,0 +1,13 @@
+{
+  "name": "rds",
+  "depends_on": ["vpc"],
+  "components": {
+    "main-db": {
+      "type": "aws_rds_instance",
+      "properties": {
+        "engine": "postgres",
+        "instance_class": "db.t3.medium"
+      }
+    }
+  }
+}
