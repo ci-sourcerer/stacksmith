@@ -40,6 +40,18 @@ The `announce_reconciliation` operation shows that operations can access secrets
 
 ## CI backend policy
 
-This cloud-credential-free example is intended for local Stacksmith commands. `stacksmith ci prepare`, including the GitHub Actions and Jenkins entrypoints, rejects its local backend. Configure a remote backend before using this repository layout in CI so state is durable and shared between plan and apply jobs.
+This cloud-credential-free example is intended for local Stacksmith commands. `stacksmith ci prepare`, including the GitHub Actions and Jenkins entrypoints, rejects its local backend by default. Configure a remote backend before using this repository layout in CI so state is durable and shared between plan and apply jobs.
 
 For Jenkins or other CI systems, inject `STACKSMITH_EXAMPLE_SECRET` and `STACKSMITH_SECRET_FINGERPRINT_KEY` in the phases that generate and execute operations. The declared token is mapped into the local command environment and masked in streamed output.
+
+## Local GitHub Actions test
+
+Run the reusable workflow locally with Docker, `act`, `jq`, and OpenSSL. The script supplies Node 24 to JavaScript actions and uses a temporary workflow copy to pass the example secret and fingerprint key. It pulls the published Stacksmith image; set `IMAGE_VERSION` to select another image when testing changes.
+
+```sh
+examples/scripts/run-act-workflow.sh gitops-simple-repo plan dev
+```
+
+When either `STACKSMITH_EXAMPLE_SECRET` or `STACKSMITH_SECRET_FINGERPRINT_KEY` is absent or empty, the script generates a random value and saves it under `examples/gitops-simple-repo/.stacksmith/act-secrets` for future runs. Explicit environment values take precedence. The directory is ignored by git and created with restrictive permissions. Keep the fingerprint key stable when reusing state.
+
+The backend override is appropriate only for an isolated local experiment: local state is not shared between CI jobs. Use a remote backend for normal CI. This runs the reusable workflow directly, with artifact uploads disabled. Checkout fetches the committed GitHub revision, so uncommitted workspace changes are not tested by the job. The script uses the AMD64 architecture and the full `act` runner image.
