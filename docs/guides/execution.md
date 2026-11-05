@@ -220,9 +220,9 @@ Use `info graph` to inspect the discovered dependency graph and the execution th
 
 ```bash
 stacksmith info graph \
-  --root examples/gitops-simple-repo \
-  --runfile examples/gitops-simple-repo/common/stacksmith.yaml \
-  --runfile examples/gitops-simple-repo/environments/dev.yaml
+  --root tests/fixtures/authoring-examples/gitops-simple-repo \
+  --runfile tests/fixtures/authoring-examples/gitops-simple-repo/common/stacksmith.yaml \
+  --runfile tests/fixtures/authoring-examples/gitops-simple-repo/environments/dev.yaml
 ```
 
 The default table view includes stack paths, dependency edges, state keys, selected components, mock-output usage, build directories, logical Terragrunt commands, and the computed order. Use `--action destroy` to preview the reversed destruction order. Stack filters (`--include-tag` and `--exclude-tag`) and component selectors (`--tag` and `--tag-expr`) use the same semantics as `run-all`.
@@ -233,9 +233,9 @@ Use `run-all --dry-run` to perform the same discovery, input resolution, static 
 
 ```bash
 stacksmith run-all plan \
-  --root examples/gitops-simple-repo \
-  --runfile examples/gitops-simple-repo/common/stacksmith.yaml \
-  --runfile examples/gitops-simple-repo/environments/dev.yaml \
+  --root tests/fixtures/authoring-examples/gitops-simple-repo \
+  --runfile tests/fixtures/authoring-examples/gitops-simple-repo/common/stacksmith.yaml \
+  --runfile tests/fixtures/authoring-examples/gitops-simple-repo/environments/dev.yaml \
   --tag-expr "component_name == 'first'" \
   --dry-run \
   --format json

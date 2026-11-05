@@ -1,0 +1,17 @@
+name: tutorial
+components:
+  message:
+    type: terraform_data
+    properties:
+      input:
+        environment: '{{ inputs.environment }}'
+        message: '{{ inputs.message }}'
+operations:
+  announce_reconciliation:
+    description: Emit a harmless completion message after the stack applies.
+    use: echo_reconciliation
+    with:
+      environment: '{{ inputs.environment }}'
+      message: '{{ inputs.message }}'
+      project: '{{ inputs.project }}'
+      secret_token: '{{ inputs.reconciliation_secret_token }}'

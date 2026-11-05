@@ -87,11 +87,11 @@ merge_mode: deep
 configs:
   - source: local
     data:
-      path: examples/gitops-repo/common/stacksmith.yaml
+      path: tests/fixtures/authoring-examples/gitops-repo/common/stacksmith.yaml
 vars:
   - source: local
     data:
-      path: examples/gitops-repo/vars/vars.dev.yaml
+      path: tests/fixtures/authoring-examples/gitops-repo/vars/vars.dev.yaml
 ```
 
 For production use, add GitHub Environment protections and secrets per environment. The reusable workflow completes the unprotected plan phase first, then maps each apply phase to the matching GitHub Environment so approvals and scoped credentials gate deployment after the plan is available.

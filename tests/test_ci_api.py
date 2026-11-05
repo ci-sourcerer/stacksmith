@@ -145,19 +145,6 @@ def test_inspect_environments_auto_discovers_env_files_layout(
     assert not any(record.levelno >= logging.ERROR for record in caplog.records)
 
 
-def test_inspect_environments_auto_discovers_flat_files_layout(tmp_path: Path):
-    (tmp_path / "stacksmith.dev.yaml").write_text("stacks: []\n")
-    (tmp_path / "stacksmith.prod.yaml").write_text("stacks: []\n")
-
-    payload = inspect_environments(
-        gitops_root=str(tmp_path),
-        discovery_mode="auto",
-    )
-
-    assert payload["discovery_mode"] == "flat-files"
-    assert payload["selected_environments"] == ["dev", "prod"]
-
-
 def test_discover_deployments_finds_root_and_nested_layouts(
     tmp_path: Path, monkeypatch
 ):
@@ -181,7 +168,7 @@ def test_discover_deployments_finds_root_and_nested_layouts(
 
 @pytest.mark.parametrize(
     ("layout", "expected_mode"),
-    [("folders", "folders"), ("flat-files", "flat-files")],
+    [("folders", "folders")],
 )
 def test_discover_deployments_supports_other_repository_layouts(
     tmp_path: Path, monkeypatch, layout: str, expected_mode: str
@@ -190,8 +177,9 @@ def test_discover_deployments_supports_other_repository_layouts(
     (tmp_path / "common" / "stacksmith.yaml").write_text("stacks: []\n")
     if layout == "folders":
         (tmp_path / "environments" / "dev").mkdir(parents=True)
-    else:
-        (tmp_path / "stacksmith.dev.yaml").write_text("stacks: []\n")
+        (tmp_path / "environments" / "dev" / "stacksmith.yaml").write_text(
+            "stacks: []\n"
+        )
     monkeypatch.chdir(tmp_path)
 
     payload = discover_deployments()
@@ -209,9 +197,7 @@ def test_discover_deployments_ignores_generated_and_duplicate_roots(
         "name: ignored\ncomponents: {}\n"
     )
     (tmp_path / "environments" / "generated").mkdir()
-    (tmp_path / "environments" / "generated" / "stacksmith.yaml").write_text(
-        "stacks: []\n"
-    )
+    (tmp_path / "environments" / "generated" / "stack.yaml").write_text("stacks: []\n")
     (tmp_path / ".stacksmith" / "generated").mkdir(parents=True)
     (tmp_path / ".stacksmith" / "generated" / "stack.yaml").write_text(
         "name: ignored\ncomponents: {}\n"

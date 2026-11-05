@@ -22,7 +22,7 @@ components:
       version: "4.11.3"
       namespace: "{{ inputs.environment }}"
       values_files:
-        - "examples/gitops-repo/manifests/environments/{{ inputs.environment }}/frontend-values.yaml"
+        - "tests/fixtures/authoring-examples/gitops-repo/manifests/environments/{{ inputs.environment }}/frontend-values.yaml"
   app_config:
     type: k8s_app
     tags:
@@ -31,7 +31,7 @@ components:
     properties:
       namespace: "{{ inputs.environment }}"
       manifest_files:
-        - "examples/gitops-repo/manifests/environments/{{ inputs.environment }}/app-config.yaml"
+        - "tests/fixtures/authoring-examples/gitops-repo/manifests/environments/{{ inputs.environment }}/app-config.yaml"
   logs_bucket:
     type: aws_s3_bucket
     tags:

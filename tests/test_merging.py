@@ -262,7 +262,8 @@ def test_external_policy_can_control_runfile_merge(tmp_path: Path):
 
 def test_gitops_example_overrides_environment_values_files():
     runfile = load_runfile(
-        Path(__file__).parents[1] / "examples/gitops-repo/common/stacksmith.yaml"
+        Path(__file__).parents[1]
+        / "tests/fixtures/authoring-examples/gitops-repo/common/stacksmith.yaml"
     )
 
     assert load_stacks(
@@ -279,12 +280,14 @@ def test_gitops_example_overrides_environment_values_files():
             }
         },
     ).components["frontend_release"].properties["values_files"] == [
-        "examples/gitops-repo/manifests/environments/dev/frontend-values.yaml"
+        "tests/fixtures/authoring-examples/gitops-repo/manifests/environments/dev/frontend-values.yaml"
     ]
 
 
 def test_gitops_example_wires_pinned_commit_to_jenkins_operation():
-    examples_root = Path(__file__).parents[1] / "examples"
+    examples_root = (
+        Path(__file__).parents[1] / "tests" / "fixtures" / "authoring-examples"
+    )
     runfile = load_runfile(examples_root / "gitops-repo/common/stacksmith.yaml")
     application_commit = yaml.safe_load(
         (examples_root / "gitops-repo/vars/vars.dev.yaml").read_text(encoding="utf-8")
@@ -323,7 +326,9 @@ def test_gitops_example_wires_pinned_commit_to_jenkins_operation():
 def test_simple_gitops_example_wires_after_apply_echo_operation(monkeypatch):
     monkeypatch.setenv("STACKSMITH_EXAMPLE_SECRET", "example-secret-DO-NOT-LEAK")
     monkeypatch.setenv("STACKSMITH_SECRET_FINGERPRINT_KEY", "test-key")
-    examples_root = Path(__file__).parents[1] / "examples"
+    examples_root = (
+        Path(__file__).parents[1] / "tests" / "fixtures" / "authoring-examples"
+    )
     runfile = load_runfile(examples_root / "gitops-simple-repo/common/stacksmith.yaml")
     stack = load_stacks(
         [Path(reference.data.path) for reference in runfile.stacks],

@@ -1,0 +1,11 @@
+backend:
+  data:
+    type: local
+    path: .stacksmith-state
+module_mappings:
+  terraform_data:
+    source:
+      source: local
+      data:
+        path: ../modules/terraform_data
+    auto_inject_inputs: true

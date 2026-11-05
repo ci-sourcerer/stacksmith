@@ -444,13 +444,13 @@ def test_ci_environments_has_gitops_flags(parser):
             "ci",
             "environments",
             "--gitops-root",
-            "./examples/gitops-repo",
+            "./tests/fixtures/authoring-examples/gitops-repo",
             "--discovery-mode",
             "env-files",
             "--event-name",
             "push",
             "--changed-path",
-            "examples/gitops-repo/common/stacksmith.yaml",
+            "tests/fixtures/authoring-examples/gitops-repo/common/stacksmith.yaml",
             "--format",
             "json",
         ]
@@ -458,10 +458,12 @@ def test_ci_environments_has_gitops_flags(parser):
 
     assert args.command == "ci"
     assert args.ci_command == "environments"
-    assert args.gitops_root == "./examples/gitops-repo"
+    assert args.gitops_root == "./tests/fixtures/authoring-examples/gitops-repo"
     assert args.discovery_mode == "env-files"
     assert args.event_name == "push"
-    assert args.changed_path == ["examples/gitops-repo/common/stacksmith.yaml"]
+    assert args.changed_path == [
+        "tests/fixtures/authoring-examples/gitops-repo/common/stacksmith.yaml"
+    ]
     assert args.format == "json"
 
 
@@ -490,7 +492,7 @@ def test_ci_validate_has_workflow_flags(parser):
             "ci",
             "validate",
             "--gitops-root",
-            "examples/gitops-repo",
+            "tests/fixtures/authoring-examples/gitops-repo",
             "--discovery-mode",
             "folders",
             "--workflow-runfile",
@@ -2038,24 +2040,28 @@ def test_cmd_ci_environments_emits_json(monkeypatch, parser, capsys):
         lambda **kwargs: {
             "deployments": [
                 {
-                    "gitops_root": "examples/gitops-repo",
+                    "gitops_root": "tests/fixtures/authoring-examples/gitops-repo",
                     "requested_discovery_mode": "auto",
                     "discovery_mode": "env-files",
-                    "common_runfile": "examples/gitops-repo/common/stacksmith.yaml",
+                    "common_runfile": "tests/fixtures/authoring-examples/gitops-repo/common/stacksmith.yaml",
                     "all_environments": ["dev", "prod"],
                     "selected_environments": ["dev"],
-                    "changed_paths": ["examples/gitops-repo/environments/dev.yaml"],
+                    "changed_paths": [
+                        "tests/fixtures/authoring-examples/gitops-repo/environments/dev.yaml"
+                    ],
                     "matrix": [
                         {
                             "environment": "dev",
-                            "runfile": "examples/gitops-repo/common/stacksmith.yaml",
-                            "environment_runfile": "examples/gitops-repo/environments/dev.yaml",
+                            "runfile": "tests/fixtures/authoring-examples/gitops-repo/common/stacksmith.yaml",
+                            "environment_runfile": "tests/fixtures/authoring-examples/gitops-repo/environments/dev.yaml",
                         }
                     ],
                     "source_lockfiles": {
                         "status": "missing",
                         "present": [],
-                        "missing": ["examples/gitops-repo/common/stacksmith.lock.yaml"],
+                        "missing": [
+                            "tests/fixtures/authoring-examples/gitops-repo/common/stacksmith.lock.yaml"
+                        ],
                         "missing_environments": ["dev"],
                     },
                 }

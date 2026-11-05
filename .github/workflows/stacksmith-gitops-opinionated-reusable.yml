@@ -23,7 +23,7 @@ on:
         type: string
         default: ""
       discovery_mode:
-        description: "Discovery mode. Supported values: auto (default), folders, flat-files, or env-files."
+        description: "Discovery mode. Supported values: auto (default), single, folders, or env-files."
         required: false
         type: string
         default: auto

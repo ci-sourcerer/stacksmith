@@ -17,7 +17,9 @@ def _pin_checkout(tmp_path: Path) -> Path:
         _ROOT / ".github/workflows/stacksmith-gitops-opinionated-reusable.yml",
         _ROOT / ".github/workflows/stacksmith-gitops-reusable.yml",
         _ROOT / "jenkins/vars/stacksmith.groovy",
-        *(_ROOT / "examples/github-actions").glob("stacksmith-*.yml"),
+        *(_ROOT / "tests/fixtures/authoring-examples/github-actions").glob(
+            "stacksmith-*.yml"
+        ),
         _ROOT / "docs/integrations/ci.md",
     ):
         target = tmp_path / path.relative_to(_ROOT)
@@ -66,7 +68,9 @@ def test_pin_task_coordinates_workflow_image_and_library_refs(
     assert (
         executor["on"]["workflow_call"]["inputs"]["image_version"]["default"] == version
     )
-    for path in (_pin_checkout / "examples/github-actions").glob("stacksmith-*.yml"):
+    for path in (
+        _pin_checkout / "tests/fixtures/authoring-examples/github-actions"
+    ).glob("stacksmith-*.yml"):
         workflow = yaml.safe_load(path.read_text())
         assert all(
             job["uses"].endswith(f"@v{version}") for job in workflow["jobs"].values()

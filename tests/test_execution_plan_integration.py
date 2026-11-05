@@ -163,7 +163,7 @@ def test_reviewed_apply_and_destroy_across_workspaces(tmp_path: Path, monkeypatc
                             "data": {
                                 "path": str(
                                     Path(__file__).parents[1]
-                                    / "examples/modules/terraform_data"
+                                    / "tests/fixtures/authoring-examples/modules/terraform_data"
                                 ),
                             },
                         },

@@ -10,7 +10,11 @@ from stacksmith.validations import apply_transform
 
 def test_shared_config_demonstrates_convention_based_module_mapping() -> None:
     config_root = (
-        Path(__file__).resolve().parents[1] / "examples" / "shared-config-repo"
+        Path(__file__).resolve().parents[1]
+        / "tests"
+        / "fixtures"
+        / "authoring-examples"
+        / "shared-config-repo"
     )
     config = load_config(
         [
@@ -27,7 +31,12 @@ def test_shared_config_demonstrates_convention_based_module_mapping() -> None:
 
 
 def test_shared_config_associates_web_instance_role_with_production_bucket() -> None:
-    examples_root = Path(__file__).resolve().parents[1] / "examples"
+    examples_root = (
+        Path(__file__).resolve().parents[1]
+        / "tests"
+        / "fixtures"
+        / "authoring-examples"
+    )
     config_root = examples_root / "shared-config-repo"
     config = load_config(
         [
@@ -53,7 +62,9 @@ def test_shared_config_associates_web_instance_role_with_production_bucket() -> 
 
 def test_transform_s3_write_policy_uses_actual_bucket_arn_from_inputs() -> None:
     config_root = Path(__file__).resolve().parents[1]
-    base_path = config_root / "examples" / "shared-config-repo"
+    base_path = (
+        config_root / "tests" / "fixtures" / "authoring-examples" / "shared-config-repo"
+    )
     spec = TransformSpec(
         script={
             "source": "local",
