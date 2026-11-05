@@ -503,31 +503,43 @@ def test_generated_layer_schema_matches_runtime_fragment_schema(
         (
             "config.layer.schema.json",
             [
-                Path("examples/shared-config-repo/stacksmith-base-config.yaml"),
-                Path("examples/shared-config-repo/stacksmith-config.yaml"),
+                Path(
+                    "tests/fixtures/authoring-examples/shared-config-repo/stacksmith-base-config.yaml"
+                ),
+                Path(
+                    "tests/fixtures/authoring-examples/shared-config-repo/stacksmith-config.yaml"
+                ),
             ],
         ),
         (
             "runfile.layer.schema.json",
             [
-                Path("examples/gitops-repo/common/stacksmith.yaml"),
-                Path("examples/gitops-repo/environments/dev.yaml"),
+                Path(
+                    "tests/fixtures/authoring-examples/gitops-repo/common/stacksmith.yaml"
+                ),
+                Path(
+                    "tests/fixtures/authoring-examples/gitops-repo/environments/dev.yaml"
+                ),
             ],
         ),
         (
             "stack.layer.schema.json",
             [
-                Path("examples/gitops-repo/manifests/common/platform.stack.yaml"),
-                Path("examples/gitops-repo/manifests/common/service.stack.yaml"),
+                Path(
+                    "tests/fixtures/authoring-examples/gitops-repo/manifests/common/platform.stack.yaml"
+                ),
+                Path(
+                    "tests/fixtures/authoring-examples/gitops-repo/manifests/common/service.stack.yaml"
+                ),
             ],
         ),
         (
             "test_manifest.layer.schema.json",
-            [Path("examples/shared-config-repo/tests.yaml")],
+            [Path("tests/fixtures/authoring-examples/shared-config-repo/tests.yaml")],
         ),
         (
             "vars.layer.schema.json",
-            [Path("examples/gitops-repo/vars/vars.dev.yaml")],
+            [Path("tests/fixtures/authoring-examples/gitops-repo/vars/vars.dev.yaml")],
         ),
     ],
 )

@@ -1,0 +1,6 @@
+environment: default
+message: Hello default
+project: stacksmith
+reconciliation_secret_token:
+  $secret:
+    env: STACKSMITH_EXAMPLE_SECRET

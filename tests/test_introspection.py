@@ -131,7 +131,14 @@ class TestParseModuleOutputs:
 
 class TestResolveModuleDir:
     def test_resolves_local_module_dir_without_git_clone(self, tmp_path: Path):
-        module_dir = tmp_path / "examples" / "modules" / "helm_app"
+        module_dir = (
+            tmp_path
+            / "tests"
+            / "fixtures"
+            / "authoring-examples"
+            / "modules"
+            / "helm_app"
+        )
         module_dir.mkdir(parents=True)
         (module_dir / "variables.tf").write_text(
             'variable "name" {\n  type = string\n}\n',
@@ -141,7 +148,7 @@ class TestResolveModuleDir:
         source, version = render_module_source_identity(
             LocalModuleSourceReference(
                 source="local",
-                data={"path": "examples/modules/helm_app"},
+                data={"path": "tests/fixtures/authoring-examples/modules/helm_app"},
             ),
             options={"base_path": tmp_path},
         )

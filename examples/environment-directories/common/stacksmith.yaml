@@ -1,0 +1,8 @@
+configs:
+  - source: local
+    data:
+      path: ../config.yaml
+stacks:
+  - source: local
+    data:
+      path: ../stack.yaml

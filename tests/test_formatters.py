@@ -102,12 +102,16 @@ def test_render_module_source_for_terraform_local_source_with_base_path():
         "terraform",
         LocalModuleSourceReference(
             source="local",
-            data={"path": "examples/modules/helm_app"},
+            data={"path": "tests/fixtures/authoring-examples/modules/helm_app"},
         ),
         options={"base_path": "."},
     )
 
-    assert rendered == {"source": str(Path("examples/modules/helm_app").resolve())}
+    assert rendered == {
+        "source": str(
+            Path("tests/fixtures/authoring-examples/modules/helm_app").resolve()
+        )
+    }
     assert "version" not in rendered
 
 
@@ -118,11 +122,11 @@ def test_render_module_source_for_terraform_local_package_subdir_with_base_path(
             source="local",
             data={"path": "../modules//cert-manager"},
         ),
-        options={"base_path": "examples/envs/prod"},
+        options={"base_path": "tests/fixtures/authoring-examples/envs/prod"},
     )
 
     assert rendered == {
-        "source": f"{Path('examples/envs/modules').resolve()}//cert-manager"
+        "source": f"{Path('tests/fixtures/authoring-examples/envs/modules').resolve()}//cert-manager"
     }
     assert "version" not in rendered
 
@@ -133,10 +137,13 @@ def test_render_module_source_identity_preserves_local_package_subdir():
             source="local",
             data={"path": "../modules//cert-manager"},
         ),
-        options={"base_path": "examples/envs/prod"},
+        options={"base_path": "tests/fixtures/authoring-examples/envs/prod"},
     )
 
-    assert source == f"{Path('examples/envs/modules').resolve()}//cert-manager"
+    assert (
+        source
+        == f"{Path('tests/fixtures/authoring-examples/envs/modules').resolve()}//cert-manager"
+    )
     assert version == "local"
 
 

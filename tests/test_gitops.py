@@ -3,7 +3,6 @@ from pathlib import Path
 import pytest
 
 from stacksmith.ci.selection import (
-    discover_environments,
     evaluate_environment_selection,
     normalize_discovery_mode,
     select_changed_environments,
@@ -19,8 +18,10 @@ def _create_env_files_layout(tmp_path: Path) -> None:
     (tmp_path / "environments" / "prod.yaml").write_text("stacks: []\n")
 
 
-def test_normalize_discovery_mode_env_alias():
-    assert normalize_discovery_mode("env") == "env-files"
+@pytest.mark.parametrize("mode", ["env", "flat-files"])
+def test_normalize_discovery_mode_rejects_removed_modes(mode):
+    with pytest.raises(ValueError):
+        normalize_discovery_mode(mode)
 
 
 def test_validate_discovery_mode_rejects_unsupported_value():
@@ -41,27 +42,14 @@ def test_evaluate_environment_selection_auto_detects_env_files_layout(tmp_path: 
     assert selection.selected_environments == ["dev", "prod"]
 
 
-def test_discover_environments_flat_files_filters_common_variants(tmp_path: Path):
-    (tmp_path / "common").mkdir()
-    (tmp_path / "common" / "stacksmith.yaml").write_text("merge_mode: deep\n")
-    (tmp_path / "stacksmith.dev.yaml").write_text("stacks: []\n")
-    (tmp_path / "stacksmith.prod.yaml").write_text("stacks: []\n")
-    (tmp_path / "stacksmith.common.yaml").write_text("stacks: []\n")
-
-    environments, common_runfile = discover_environments("flat-files", tmp_path)
-
-    assert environments == ["dev", "prod"]
-    assert common_runfile == f"{tmp_path.as_posix()}/common/stacksmith.yaml"
-
-
 def test_select_changed_environments_fan_out_for_common_changes():
     selected = select_changed_environments(
-        ["examples/gitops-repo/common/stacksmith.yaml"],
+        ["tests/fixtures/authoring-examples/gitops-repo/common/stacksmith.yaml"],
         "env-files",
-        "examples/gitops-repo/",
+        "tests/fixtures/authoring-examples/gitops-repo/",
         (
-            "examples/gitops-repo/common/",
-            "examples/gitops-repo/manifests/common/",
+            "tests/fixtures/authoring-examples/gitops-repo/common/",
+            "tests/fixtures/authoring-examples/gitops-repo/manifests/common/",
         ),
         ["dev", "prod"],
     )
@@ -71,12 +59,12 @@ def test_select_changed_environments_fan_out_for_common_changes():
 
 def test_select_changed_environments_targets_env_file():
     selected = select_changed_environments(
-        ["examples/gitops-repo/environments/dev.yaml"],
+        ["tests/fixtures/authoring-examples/gitops-repo/environments/dev.yaml"],
         "env-files",
-        "examples/gitops-repo/",
+        "tests/fixtures/authoring-examples/gitops-repo/",
         (
-            "examples/gitops-repo/common/",
-            "examples/gitops-repo/manifests/common/",
+            "tests/fixtures/authoring-examples/gitops-repo/common/",
+            "tests/fixtures/authoring-examples/gitops-repo/manifests/common/",
         ),
         ["dev", "prod"],
     )
@@ -84,29 +72,16 @@ def test_select_changed_environments_targets_env_file():
     assert selected == {"dev"}
 
 
-def test_select_changed_environments_targets_flat_file_env():
-    selected = select_changed_environments(
-        ["examples/gitops-repo/stacksmith.prod.yaml"],
-        "flat-files",
-        "examples/gitops-repo/",
-        (
-            "examples/gitops-repo/common/",
-            "examples/gitops-repo/manifests/common/",
-        ),
-        ["dev", "prod"],
-    )
-
-    assert selected == {"prod"}
-
-
 def test_select_changed_environments_targets_environment_manifest_path():
     selected = select_changed_environments(
-        ["examples/gitops-repo/manifests/environments/prod/app-config.yaml"],
+        [
+            "tests/fixtures/authoring-examples/gitops-repo/manifests/environments/prod/app-config.yaml"
+        ],
         "env-files",
-        "examples/gitops-repo/",
+        "tests/fixtures/authoring-examples/gitops-repo/",
         (
-            "examples/gitops-repo/common/",
-            "examples/gitops-repo/manifests/common/",
+            "tests/fixtures/authoring-examples/gitops-repo/common/",
+            "tests/fixtures/authoring-examples/gitops-repo/manifests/common/",
         ),
         ["dev", "prod"],
     )
@@ -320,3 +295,30 @@ def test_single_deployment_accepts_direct_root_stack(
             "stack": f"stack.{extension}",
         }
     ]
+
+
+def test_auto_rejects_mixed_environment_layouts(tmp_path: Path):
+    _create_env_files_layout(tmp_path)
+    (tmp_path / "environments" / "staging").mkdir()
+    (tmp_path / "environments" / "staging" / "stacksmith.yaml").write_text(
+        "stacks: []\n"
+    )
+    with pytest.raises(ValueError, match="Ambiguous deployment layout"):
+        evaluate_environment_selection(str(tmp_path), "auto")
+    assert evaluate_environment_selection(
+        str(tmp_path), "env-files", event_name="workflow_dispatch"
+    ).all_environments == ["dev", "prod"]
+
+
+def test_folder_matrix_includes_environment_runfile(tmp_path: Path):
+    (tmp_path / "common").mkdir()
+    (tmp_path / "common/stacksmith.yaml").write_text("stacks: []\n")
+    (tmp_path / "environments/dev").mkdir(parents=True)
+    (tmp_path / "environments/dev/stacksmith.yaml").write_text("vars: []\n")
+    selection = evaluate_environment_selection(
+        str(tmp_path), "auto", event_name="workflow_dispatch"
+    )
+    assert selection.matrix[0]["runfile"] == str(tmp_path / "common/stacksmith.yaml")
+    assert selection.matrix[0]["environment_runfile"] == str(
+        tmp_path / "environments/dev/stacksmith.yaml"
+    )

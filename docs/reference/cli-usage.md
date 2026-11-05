@@ -82,7 +82,7 @@ Use `info associations` to see how organization-managed association rules resolv
 `info associations --format json` writes the same details as machine-readable output to stdout.
 
 ```shell
-stacksmith info associations examples/stack-repo/stack.yaml --config examples/shared-config-repo/stacksmith-base-config.yaml --config examples/shared-config-repo/stacksmith-config.yaml --vars examples/stack-repo/vars.dev.yaml
+stacksmith info associations tests/fixtures/authoring-examples/stack-repo/stack.yaml --config tests/fixtures/authoring-examples/shared-config-repo/stacksmith-base-config.yaml --config tests/fixtures/authoring-examples/shared-config-repo/stacksmith-config.yaml --vars tests/fixtures/authoring-examples/stack-repo/vars.dev.yaml
 ```
 
 Use `info modules-and-policies` to review configured modules, mappings, metadata, and plan validations.
@@ -92,7 +92,7 @@ Use `info modules-and-policies` to review configured modules, mappings, metadata
 `info modules-and-policies --format table` writes human-readable output to stderr.
 
 ```shell
-stacksmith info modules-and-policies --config examples/shared-config-repo/stacksmith-base-config.yaml --config examples/shared-config-repo/stacksmith-config.yaml
+stacksmith info modules-and-policies --config tests/fixtures/authoring-examples/shared-config-repo/stacksmith-base-config.yaml --config tests/fixtures/authoring-examples/shared-config-repo/stacksmith-config.yaml
 ```
 
 Use `info diagnose` to inspect cache and module-resolution diagnostics for a stack.
@@ -100,7 +100,7 @@ Use `info diagnose` to inspect cache and module-resolution diagnostics for a sta
 `info diagnose` writes diagnostics to stderr.
 
 ```shell
-stacksmith info diagnose examples/stack-simple-repo/stack.yaml --config examples/shared-config-repo/stacksmith-base-config.yaml --config examples/shared-config-repo/stacksmith-config.yaml
+stacksmith info diagnose tests/fixtures/authoring-examples/stack-simple-repo/stack.yaml --config tests/fixtures/authoring-examples/shared-config-repo/stacksmith-base-config.yaml --config tests/fixtures/authoring-examples/shared-config-repo/stacksmith-config.yaml
 ```
 
 ## CI commands
@@ -117,10 +117,10 @@ Run it without `--gitops-root` from a repository checkout to find every plausibl
 stacksmith ci environments
 
 stacksmith ci environments \
-  --gitops-root examples/gitops-repo \
+  --gitops-root tests/fixtures/authoring-examples/gitops-repo \
   --discovery-mode env-files \
   --event-name push \
-  --changed-path examples/gitops-repo/environments/dev.yaml
+  --changed-path tests/fixtures/authoring-examples/gitops-repo/environments/dev.yaml
 ```
 
 Use `ci validate` to run CI-oriented preflight checks with a stable check-result contract.
@@ -129,9 +129,9 @@ The first release focuses on static checks such as discovery mode validity, runf
 
 ```shell
 stacksmith ci validate \
-  --gitops-root examples/gitops-repo \
+  --gitops-root tests/fixtures/authoring-examples/gitops-repo \
   --discovery-mode env-files \
-  --workflow-runfile examples/gitops-repo/common/stacksmith.yaml \
+  --workflow-runfile tests/fixtures/authoring-examples/gitops-repo/common/stacksmith.yaml \
   --workflow-env-file /dev/null \
   --workflow-validation-report-format json
 ```

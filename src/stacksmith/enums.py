@@ -21,7 +21,6 @@ class DiscoveryMode(StrEnum):
     """Supported GitOps environment discovery modes."""
 
     FOLDERS = "folders"
-    FLAT_FILES = "flat-files"
     ENV_FILES = "env-files"
     SINGLE = "single"
     AUTO = "auto"

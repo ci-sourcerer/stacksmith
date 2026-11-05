@@ -53,10 +53,14 @@ class GitOpsSelectionResult:
         for environment in self.selected_environments:
             runfile = self.common_runfile
             environment_runfile = ""
-            if self.discovery_mode == "env-files":
+            if self.discovery_mode in {"env-files", "folders"}:
                 root = Path(self.gitops_root or ".")
                 for ext in DISCOVERY_FILE_EXTENSIONS:
-                    env_file = root / "environments" / f"{environment}.{ext}"
+                    env_file = (
+                        root / "environments" / f"{environment}.{ext}"
+                        if self.discovery_mode == "env-files"
+                        else root / "environments" / environment / f"stacksmith.{ext}"
+                    )
                     if env_file.exists():
                         environment_runfile = env_file.as_posix()
                         break
@@ -92,23 +96,18 @@ def normalize_gitops_root(value: str) -> str:
 
 
 def normalize_discovery_mode(value: str) -> DiscoveryMode:
-    """Normalize discovery mode aliases used by GitOps workflows.
+    """Normalize a supported GitOps discovery mode.
 
     Args:
         value: Raw mode input.
 
     Returns:
         Canonical discovery mode.
+
+    Raises:
+        ValueError: If the mode is unsupported.
     """
-    mode = value.strip().lower() or DiscoveryMode.FOLDERS.value
-    if mode in {DiscoveryMode.AUTO.value, ""}:
-        normalized = DiscoveryMode.AUTO
-    else:
-        normalized = (
-            DiscoveryMode.ENV_FILES
-            if mode in {"env", DiscoveryMode.ENV_FILES.value}
-            else DiscoveryMode(mode)
-        )
+    normalized = DiscoveryMode(value.strip().lower() or DiscoveryMode.FOLDERS.value)
     LOGGER.debug("Normalized discovery mode %r -> %r", value, normalized)
     return normalized
 
@@ -135,41 +134,46 @@ def validate_discovery_mode(value: str) -> DiscoveryMode:
 
 
 def resolve_discovery_mode(mode: DiscoveryMode, root: Path) -> DiscoveryMode:
-    """Resolve discovery mode from the GitOps layout when set to `auto`."""
+    """Resolve discovery mode from the GitOps layout when set to `auto`.
+
+    Args:
+        mode: Requested discovery mode.
+        root: Deployment root to inspect.
+
+    Returns:
+        Explicit or automatically detected discovery mode.
+
+    Raises:
+        ValueError: If automatic discovery finds competing environment layouts.
+    """
     if mode != DiscoveryMode.AUTO:
         return mode
 
     env_root = root / "environments"
-    if env_root.exists() and any(env_root.iterdir()):
+    candidates = set()
+    if env_root.is_dir():
         for path in env_root.iterdir():
-            if path.is_file() and path.suffix in {
-                f".{ext}" for ext in DISCOVERY_FILE_EXTENSIONS
-            }:
-                return DiscoveryMode.ENV_FILES
-        return DiscoveryMode.FOLDERS
-    if any(
-        _flat_file_environment_name(path) not in _NON_ENVIRONMENT_NAMES
-        for path in _flat_environment_files(root)
-    ):
-        return DiscoveryMode.FLAT_FILES
+            if path.is_file() and path.suffix.lstrip(".") in DISCOVERY_FILE_EXTENSIONS:
+                if path.stem not in _NON_ENVIRONMENT_NAMES:
+                    candidates.add(DiscoveryMode.ENV_FILES)
+            elif path.is_dir() and any(
+                (path / f"stacksmith.{extension}").is_file()
+                for extension in DISCOVERY_FILE_EXTENSIONS
+            ):
+                candidates.add(DiscoveryMode.FOLDERS)
+    if len(candidates) > 1:
+        raise ValueError(
+            "Ambiguous deployment layout: environment files and directories coexist. "
+            "Choose an explicit discovery mode or keep only one layout."
+        )
+    if candidates:
+        return candidates.pop()
     if any((root / candidate).is_file() for candidate in COMMON_CANDIDATES) or any(
         (root / f"stack.{extension}").is_file()
         for extension in DISCOVERY_FILE_EXTENSIONS
     ):
         return DiscoveryMode.SINGLE
     return DiscoveryMode.FOLDERS
-
-
-def _flat_environment_files(root: Path) -> list[Path]:
-    return (
-        sorted(root.glob("stacksmith.*.yaml"))
-        + sorted(root.glob("stacksmith.*.yml"))
-        + sorted(root.glob("stacksmith.*.json"))
-    )
-
-
-def _flat_file_environment_name(path: Path) -> str:
-    return path.stem.replace("stacksmith.", "", 1)
 
 
 def project_root(gitops_root: str) -> Path:
@@ -212,6 +216,7 @@ def discover_environments(mode: DiscoveryMode, root: Path) -> tuple[list[str], s
     Returns:
         Tuple of discovered environment names and common runfile path.
     """
+    mode = validate_discovery_mode(mode)
     LOGGER.info("Discovering environments with mode=%s root=%s", mode, root)
     all_envs = []
     if mode == DiscoveryMode.SINGLE:
@@ -226,17 +231,6 @@ def discover_environments(mode: DiscoveryMode, root: Path) -> tuple[list[str], s
             "Single deployment mode requires a Stacksmith runfile or root stack definition at the GitOps root."
         )
     env_root = root / "environments"
-
-    if mode == DiscoveryMode.FLAT_FILES:
-        common_file = common_run_file_for(root)
-        LOGGER.debug("Scanning flat-files under %s", root)
-        for path in _flat_environment_files(root):
-            name = _flat_file_environment_name(path)
-            if name in _NON_ENVIRONMENT_NAMES:
-                continue
-            all_envs.append(name)
-        LOGGER.debug("Discovered flat-file environments: %s", all_envs)
-        return all_envs, common_file
 
     if mode == DiscoveryMode.ENV_FILES:
         common_file = common_run_file_for(root)
@@ -259,7 +253,7 @@ def discover_environments(mode: DiscoveryMode, root: Path) -> tuple[list[str], s
                 all_envs.append(env_dir.name)
 
     LOGGER.debug("Discovered folder environments: %s", all_envs)
-    return all_envs, "common/stacksmith.yaml"
+    return all_envs, common_run_file_for(root)
 
 
 def parse_manual_environments(value: str) -> set[str]:
@@ -426,16 +420,6 @@ def _changed_path_environment(
         return (
             _known_environment(relative_path.parts[0], all_envs)
             if relative_path.parts
-            else None
-        )
-    if mode == DiscoveryMode.FLAT_FILES:
-        return (
-            _known_environment(
-                candidate.removeprefix("stacksmith.").rsplit(".", 1)[0],
-                all_envs,
-            )
-            if candidate.startswith("stacksmith.")
-            and candidate.endswith((".yaml", ".yml", ".json"))
             else None
         )
     if mode == DiscoveryMode.ENV_FILES:

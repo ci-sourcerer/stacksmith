@@ -6,7 +6,9 @@ import pytest
 
 VALIDATIONS_PATH = (
     Path(__file__).resolve().parents[1]
-    / "examples"
+    / "tests"
+    / "fixtures"
+    / "authoring-examples"
     / "shared-config-repo"
     / "scripts"
     / "validations"

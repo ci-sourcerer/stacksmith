@@ -9,6 +9,7 @@ nav = [
   { "Getting started" = "getting-started.md" },
   { "Core concepts" = "concepts.md" },
   { "Guides" = [
+    { "Repository layouts" = "guides/repository-layouts.md" },
     { "Stack authoring" = "guides/stack-authoring.md" },
     { "Managed configuration" = "guides/managed-configuration.md" },
     { "Execution and orchestration" = "guides/execution.md" },

@@ -410,8 +410,8 @@ When `--config` points at one or more managed config layers, Stacksmith discover
 
 ```shell
 stacksmith test \
-  --config examples/shared-config-repo/stacksmith-base-config.yaml \
-  --config examples/shared-config-repo/stacksmith-config.yaml
+  --config tests/fixtures/authoring-examples/shared-config-repo/stacksmith-base-config.yaml \
+  --config tests/fixtures/authoring-examples/shared-config-repo/stacksmith-config.yaml
 ```
 
 ```shell
@@ -426,8 +426,8 @@ Use `--dump-tests` when you want to inspect the generated pytest code.
 
 ```shell
 stacksmith test \
-  --config examples/shared-config-repo/stacksmith-base-config.yaml \
-  --config examples/shared-config-repo/stacksmith-config.yaml \
+  --config tests/fixtures/authoring-examples/shared-config-repo/stacksmith-base-config.yaml \
+  --config tests/fixtures/authoring-examples/shared-config-repo/stacksmith-config.yaml \
   --dump-tests /tmp/stacksmith-generated-tests.py
 ```
 

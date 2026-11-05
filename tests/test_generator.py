@@ -81,7 +81,11 @@ def _disable_auto_inject_inputs(config) -> None:
 
 def _load_shared_example_config():
     config_root = (
-        Path(__file__).resolve().parents[1] / "examples" / "shared-config-repo"
+        Path(__file__).resolve().parents[1]
+        / "tests"
+        / "fixtures"
+        / "authoring-examples"
+        / "shared-config-repo"
     )
     return load_config(
         [
@@ -1671,7 +1675,9 @@ class TestLocalModuleVendoring:
         mapping_data = config.module_mappings["aws_s3_bucket"].model_dump()
         mapping_data["source"] = {
             "source": "local",
-            "data": {"path": "../../examples/modules/helm_app"},
+            "data": {
+                "path": "../../tests/fixtures/authoring-examples/modules/helm_app"
+            },
         }
         config.module_mappings["aws_s3_bucket"] = ModuleMapping.model_validate(
             mapping_data
@@ -1696,7 +1702,7 @@ class TestLocalModuleVendoring:
             (
                 Path(__file__).resolve().parent
                 / "fixtures"
-                / "../../examples/modules/helm_app"
+                / "../../tests/fixtures/authoring-examples/modules/helm_app"
             ).resolve()
         )
         assert "version" not in bucket_mod
@@ -1712,8 +1718,12 @@ class TestLocalModuleVendoring:
 
         config = load_config(
             [
-                Path("examples/shared-config-repo/stacksmith-base-config.yaml"),
-                Path("examples/shared-config-repo/stacksmith-config.yaml"),
+                Path(
+                    "tests/fixtures/authoring-examples/shared-config-repo/stacksmith-base-config.yaml"
+                ),
+                Path(
+                    "tests/fixtures/authoring-examples/shared-config-repo/stacksmith-config.yaml"
+                ),
             ]
         )
         config.module_mappings["helm_app"].properties = {
@@ -1744,13 +1754,13 @@ class TestLocalModuleVendoring:
                 '      version: "4.11.3"\n'
                 "      namespace: default\n"
                 "      values_files:\n"
-                "        - examples/gitops-repo/manifests/environments/dev/frontend-values.yaml\n"
+                "        - tests/fixtures/authoring-examples/gitops-repo/manifests/environments/dev/frontend-values.yaml\n"
                 "  app_config:\n"
                 "    type: k8s_app\n"
                 "    properties:\n"
                 "      namespace: default\n"
                 "      manifest_files:\n"
-                "        - examples/gitops-repo/manifests/environments/dev/app-config.yaml\n"
+                "        - tests/fixtures/authoring-examples/gitops-repo/manifests/environments/dev/app-config.yaml\n"
             ),
             encoding="utf-8",
         )
@@ -1758,8 +1768,12 @@ class TestLocalModuleVendoring:
         stack = load_stack(stack_path)
         config = load_config(
             [
-                Path("examples/shared-config-repo/stacksmith-base-config.yaml"),
-                Path("examples/shared-config-repo/stacksmith-config.yaml"),
+                Path(
+                    "tests/fixtures/authoring-examples/shared-config-repo/stacksmith-base-config.yaml"
+                ),
+                Path(
+                    "tests/fixtures/authoring-examples/shared-config-repo/stacksmith-config.yaml"
+                ),
             ]
         )
 

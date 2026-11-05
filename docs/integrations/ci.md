@@ -25,7 +25,7 @@ The deployment CI selector is named `command` in GitHub Actions and `COMMAND` in
 
 - GitHub Actions `workflow_dispatch` can run all environments, or a comma-delimited subset with `environments`.
 - `plan-operation` previews native operations without approval or execution; `apply-operation` previews, requests approval, and executes them. Supply a comma-delimited `operation_names` input such as `publish_image,deploy_app,smoke_test`, or leave it empty to select all operations in each stack. Set the repository, organization, job, or folder variable `STACKSMITH_MAX_PARALLEL_OPERATIONS` to cap concurrency and `STACKSMITH_FORCE_RERUN=1` to force replacement of selected operation runner resources when their execution identities have not changed.
-- `discovery_mode` selects how environments are discovered. Use `folders` for `environments/<env>/` directories, `flat-files` for root-level `stacksmith.<env>.yaml|yml|json` files, or `env-files` for the hybrid `environments/<env>.yaml` layout. The aliases `env` and `env-files` both map to the hybrid env-file discovery path.
+- `discovery_mode` supports `auto`, `single`, `folders`, and `env-files`. See the [repository layout guide](../guides/repository-layouts.md).
 - In GitHub Actions, `STACKSMITH_GITOPS_ROOT` defaults to `.` and can be overridden per run with `gitops_root`.
 - Changes under `<gitops_root>/common` and `<gitops_root>/manifests/common` fan out to all environments.
 - Changes under `<gitops_root>/environments/<env>` and `<gitops_root>/manifests/environments/<env>` target only that environment.
@@ -76,7 +76,7 @@ In your own repository, you can do either of the following.
 The wrappers pass reusable workflow inputs from repository variables when available.
 
 - `STACKSMITH_GITOPS_ROOT` (default `.`)
-- `STACKSMITH_DISCOVERY_MODE` (default `auto`; set to `flat-files` for root-level env files, or `env-files` for the hybrid `environments/<env>.yaml` layout)
+- `STACKSMITH_DISCOVERY_MODE` (default `auto`; supported values: `single`, `folders`, and `env-files`)
 - `STACKSMITH_WORKDIR` (default `.`)
 - `STACKSMITH_ENV_FILE` (default `/dev/null`)
 - `STACKSMITH_IMAGE_VERSION` (default `latest`)
@@ -205,7 +205,7 @@ jobs:
 
 > ℹ️ **Tip:** Pin the `uses:` reference to a release tag for stable downstream usage.
 
-The reusable workflow also supports the `folders` and `flat-files` discovery modes for repositories that prefer those layouts.
+See the [repository layout guide](../guides/repository-layouts.md) to choose between single deployments, environment files, and environment directories.
 
 ## Jenkins
 
@@ -254,7 +254,7 @@ Configure these values as Jenkins folder properties or job environment variables
 - `STACKSMITH_IMAGE_VERSION`: Image tag when `STACKSMITH_IMAGE` is unset. Defaults to `latest`.
 - `STACKSMITH_TEST_PIPELINE`: Set to a truthy value to make the job a test-only pipeline. The `COMMAND` parameter is not exposed in this mode and cannot override the test command.
 - `STACKSMITH_GITOPS_ROOT`: GitOps root for discovery. Defaults to `WORKDIR` in Jenkins.
-- `STACKSMITH_DISCOVERY_MODE`: `auto`, `folders`, `flat-files`, or `env-files`. Defaults to `auto`.
+- `STACKSMITH_DISCOVERY_MODE`: `auto`, `single`, `folders`, or `env-files`. Defaults to `auto`.
 - `STACKSMITH_MAX_PARALLEL_OPERATIONS`: Maximum independent operations planned or run concurrently within each environment. Defaults to `10`.
 - `STACKSMITH_ENV_FILE`: Env file passed to Stacksmith. Defaults to `/dev/null` to prevent implicit `.env` loading.
 - `STACKSMITH_CONFIG_REF`: Required platform-managed Stacksmith config reference.
