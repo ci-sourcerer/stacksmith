@@ -103,8 +103,7 @@ def normalize_discovery_mode(value: str) -> DiscoveryMode:
     Raises:
         ValueError: If the mode is unsupported.
     """
-    mode = value.strip().lower() or DiscoveryMode.FOLDERS.value
-    normalized = DiscoveryMode(mode)
+    normalized = DiscoveryMode(value.strip().lower() or DiscoveryMode.FOLDERS.value)
     LOGGER.debug("Normalized discovery mode %r -> %r", value, normalized)
     return normalized
 
