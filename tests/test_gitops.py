@@ -308,3 +308,17 @@ def test_auto_rejects_mixed_environment_layouts(tmp_path: Path):
     assert evaluate_environment_selection(
         str(tmp_path), "env-files", event_name="workflow_dispatch"
     ).all_environments == ["dev", "prod"]
+
+
+def test_folder_matrix_includes_environment_runfile(tmp_path: Path):
+    (tmp_path / "common").mkdir()
+    (tmp_path / "common/stacksmith.yaml").write_text("stacks: []\n")
+    (tmp_path / "environments/dev").mkdir(parents=True)
+    (tmp_path / "environments/dev/stacksmith.yaml").write_text("vars: []\n")
+    selection = evaluate_environment_selection(
+        str(tmp_path), "auto", event_name="workflow_dispatch"
+    )
+    assert selection.matrix[0]["runfile"] == str(tmp_path / "common/stacksmith.yaml")
+    assert selection.matrix[0]["environment_runfile"] == str(
+        tmp_path / "environments/dev/stacksmith.yaml"
+    )

@@ -53,10 +53,14 @@ class GitOpsSelectionResult:
         for environment in self.selected_environments:
             runfile = self.common_runfile
             environment_runfile = ""
-            if self.discovery_mode == "env-files":
+            if self.discovery_mode in {"env-files", "folders"}:
                 root = Path(self.gitops_root or ".")
                 for ext in DISCOVERY_FILE_EXTENSIONS:
-                    env_file = root / "environments" / f"{environment}.{ext}"
+                    env_file = (
+                        root / "environments" / f"{environment}.{ext}"
+                        if self.discovery_mode == "env-files"
+                        else root / "environments" / environment / f"stacksmith.{ext}"
+                    )
                     if env_file.exists():
                         environment_runfile = env_file.as_posix()
                         break
@@ -249,7 +253,7 @@ def discover_environments(mode: DiscoveryMode, root: Path) -> tuple[list[str], s
                 all_envs.append(env_dir.name)
 
     LOGGER.debug("Discovered folder environments: %s", all_envs)
-    return all_envs, "common/stacksmith.yaml"
+    return all_envs, common_run_file_for(root)
 
 
 def parse_manual_environments(value: str) -> set[str]:
