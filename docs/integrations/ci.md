@@ -76,7 +76,7 @@ In your own repository, you can do either of the following.
 The wrappers pass reusable workflow inputs from repository variables when available.
 
 - `STACKSMITH_GITOPS_ROOT` (default `.`)
-- `discovery_mode` supports `auto`, `single`, `folders`, and `env-files`. See the [repository layout guide](../guides/repository-layouts.md).
+- `STACKSMITH_DISCOVERY_MODE` (default `auto`; supported values: `single`, `folders`, and `env-files`)
 - `STACKSMITH_WORKDIR` (default `.`)
 - `STACKSMITH_ENV_FILE` (default `/dev/null`)
 - `STACKSMITH_IMAGE_VERSION` (default `latest`)
@@ -205,7 +205,7 @@ jobs:
 
 > ℹ️ **Tip:** Pin the `uses:` reference to a release tag for stable downstream usage.
 
-- `discovery_mode` supports `auto`, `single`, `folders`, and `env-files`. See the [repository layout guide](../guides/repository-layouts.md).
+See the [repository layout guide](../guides/repository-layouts.md) to choose between single deployments, environment files, and environment directories.
 
 ## Jenkins
 
@@ -254,7 +254,7 @@ Configure these values as Jenkins folder properties or job environment variables
 - `STACKSMITH_IMAGE_VERSION`: Image tag when `STACKSMITH_IMAGE` is unset. Defaults to `latest`.
 - `STACKSMITH_TEST_PIPELINE`: Set to a truthy value to make the job a test-only pipeline. The `COMMAND` parameter is not exposed in this mode and cannot override the test command.
 - `STACKSMITH_GITOPS_ROOT`: GitOps root for discovery. Defaults to `WORKDIR` in Jenkins.
-- `discovery_mode` supports `auto`, `single`, `folders`, and `env-files`. See the [repository layout guide](../guides/repository-layouts.md).
+- `STACKSMITH_DISCOVERY_MODE`: `auto`, `single`, `folders`, or `env-files`. Defaults to `auto`.
 - `STACKSMITH_MAX_PARALLEL_OPERATIONS`: Maximum independent operations planned or run concurrently within each environment. Defaults to `10`.
 - `STACKSMITH_ENV_FILE`: Env file passed to Stacksmith. Defaults to `/dev/null` to prevent implicit `.env` loading.
 - `STACKSMITH_CONFIG_REF`: Required platform-managed Stacksmith config reference.
