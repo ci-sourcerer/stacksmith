@@ -92,13 +92,16 @@ def normalize_gitops_root(value: str) -> str:
 
 
 def normalize_discovery_mode(value: str) -> DiscoveryMode:
-    """Normalize discovery mode aliases used by GitOps workflows.
+    """Normalize a supported GitOps discovery mode.
 
     Args:
         value: Raw mode input.
 
     Returns:
         Canonical discovery mode.
+
+    Raises:
+        ValueError: If the mode is unsupported.
     """
     mode = value.strip().lower() or DiscoveryMode.FOLDERS.value
     normalized = DiscoveryMode(mode)
@@ -128,7 +131,18 @@ def validate_discovery_mode(value: str) -> DiscoveryMode:
 
 
 def resolve_discovery_mode(mode: DiscoveryMode, root: Path) -> DiscoveryMode:
-    """Resolve discovery mode from the GitOps layout when set to `auto`."""
+    """Resolve discovery mode from the GitOps layout when set to `auto`.
+
+    Args:
+        mode: Requested discovery mode.
+        root: Deployment root to inspect.
+
+    Returns:
+        Explicit or automatically detected discovery mode.
+
+    Raises:
+        ValueError: If automatic discovery finds competing environment layouts.
+    """
     if mode != DiscoveryMode.AUTO:
         return mode
 
