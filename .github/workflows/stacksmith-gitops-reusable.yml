@@ -117,6 +117,7 @@ jobs:
           UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/stacksmith-venv" \
             uv sync --project .stacksmith-workflow-source --locked --no-dev
           printf '%s\n' "$RUNNER_TEMP/stacksmith-venv/bin" >> "$GITHUB_PATH"
+          printf "STACKSMITH_TOOL_CACHE_DIR=%s\n" "$RUNNER_TEMP/stacksmith-tools" >> "$GITHUB_ENV"
 
       - name: Prepare caller credentials and inputs
         if: inputs.source_ref != '' && inputs.caller_setup
