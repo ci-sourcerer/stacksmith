@@ -73,12 +73,15 @@ def test_github_executor_transfers_reviewed_plan_before_execution():
 
 
 def test_github_preparation_receives_source_credentials():
-    preparation_env = yaml.safe_load(
+    preparation_steps = yaml.safe_load(
         (
             Path(__file__).parents[1]
             / ".github/workflows/stacksmith-gitops-opinionated-reusable.yml"
         ).read_text()
-    )["jobs"]["discover"]["steps"][1]["env"]
+    )["jobs"]["discover"]["steps"]
+    preparation_env = next(
+        step["env"] for step in preparation_steps if step.get("id") == "select"
+    )
     execution_env = next(
         step
         for step in yaml.safe_load(
@@ -615,6 +618,40 @@ default_module_mapping:
         )
 
 
+def test_prepare_ci_execution_merges_stack_fragments_and_deduplicates_config(
+    tmp_path: Path,
+):
+    _create_env_files_layout(tmp_path)
+    (tmp_path / "base.yaml").write_text("name: layered-stack\n")
+    (tmp_path / "overlay.yaml").write_text("tags: [production]\n")
+    (tmp_path / "common" / "stacksmith.yaml").write_text(
+        f"""configs:
+  - source: local
+    data:
+      path: {_REMOTE_BACKEND_CONFIG}
+  - source: local
+    data:
+      path: {_LOCAL_BACKEND_CONFIG}
+stacks:
+  - source: local
+    data:
+      path: ../base.yaml
+  - source: local
+    data:
+      path: ../overlay.yaml
+"""
+    )
+    manifest = prepare_ci_execution(
+        command="plan",
+        config_ref=str(_REMOTE_BACKEND_CONFIG),
+        gitops_root=str(tmp_path),
+        discovery_mode="env-files",
+        environments="dev",
+        skip_branch_validation=True,
+    )
+    assert manifest.matrix[0].environment == "dev"
+
+
 def test_prepare_ci_execution_rejects_local_backend_from_runfile(tmp_path: Path):
     _create_env_files_layout(tmp_path)
     (tmp_path / "common" / "stacksmith.yaml").write_text(
@@ -653,7 +690,12 @@ def test_manifest_output_json_is_compact():
     assert ", " not in output
 
 
-def test_prepare_ci_execution_rejects_managed_config_override(tmp_path: Path):
+@pytest.mark.parametrize(
+    "argument", ["--config=other.yaml", "--conf=other.yaml", "-cother.yaml"]
+)
+def test_prepare_ci_execution_rejects_managed_config_override(
+    tmp_path: Path, argument: str
+):
     _create_env_files_layout(tmp_path)
 
     with pytest.raises(StacksmithConfigError, match="cannot override"):
@@ -662,7 +704,7 @@ def test_prepare_ci_execution_rejects_managed_config_override(tmp_path: Path):
             config_ref="platform/stacksmith-config.yaml",
             gitops_root=str(tmp_path),
             discovery_mode="env-files",
-            stacksmith_args_json='["--config", "other.yaml"]',
+            stacksmith_args_json=f'["{argument}"]',
         )
 
 
