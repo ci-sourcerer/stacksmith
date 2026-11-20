@@ -70,21 +70,25 @@ on:
 
 jobs:
   execute:
-    name: stacksmith-${{ inputs.phase || fromJson(inputs.ci_manifest).command }}-${{ inputs.environment }}
+    if: inputs.source_ref == ''
+    permissions:
+      contents: read
+    name: &execution_name stacksmith-${{ inputs.phase || fromJson(inputs.ci_manifest).command }}-${{ inputs.environment }}
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: ${{ fromJSON(vars.STACKSMITH_EXECUTION_TIMEOUT_MINUTES || '60') }}
-    environment: ${{ ((inputs.phase || fromJson(inputs.ci_manifest).command) == 'apply' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'operation' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'destroy') && inputs.environment || '' }}
-    env:
+    timeout-minutes: &execution_timeout ${{ fromJSON(vars.STACKSMITH_EXECUTION_TIMEOUT_MINUTES || '60') }}
+    environment: &execution_environment ${{ ((inputs.phase || fromJson(inputs.ci_manifest).command) == 'apply' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'operation' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'destroy') && inputs.environment || '' }}
+    env: &execution_env
       STACKSMITH_CI_MANIFEST: ${{ inputs.ci_manifest }}
       STACKSMITH_ENVIRONMENT: ${{ inputs.environment }}
       STACKSMITH_CI_EXECUTION_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       STACKSMITH_PLAN_ENCRYPTION_KEY: ${{ secrets.STACKSMITH_PLAN_ENCRYPTION_KEY }}
       STACKSMITH_PLAN_ARTIFACT_KIND: ${{ fromJson(inputs.ci_manifest).command == 'destroy' && 'destroy-plan' || 'plan' }}
-    container: ${{ inputs.source_ref == '' && format('docker.io/cisourcerer/stacksmith:{0}', inputs.image_version) || '' }}
-    defaults:
+    container:
+      image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
+    defaults: &execution_defaults
       run:
         shell: bash
-    steps:
+    steps: &execution_steps
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
@@ -286,3 +290,13 @@ jobs:
                   "stacksmith-report.json`"
               )
           PY
+
+  execute-native:
+    if: inputs.source_ref != ''
+    name: *execution_name
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: *execution_timeout
+    environment: *execution_environment
+    env: *execution_env
+    defaults: *execution_defaults
+    steps: *execution_steps
