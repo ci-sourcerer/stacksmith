@@ -1581,3 +1581,22 @@ def test_single_direct_stack_still_rejects_local_backend(tmp_path, monkeypatch):
             discovery_mode="single",
             skip_branch_validation=True,
         )
+
+
+def test_native_runtime_checks_out_its_own_workflow_revision():
+    workflows = Path(__file__).parents[1] / ".github/workflows"
+    for name, job in (
+        ("stacksmith-gitops-opinionated-reusable.yml", "discover"),
+        ("stacksmith-gitops-reusable.yml", "execute-native"),
+    ):
+        workflow = yaml.safe_load((workflows / name).read_text())
+        inputs = workflow[True]["workflow_call"]["inputs"]
+        assert inputs["runtime"]["default"] == "container"
+        assert "source_ref" not in inputs
+        checkout = next(
+            step
+            for step in workflow["jobs"][job]["steps"]
+            if step["name"] == "Check out pinned Stacksmith source"
+        )
+        assert checkout["with"]["repository"] == "${{ job.workflow_repository }}"
+        assert checkout["with"]["ref"] == "${{ job.workflow_sha }}"
