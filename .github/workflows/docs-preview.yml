@@ -12,13 +12,30 @@ on:
       - 'src/stacksmith/cli/**'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   docs:
-    uses: ci-sourcerer/common-python-tasks/.github/workflows/docs.yml@v0.12.1
-    with:
-      python_version: '3.15'
-      dependency_group: dev
-      generated_docs_check_task: docs-cli-reference-check
-      artifact_name: stacksmith-docs-site
-    permissions:
-      contents: read
+    name: Build documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.15'
+      - uses: astral-sh/setup-uv@v10.0.1
+      - name: Install dependencies
+        run: uv sync --locked --group dev
+      - name: Check generated documentation
+        run: uv run poe docs-cli-reference-check
+      - name: Build documentation site
+        run: uv run poe docs-build
+      - name: Upload documentation artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: stacksmith-docs-site
+          path: site/
+          if-no-files-found: error
