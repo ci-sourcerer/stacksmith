@@ -318,3 +318,7 @@ The JSON has `schema_version: 1`, command, selection metadata, timestamps, infra
 - Root output names are included as `output_names`. The event stream does not provide an applied before/after output diff, so `output_changes_available` is explicitly `false`; these names are not claimed as changed outputs.
 
 `complete` describes resource-operation coverage for the selected infrastructure scope. `exit_code` records whether infrastructure execution succeeded. State-only operations that cannot be confirmed remain visible as `unconfirmed`, rather than being counted as applied.
+
+### Local module refresh
+
+Stacksmith includes a content fingerprint in generated local module sources. A change to source files or shared files in a local module package causes OpenTofu to reinstall that module in the existing build directory. Provider installations, backend state, and unrelated module installations can be reused. This cache identity is independent of Stacksmith source locks and the OpenTofu provider lock.

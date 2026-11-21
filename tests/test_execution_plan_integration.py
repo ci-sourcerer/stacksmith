@@ -230,3 +230,59 @@ def test_reviewed_apply_and_destroy_across_workspaces(tmp_path: Path, monkeypatc
     assert cli_main._execute_ci_manifest(manifest, "test", "plan") == 0
     assert cli_main._execute_ci_manifest(manifest, "test", "destroy") == 0
     assert not json.loads(state.read_text())["resources"]
+
+
+@pytest.mark.skipif(
+    not shutil.which("tofu") or not shutil.which("terragrunt"),
+    reason="Requires local OpenTofu and Terragrunt binaries",
+)
+def test_plan_refreshes_changed_local_module_package_in_same_build(tmp_path: Path):
+    package = tmp_path / "modules"
+    (package / "item").mkdir(parents=True)
+    (package / "shared").mkdir()
+    (package / "item/main.tf").write_text(
+        'module "shared" { source = "../shared" }\n'
+        'output "value" { value = module.shared.value }\n'
+    )
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "backend": {"data": {"type": "local", "path": str(tmp_path / "state")}},
+                "module_mappings": {
+                    "item": {
+                        "source": {
+                            "source": "local",
+                            "data": {"path": "modules//item"},
+                        },
+                        "outputs": {"value": {}},
+                    }
+                },
+            }
+        )
+    )
+    stack = tmp_path / "stack.yaml"
+    stack.write_text(
+        yaml.safe_dump(
+            {
+                "name": "refresh",
+                "components": {"item": {"type": "item"}},
+                "outputs": {"value": {"value": "{{ components.item.value }}"}},
+            }
+        )
+    )
+
+    for value in ("original", "edited"):
+        (package / "shared/main.tf").write_text(
+            f'output "value" {{ value = "{value}" }}\n'
+        )
+        report = tmp_path / "plan.json"
+        assert (
+            api.run_stack_action(
+                "plan", stack, config=[str(config)], save_plan_json=report
+            )
+            == 0
+        )
+        assert (
+            json.loads(report.read_text())["output_changes"]["value"]["after"] == value
+        )
