@@ -3,6 +3,22 @@ name: stacksmith-gitops-reusable
 on:
   workflow_call:
     inputs:
+      gitops_root:
+        description: Deployment root passed to the caller setup action.
+        type: string
+        default: .
+      runtime:
+        description: Runtime for Stacksmith execution (container or native).
+        type: string
+        default: container
+      runner:
+        description: Runner label for execution jobs.
+        type: string
+        default: ubuntu-latest
+      caller_setup:
+        description: Run the caller repository's Stacksmith setup composite action on native jobs.
+        type: boolean
+        default: false
       ci_manifest:
         description: Versioned JSON manifest emitted by `stacksmith ci prepare`.
         required: true
@@ -52,16 +68,16 @@ on:
         description: Optional API token for approved Jenkins operation runners.
         required: false
 
-permissions:
-  contents: read
-
 jobs:
   execute:
-    name: stacksmith-${{ inputs.phase || fromJson(inputs.ci_manifest).command }}-${{ inputs.environment }}
-    runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(vars.STACKSMITH_EXECUTION_TIMEOUT_MINUTES || '60') }}
-    environment: ${{ ((inputs.phase || fromJson(inputs.ci_manifest).command) == 'apply' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'operation' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'destroy') && inputs.environment || '' }}
-    env:
+    if: inputs.runtime != 'native'
+    permissions:
+      contents: read
+    name: &execution_name stacksmith-${{ inputs.phase || fromJson(inputs.ci_manifest).command }}-${{ inputs.environment }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: &execution_timeout ${{ fromJSON(vars.STACKSMITH_EXECUTION_TIMEOUT_MINUTES || '60') }}
+    environment: &execution_environment ${{ ((inputs.phase || fromJson(inputs.ci_manifest).command) == 'apply' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'operation' || (inputs.phase || fromJson(inputs.ci_manifest).command) == 'destroy') && inputs.environment || '' }}
+    env: &execution_env
       STACKSMITH_CI_MANIFEST: ${{ inputs.ci_manifest }}
       STACKSMITH_ENVIRONMENT: ${{ inputs.environment }}
       STACKSMITH_CI_EXECUTION_ID: ${{ github.run_id }}-${{ github.run_attempt }}
@@ -69,15 +85,50 @@ jobs:
       STACKSMITH_PLAN_ARTIFACT_KIND: ${{ fromJson(inputs.ci_manifest).command == 'destroy' && 'destroy-plan' || 'plan' }}
     container:
       image: docker.io/cisourcerer/stacksmith:${{ inputs.image_version }}
-    defaults:
+    defaults: &execution_defaults
       run:
         shell: bash
-    steps:
+    steps: &execution_steps
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out pinned Stacksmith source
+        if: inputs.runtime == 'native'
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .stacksmith-workflow-source
+          persist-credentials: false
+
+      - name: Set up uv
+        if: inputs.runtime == 'native'
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: false
+
+      - name: Install Stacksmith
+        if: inputs.runtime == 'native'
+        run: |
+          set -euo pipefail
+          UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/stacksmith-venv" \
+            uv sync --project .stacksmith-workflow-source --locked --no-dev
+          printf '%s\n' "$RUNNER_TEMP/stacksmith-venv/bin" >> "$GITHUB_PATH"
+          printf "STACKSMITH_TOOL_CACHE_DIR=%s\n" "$RUNNER_TEMP/stacksmith-tools" >> "$GITHUB_ENV"
+
+      - name: Prepare caller credentials and inputs
+        if: inputs.runtime == 'native' && inputs.caller_setup
+        uses: ./.github/actions/stacksmith-setup
+        with:
+          gitops-root: ${{ inputs.gitops_root }}
+          environment: ${{ inputs.environment }}
+          phase: ${{ inputs.phase || fromJson(inputs.ci_manifest).command }}
+        env:
+          STACKSMITH_GIT_SSH_KEY: ${{ secrets.STACKSMITH_GIT_SSH_KEY }}
 
       - name: Check reviewed-plan encryption key
         if: ${{ contains(fromJSON('["apply", "destroy"]'), fromJson(inputs.ci_manifest).command) }}
@@ -236,3 +287,13 @@ jobs:
                   "stacksmith-report.json`"
               )
           PY
+
+  execute-native:
+    if: inputs.runtime == 'native'
+    name: *execution_name
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: *execution_timeout
+    environment: *execution_environment
+    env: *execution_env
+    defaults: *execution_defaults
+    steps: *execution_steps

@@ -340,3 +340,9 @@ Capture requires a resolved OpenTofu binary with `-json-into` support (OpenTofu 
 Use `single` discovery mode for a repository with one Stacksmith runfile at the GitOps root, such as `stacksmith.yaml`, and no environment overlays. A direct stack definition named `stack.yaml`, `stack.yml`, or `stack.json` is also supported without a runfile. No `environments/` directory or named environment is required. `auto` also selects this mode when a common runfile exists and no environment files or folders are found.
 
 The CI manifest contains one execution row named `default`. This stable internal target keeps saved plans, report paths, and execution selection consistent. Use `--environment default` when executing that manifest directly. Existing folder and environment-file layouts retain their discovery behavior.
+
+### Native GitHub Actions execution
+
+Set `runtime: native` to install Stacksmith from the reusable workflow's own revision and dependency lock. Pin that revision in the caller's `uses` reference. Discovery runs on GitHub-hosted Ubuntu. The `runner` input selects the execution runner and defaults to `ubuntu-latest`. The runtime defaults to `container`. Native execution requires GitHub.com workflow identity context.
+
+Set `caller_setup: true` with native execution to invoke the caller repository's `.github/actions/stacksmith-setup` composite action before each selected phase. The action receives `gitops-root`, `environment`, and `phase`. This is caller code. Restrict credentialed calls to trusted revisions and grant the caller job only the permissions needed for its setup and execution. For OIDC setup, grant `id-token: write` on the calling job. Discovery and reporting use read-only repository access.

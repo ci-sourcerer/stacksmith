@@ -3,6 +3,18 @@ name: stacksmith-gitops-opinionated-reusable
 on:
   workflow_call:
     inputs:
+      runtime:
+        description: Runtime for Stacksmith execution (container or native).
+        type: string
+        default: container
+      runner:
+        description: Runner label for execution jobs.
+        type: string
+        default: ubuntu-latest
+      caller_setup:
+        description: Run the caller repository's Stacksmith setup composite action on native jobs.
+        type: boolean
+        default: false
       command:
         description: Stacksmith command to run. Supported values are plan, apply, destroy, plan-operation, and apply-operation.
         required: true
@@ -48,9 +60,6 @@ on:
         type: boolean
         default: false
 
-permissions:
-  contents: read
-
 concurrency:
   group: stacksmith-${{ github.repository }}-${{ contains(fromJSON('["apply", "destroy", "apply-operation"]'), inputs.command) && 'deployment' || format('preview-{0}-{1}', github.run_id, inputs.command) }}
   cancel-in-progress: false
@@ -59,9 +68,10 @@ jobs:
   discover:
     name: discover-environments
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: ${{ fromJSON(vars.STACKSMITH_EXECUTION_TIMEOUT_MINUTES || '60') }}
-    container:
-      image: docker.io/cisourcerer/stacksmith:${{ fromJson(toJson(vars)).STACKSMITH_IMAGE_VERSION || 'latest' }}
+    container: ${{ inputs.runtime != 'native' && format('docker.io/cisourcerer/stacksmith:{0}', vars.STACKSMITH_IMAGE_VERSION || 'latest') || '' }}
     outputs:
       manifest: ${{ steps.select.outputs.manifest }}
       matrix: ${{ steps.select.outputs.matrix }}
@@ -71,6 +81,30 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out pinned Stacksmith source
+        if: inputs.runtime == 'native'
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .stacksmith-workflow-source
+          persist-credentials: false
+
+      - name: Set up uv
+        if: inputs.runtime == 'native'
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: false
+
+      - name: Install Stacksmith
+        if: inputs.runtime == 'native'
+        run: |
+          set -euo pipefail
+          UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/stacksmith-venv" \
+            uv sync --project .stacksmith-workflow-source --locked --no-dev
+          printf '%s\n' "$RUNNER_TEMP/stacksmith-venv/bin" >> "$GITHUB_PATH"
 
       - name: Select target environments
         id: select
@@ -121,6 +155,10 @@ jobs:
         include: ${{ fromJson(needs.discover.outputs.matrix) }}
     uses: ./.github/workflows/stacksmith-gitops-reusable.yml
     with:
+      runtime: ${{ inputs.runtime }}
+      runner: ${{ inputs.runner }}
+      caller_setup: ${{ inputs.caller_setup }}
+      gitops_root: ${{ inputs.gitops_root }}
       ci_manifest: ${{ needs.discover.outputs.manifest }}
       environment: ${{ matrix.environment }}
       phase: plan
@@ -138,6 +176,10 @@ jobs:
         include: ${{ fromJson(needs.discover.outputs.matrix) }}
     uses: ./.github/workflows/stacksmith-gitops-reusable.yml
     with:
+      runtime: ${{ inputs.runtime }}
+      runner: ${{ inputs.runner }}
+      caller_setup: ${{ inputs.caller_setup }}
+      gitops_root: ${{ inputs.gitops_root }}
       ci_manifest: ${{ needs.discover.outputs.manifest }}
       environment: ${{ matrix.environment }}
       phase: apply
@@ -155,6 +197,10 @@ jobs:
         include: ${{ fromJson(needs.discover.outputs.matrix) }}
     uses: ./.github/workflows/stacksmith-gitops-reusable.yml
     with:
+      runtime: ${{ inputs.runtime }}
+      runner: ${{ inputs.runner }}
+      caller_setup: ${{ inputs.caller_setup }}
+      gitops_root: ${{ inputs.gitops_root }}
       ci_manifest: ${{ needs.discover.outputs.manifest }}
       environment: ${{ matrix.environment }}
       phase: plan-operation
@@ -172,6 +218,10 @@ jobs:
         include: ${{ fromJson(needs.discover.outputs.matrix) }}
     uses: ./.github/workflows/stacksmith-gitops-reusable.yml
     with:
+      runtime: ${{ inputs.runtime }}
+      runner: ${{ inputs.runner }}
+      caller_setup: ${{ inputs.caller_setup }}
+      gitops_root: ${{ inputs.gitops_root }}
       ci_manifest: ${{ needs.discover.outputs.manifest }}
       environment: ${{ matrix.environment }}
       phase: operation
@@ -189,6 +239,10 @@ jobs:
         include: ${{ fromJson(needs.discover.outputs.matrix) }}
     uses: ./.github/workflows/stacksmith-gitops-reusable.yml
     with:
+      runtime: ${{ inputs.runtime }}
+      runner: ${{ inputs.runner }}
+      caller_setup: ${{ inputs.caller_setup }}
+      gitops_root: ${{ inputs.gitops_root }}
       ci_manifest: ${{ needs.discover.outputs.manifest }}
       environment: ${{ matrix.environment }}
       phase: operation
@@ -206,6 +260,10 @@ jobs:
         include: ${{ fromJson(needs.discover.outputs.matrix) }}
     uses: ./.github/workflows/stacksmith-gitops-reusable.yml
     with:
+      runtime: ${{ inputs.runtime }}
+      runner: ${{ inputs.runner }}
+      caller_setup: ${{ inputs.caller_setup }}
+      gitops_root: ${{ inputs.gitops_root }}
       ci_manifest: ${{ needs.discover.outputs.manifest }}
       environment: ${{ matrix.environment }}
       phase: operation
@@ -223,6 +281,10 @@ jobs:
         include: ${{ fromJson(needs.discover.outputs.matrix) }}
     uses: ./.github/workflows/stacksmith-gitops-reusable.yml
     with:
+      runtime: ${{ inputs.runtime }}
+      runner: ${{ inputs.runner }}
+      caller_setup: ${{ inputs.caller_setup }}
+      gitops_root: ${{ inputs.gitops_root }}
       ci_manifest: ${{ needs.discover.outputs.manifest }}
       environment: ${{ matrix.environment }}
       phase: destroy
@@ -233,6 +295,8 @@ jobs:
   no-op:
     name: no-op
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: discover
     if: ${{ needs.discover.outputs.count == '0' }}
     steps:

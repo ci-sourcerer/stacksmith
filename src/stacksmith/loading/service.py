@@ -387,6 +387,17 @@ def load_stack_metadata(
     return stack
 
 
+def _normalize_config_paths(path: Path | list[Path]) -> list[Path]:
+    paths = path if isinstance(path, Path) else list(reversed(path))
+    return list(
+        reversed(
+            normalize_path_input(
+                paths, empty_error="At least one config file path must be provided"
+            )
+        )
+    )
+
+
 def load_config(
     path: Path | list[Path], merge_mode: MergeConfig = MergeMode.DEEP
 ) -> ToolConfig:
@@ -404,10 +415,7 @@ def load_config(
     Raises:
         jsonschema.ValidationError: If the file does not match the config schema.
     """
-    config_paths = normalize_path_input(
-        path,
-        empty_error="At least one config file path must be provided",
-    )
+    config_paths = _normalize_config_paths(path)
     data = _merge_config_layers(config_paths, merge_mode=merge_mode)
     return _build_config(data, config_paths)
 
@@ -428,10 +436,7 @@ def load_config_with_locations(
     Raises:
         jsonschema.ValidationError: If the file does not match the config schema.
     """
-    config_paths = normalize_path_input(
-        path,
-        empty_error="At least one config file path must be provided",
-    )
+    config_paths = _normalize_config_paths(path)
     data, locations = _merge_config_layers_with_locations(
         config_paths,
         merge_mode=merge_mode,

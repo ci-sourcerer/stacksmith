@@ -214,12 +214,11 @@ def _effective_ci_backends(
         )
         return [("<unspecified>", backend.type.lower())]
 
-    results = []
-    for stack_path in stack_paths:
-        stack = load_stack_metadata(stack_path)
-        backend = resolve_backend(config, stack, inputs, cache_dir=workdir_path)
-        results.append((stack.name, backend.type.lower()))
-    return results
+    stack = load_stack_metadata(
+        stack_paths, merge_mode=_ci_merge_config(manifest.stacksmith_args, runfile)
+    )
+    backend = resolve_backend(config, stack, inputs, cache_dir=workdir_path)
+    return [(stack.name, backend.type.lower())]
 
 
 def _ci_merge_config(arguments: Sequence[str], runfile: RunFile) -> MergeConfig:

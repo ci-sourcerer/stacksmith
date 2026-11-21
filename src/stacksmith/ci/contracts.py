@@ -227,7 +227,10 @@ def parse_ci_stacksmith_args(value: str) -> list[str]:
             "stacksmith_args_json entries cannot contain NUL bytes"
         )
     if any(
-        argument in {"--config", "-c"} or argument.startswith(("--config=", "-c="))
+        argument.startswith("-c")
+        or argument.startswith("--")
+        and len(argument.partition("=")[0]) > 2
+        and "--config".startswith(argument.partition("=")[0])
         for argument in arguments
     ):
         raise StacksmithConfigError(
