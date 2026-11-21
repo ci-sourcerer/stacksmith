@@ -1558,7 +1558,9 @@ class TestAutoInjectVars:
             tmp_path / "out",
         )
         generated = json.loads(output_path.read_text(encoding="utf-8"))
-        assert generated["module"]["app"]["source"] == str(module_dir)
+        assert generated["module"]["app"]["source"].startswith(
+            f"{module_dir.resolve().as_uri()}?stacksmith_digest="
+        )
         assert generated["module"]["app"]["environment"] == "prod"
 
     def test_required_module_input_sets_preserve_local_package_subdirs(
@@ -1624,14 +1626,10 @@ class TestAutoInjectVars:
             tmp_path / "out",
         )
         generated = json.loads(output_path.read_text(encoding="utf-8"))
-        generated_package_path, separator, generated_module_path = generated["module"][
-            "app"
-        ]["source"].partition("//")
-        generated_package_dir = Path(generated_package_path)
-
-        assert separator == "//"
-        assert generated_module_path == "app"
-        assert (generated_package_dir / "shared" / "child" / "main.tf").is_file()
+        assert generated["module"]["app"]["source"].startswith(
+            f"{package_dir.resolve().as_uri()}//app?stacksmith_digest="
+        )
+        assert (package_dir / "shared" / "child" / "main.tf").is_file()
 
 
 class TestLocalModuleVendoring:

@@ -36,6 +36,7 @@ from ..utils import (
     get_current_git_repository,
 )
 from ..vendor import get_vendor_dir, resolve_module_source
+from .local_modules import version_local_module_sources
 from .operations import (
     build_operation_module_spec,
     resolve_operation_batch,
@@ -767,6 +768,7 @@ def write_tf_json(
         root=root,
         formatter_options=formatter_options,
     )
+    version_local_module_sources(tf_json.get("module", {}))
     _write_operation_runner_assets(output_dir, tf_json)
     output_path = output_dir / GENERATED_TF_JSON
     output_path.write_text(json.dumps(tf_json, indent=2) + "\n", encoding="utf-8")
@@ -809,6 +811,7 @@ def write_operations_tf_json(
         vendor_dir,
         root,
     )
+    version_local_module_sources(tf_json.get("module", {}))
     _write_operation_runner_assets(output_dir, tf_json)
     output_path = output_dir / GENERATED_TF_JSON
     output_path.write_text(json.dumps(tf_json, indent=2) + "\n", encoding="utf-8")
